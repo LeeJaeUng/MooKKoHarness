@@ -3,15 +3,18 @@
 포트·주소(IP, 호스트 이름, URL, host:port)는 코드나 상수에 두지 않고 JSON 설정에서만 읽는다.
 Rust 소스(시험 포함)에서 아래를 찾으면 실패한다. 주석 줄(`//`로 시작)은 보지 않는다.
 시험이 쓰는 주소는 시험용 JSON 파일(tests/fixtures/*.json)에 둔다.
+예외: 주소가 아닌 표준 식별자 URI(예: OIDC 이벤트 이름)는 docs/policy/identifier-uris.json에 정확히 등록된 글자만 뺀다.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+IDENTIFIERS = ROOT / "docs" / "policy" / "identifier-uris.json"
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("IPv4 literal", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
@@ -32,13 +35,23 @@ def rust_files() -> list[Path]:
     return sorted(files)
 
 
+def registered_identifiers() -> list[str]:
+    if not IDENTIFIERS.exists():
+        return []
+    data = json.loads(IDENTIFIERS.read_text(encoding="utf-8"))
+    return [item["uri"] for item in data.get("identifiers", []) if item.get("uri") and item.get("approvedBy")]
+
+
 def main() -> int:
     problems: list[str] = []
     files = rust_files()
+    identifiers = registered_identifiers()
     for path in files:
         for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if line.lstrip().startswith("//"):
                 continue
+            for uri in identifiers:
+                line = line.replace(uri, "")
             for label, pattern in PATTERNS:
                 if pattern.search(line):
                     rel = path.relative_to(ROOT).as_posix()
