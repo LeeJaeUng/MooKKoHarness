@@ -38,10 +38,8 @@ async fn starts_with_fallback_port_when_hub_is_down_and_serves() {
 
     let health = http_get(addr, "/health").await;
     assert!(health.starts_with("HTTP/1.1 200"), "{health}");
-    let ui = http_get(addr, "/api/v1/ui-config").await;
-    assert!(ui.contains("\"appId\":\"rustdev\""), "{ui}");
-    let page = http_get(addr, "/jobs").await;
-    assert!(page.contains("fixture-index"), "{page}");
+    let missing = http_get(addr, "/jobs").await;
+    assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
 
     stop_tx.send(()).unwrap();
     running.await.unwrap().unwrap();

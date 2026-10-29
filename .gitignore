@@ -5,9 +5,6 @@ data/
 # Rust 빌드
 /target/
 
-# 화면 빌드
-web/node_modules/
-web/dist/
 
 # 파이썬 캐시
 __pycache__/

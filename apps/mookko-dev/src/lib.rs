@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use dev_config::{Args, ConfigError, DevConfig, LogFormat};
 use dev_hub::{HubClient, HubError, PortChoice, resolve_port};
-use dev_server::{Notifier, ServerSettings, UiConfig};
+use dev_server::{Notifier, ServerSettings};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -92,14 +92,7 @@ pub async fn bind(config: &DevConfig, arg_port: Option<u16>) -> Result<Bound, Ru
             source,
         })?;
     let notifier = Notifier::new(NOTICE_CAPACITY);
-    let ui = UiConfig {
-        app_id: config.app_id.clone(),
-        display_name: config.display_name.clone(),
-        hub_url: hub.base_url().to_owned(),
-    };
     let settings = ServerSettings {
-        ui,
-        web_dir: config.web_dir.clone(),
         keep_alive: SSE_KEEP_ALIVE,
     };
     let router = dev_server::router(settings, notifier.clone());

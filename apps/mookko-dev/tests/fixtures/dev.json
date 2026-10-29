@@ -1,8 +1,6 @@
 {
   "appId": "rustdev",
-  "displayName": "MooKKo 데브(시험)",
-  "listen": { "host": "127.0.0.1", "fallbackPort": 0 },
-  "hub": { "baseUrl": "http://127.0.0.1:9", "timeoutMs": 500 },
-  "webDir": "web",
-  "telemetry": { "filter": "warn", "format": "text" }
+  "listen": {"host": "127.0.0.1", "fallbackPort": 0},
+  "hub": {"baseUrl": "http://127.0.0.1:9", "timeoutMs": 500},
+  "telemetry": {"filter": "warn", "format": "text"}
 }

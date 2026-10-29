@@ -21,14 +21,10 @@ pub const PORT_ARG: &str = "--port";
 pub struct DevConfig {
     /// 허브 앱 id(포트 조회와 프로그램 선택 상자에 씀).
     pub app_id: String,
-    /// 화면에 보이는 이름.
-    pub display_name: String,
     /// 듣는 주소.
     pub listen: ListenConfig,
     /// 허브.
     pub hub: HubConfig,
-    /// 빌드된 화면(SPA) 폴더. 상대 경로면 설정 파일 기준입니다.
-    pub web_dir: PathBuf,
     /// 로그.
     pub telemetry: TelemetryConfig,
 }
@@ -148,7 +144,7 @@ pub fn parse_json(text: &str, origin: &str) -> Result<DevConfig, ConfigError> {
     })
 }
 
-/// 설정 파일을 읽고, 상대 경로인 `webDir`을 설정 파일 기준으로 바꿉니다.
+/// 설정 파일을 읽습니다.
 pub async fn load(path: &Path) -> Result<DevConfig, ConfigError> {
     let text = tokio::fs::read_to_string(path)
         .await
@@ -156,12 +152,7 @@ pub async fn load(path: &Path) -> Result<DevConfig, ConfigError> {
             path: path.to_owned(),
             source,
         })?;
-    let mut config = parse_json(&text, &path.display().to_string())?;
-    if config.web_dir.is_relative() {
-        let base = path.parent().unwrap_or_else(|| Path::new(""));
-        config.web_dir = base.join(&config.web_dir);
-    }
-    Ok(config)
+    parse_json(&text, &path.display().to_string())
 }
 
 #[cfg(test)]
@@ -189,7 +180,7 @@ mod tests {
     fn config_is_strict() {
         let good = include_str!("../tests/fixtures/dev.json");
         assert_eq!(parse_json(good, "t").unwrap().app_id, "rustdev");
-        let extra = good.replace("\"webDir\"", "\"extra\":1,\"webDir\"");
+        let extra = good.replace("\"telemetry\"", "\"extra\":1,\"telemetry\"");
         assert!(parse_json(&extra, "t").is_err());
     }
 }

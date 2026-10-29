@@ -1,8 +1,6 @@
 {
   "appId": "rustdev",
-  "displayName": "MooKKo 데브",
-  "listen": { "host": "127.0.0.1", "fallbackPort": 5292 },
-  "hub": { "baseUrl": "http://127.0.0.1:5280", "timeoutMs": 2000 },
-  "webDir": "../web/dist",
-  "telemetry": { "filter": "info", "format": "json" }
+  "listen": {"host": "127.0.0.1", "fallbackPort": 5292},
+  "hub": {"baseUrl": "http://127.0.0.1:5280", "timeoutMs": 2000},
+  "telemetry": {"filter": "info", "format": "json"}
 }
