@@ -51,6 +51,7 @@ web/
 - F-SEC-2 API 주소를 코드에 두지 않는다: 같은 출처(same-origin) 상대 경로를 쓰거나 서버가 준 설정을 읽는다. **[lint]** `no-restricted-syntax`(URL 리터럴) **[QA]**
 - F-SEC-3 `dangerouslySetInnerHTML`·`eval`·`new Function` 금지. **[lint]**
 - F-SEC-4 쿠키 세션 + CSRF 토큰(엔진 BFF 규칙), 토큰을 `localStorage`에 두지 않는다. **[QA]**
+- F-SEC-5 MooKKo의 모든 쿠키는 `__Host-` 접두어(Secure, Path=/, `Domain` 속성 없음). `Domain=mookko.com` 같은 상위 도메인 쿠키는 금지 — 같은 사이트의 사용자 콘텐츠 도메인(`links.mookko.com`)이 메인 쿠키를 읽거나 덮어쓰지 못하게(쿠키 던지기 방지). 공개 사용자 콘텐츠 페이지는 쿠키를 두지 않는다. **[QA]** (근거 `docs/spec/links/security.md` §2)
 
 ## 6. 의존성·도구
 
