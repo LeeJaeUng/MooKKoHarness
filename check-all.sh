@@ -5,6 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+# 저장소 어댑터 시험은 실제 PostgreSQL에 붙습니다. 접속 설정(MOOKKO_TEST_POSTGRES)이 없으면
+# Podman으로 시험용 PostgreSQL을 잠깐 띄우고 그 안에서 이 검사를 다시 실행합니다(끝나면 지움).
+if [ -z "${MOOKKO_TEST_POSTGRES:-}" ]; then
+    exec scripts/dev/with-test-postgres.sh scripts/ci/check-all.sh "$@"
+fi
+export MOOKKO_REQUIRE_TEST_POSTGRES=1
+
 run() {
     echo "== $*"
     "$@"
