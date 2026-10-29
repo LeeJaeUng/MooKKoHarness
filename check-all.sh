@@ -22,6 +22,7 @@ run cargo clippy --workspace --all-targets --all-features --locked -- -D warning
 run cargo test --workspace --all-features --locked
 run cargo deny --locked check
 run cargo audit --deny warnings
+run scripts/ci/check-public-api.sh
 run python3 -X utf8 scripts/ci/check-forbid-unsafe.py
 run python3 -X utf8 scripts/ci/check-boundaries.py
 run python3 -X utf8 scripts/ci/check-no-hardcoded-endpoints.py
