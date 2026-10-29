@@ -1,6 +1,6 @@
 # Protobuf 규약
 
-대상: `proto/` 모든 `.proto`. 서비스 사이 통신(gRPC)과 브라우저↔백엔드(gRPC-web), 모바일 앱이 모두 이 계약을 쓴다. 생성: prost·tonic(Rust), Connect-ES(TypeScript). C# 판 `.proto`는 명세 단계에서 바꾸지 않고 옮긴다.
+대상: `proto/` 모든 `.proto`. 서비스 사이 통신(gRPC)과 브라우저↔백엔드(gRPC-web), 모바일 앱이 모두 이 계약을 쓴다. 생성: prost·tonic(Rust), Connect-ES(TypeScript). C# 판 `.proto`는 참고만 하고 이 규약대로 새로 쓴다(C# 판은 나중에 삭제).
 
 ## 1. 호환성 (안정성)
 
