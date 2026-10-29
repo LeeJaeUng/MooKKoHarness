@@ -5,7 +5,7 @@ description: MooKKo Protobuf 규약. proto/ 아래 .proto(서비스 간 gRPC, �
 
 # MooKKo Protobuf 규약 (요약)
 
-정본은 `docs/policy/conventions/proto.md`(규칙 번호 P-*). Rust는 prost·tonic, TypeScript는 Connect-ES로 생성한다. 명세 단계에서는 C# 판 `.proto`를 바꾸지 않고 옮긴다.
+정본은 `docs/policy/conventions/proto.md`(규칙 번호 P-*). Rust는 prost·tonic, TypeScript는 Connect-ES로 생성한다. C# 판 `.proto`는 참고만 하고 이 규약대로 새로 쓴다(C# 판은 나중에 삭제).
 
 - 필드 번호를 바꾸거나 다시 쓰지 않는다. 지운 필드는 `reserved`(번호·이름). 깨지는 변경은 새 버전 패키지(`mookko.<서비스>.v2`)(P-COMPAT-*).
 - 열거형 첫 값은 `<이름>_UNSPECIFIED = 0`.
