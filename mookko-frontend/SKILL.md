@@ -19,6 +19,7 @@ description: MooKKo 프론트엔드 규약(TypeScript·React·Tailwind CSS, web/
 - 재렌더 줄이기: 안정된 `key`, 큰 목록 가상화, 부품 안에 부품 정의 금지, 경로마다 lazy 나누기(F-RE-4·6).
 - 스타일은 Tailwind 유틸리티 + `packages/tokens`만. 하드코딩 색·임의 값·인라인 style 최소, 다른 CSS 프레임워크·CSS-in-JS 금지(F-UI-*).
 - API 주소를 코드에 두지 않는다(같은 출처 상대 경로). 토큰을 `localStorage`에 두지 않는다. `dangerouslySetInnerHTML`·`eval` 금지(F-SEC-*).
+- 쿠키는 모두 `__Host-` 접두어, `Domain` 속성 금지(상위 도메인 쿠키 금지), 공개 사용자 콘텐츠 페이지는 쿠키 없음(F-SEC-5).
 - 사용자 문구는 한국어, 오류는 Problem `code` 기준, 경로마다 오류 경계.
 - pnpm만(`--frozen-lockfile`), npm 레지스트리만, 새 패키지는 필요·대안·라이선스를 커밋 본문에(F-DEP-*).
 - 이름: 부품 `PascalCase.tsx`, 훅 `useX.ts`, 그 밖 `kebab-case.ts`(F-NAME-1).
