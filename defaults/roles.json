@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "note": "MooKKoDev 담당 구성 초안(10-29). 순서: 공용 서버 엔진 → 명세 뽑기 → 언어와 상관없는 인수 시험 → 서비스(4단계에서 서비스 등록으로 추가, 모니터링 먼저). --bootstrap-roles가 없는 담당만 만든다. owns는 MooKKo docs/coordination/owners.json과 맞춘다. QA는 개발 엔진과 다른 엔진.",
+  "roles": [
+    {
+      "id": "pm", "title": "프로젝트 관리자", "kind": "pm", "service": "common", "owner": "조정", "permission": "read", "parent": "user", "code": "",
+      "owns": [], "excludes": [],
+      "canSend": ["spec/lead", "acceptance/lead", "foundation/lead", "integration", "user"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md", "pm.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/coordination/owners.json"]
+    },
+    {
+      "id": "integration", "title": "통합 담당", "kind": "integration", "service": "common", "owner": "통합", "permission": "edit", "parent": "pm", "code": "",
+      "owns": ["AGENTS.md", "README.md", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "deny.toml", "clippy.toml", "rustfmt.toml", ".gitignore", ".gitattributes", ".cargo/", "scripts/", "docs/plan.md", "docs/policy/", "docs/coordination/"],
+      "excludes": [],
+      "canSend": ["pm", "spec/lead", "acceptance/lead", "foundation/lead"],
+      "engine": "codex", "model": "", "effort": "xhigh",
+      "rules": ["00_공통.md", "integration.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/coordination/owners.json"]
+    },
+    {
+      "id": "spec/lead", "title": "명세 담당", "kind": "lead", "service": "spec", "owner": "명세", "permission": "edit", "parent": "pm", "code": "docs/spec/",
+      "owns": ["docs/spec/", "proto/"], "excludes": [],
+      "canSend": ["pm", "spec/qa", "acceptance/lead", "foundation/lead", "integration"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md", "spec.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/spec/README.md"]
+    },
+    {
+      "id": "spec/qa", "title": "명세 QA", "kind": "qa", "service": "spec", "owner": "명세", "permission": "read", "parent": "spec/lead", "code": "docs/spec/",
+      "owns": [], "excludes": [],
+      "canSend": ["spec/lead"],
+      "engine": "codex", "model": "", "effort": "xhigh",
+      "rules": ["00_공통.md", "qa.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/spec/README.md"]
+    },
+    {
+      "id": "acceptance/lead", "title": "인수 시험 담당", "kind": "lead", "service": "acceptance", "owner": "인수 시험", "permission": "edit", "parent": "pm", "code": "acceptance/",
+      "owns": ["acceptance/"], "excludes": [],
+      "canSend": ["pm", "acceptance/qa", "spec/lead", "foundation/lead", "integration"],
+      "engine": "codex", "model": "", "effort": "xhigh",
+      "rules": ["00_공통.md", "acceptance-tests.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "acceptance/README.md"]
+    },
+    {
+      "id": "acceptance/qa", "title": "인수 시험 QA", "kind": "qa", "service": "acceptance", "owner": "인수 시험", "permission": "read", "parent": "acceptance/lead", "code": "acceptance/",
+      "owns": [], "excludes": [],
+      "canSend": ["acceptance/lead"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md", "qa.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "acceptance/README.md"]
+    },
+    {
+      "id": "foundation/lead", "title": "바탕 crate 총괄", "kind": "lead", "service": "foundation", "owner": "바탕", "permission": "edit", "parent": "pm", "code": "crates/",
+      "owns": ["crates/", "docs/architecture/", "Cargo.toml", "Cargo.lock"], "excludes": [],
+      "canSend": ["pm", "foundation/backend", "foundation/qa", "spec/lead", "acceptance/lead", "integration"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md", "foundation.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+    },
+    {
+      "id": "foundation/backend", "title": "바탕 crate 구현", "kind": "backend", "service": "foundation", "owner": "바탕", "permission": "edit", "parent": "foundation/lead", "code": "crates/",
+      "owns": ["crates/", "Cargo.toml", "Cargo.lock"], "excludes": [],
+      "canSend": ["foundation/lead", "foundation/qa"],
+      "engine": "codex", "model": "", "effort": "xhigh",
+      "rules": ["00_공통.md", "foundation.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+    },
+    {
+      "id": "foundation/qa", "title": "바탕 crate QA", "kind": "qa", "service": "foundation", "owner": "바탕", "permission": "read", "parent": "foundation/lead", "code": "crates/",
+      "owns": [], "excludes": [],
+      "canSend": ["foundation/lead", "foundation/backend"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md", "qa.md"],
+      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+    }
+  ]
+}

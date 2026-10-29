@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+review/ export-ignore
+.gitattributes export-ignore
