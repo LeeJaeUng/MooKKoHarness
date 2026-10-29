@@ -1,0 +1,6 @@
+{
+  "fakeHubListen": "127.0.0.1:0",
+  "fakeHubScheme": "http",
+  "unreachableHubBaseUrl": "http://127.0.0.1:9",
+  "timeoutMs": 500
+}

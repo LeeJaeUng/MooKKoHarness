@@ -1,0 +1,21 @@
+[package]
+name = "mookko-dev"
+description = "MooKKoDev 하네스 실행 파일: 설정을 읽고 포트를 정해 서버를 띄움"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+dev-config.workspace = true
+dev-hub.workspace = true
+dev-server.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

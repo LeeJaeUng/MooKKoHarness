@@ -1,0 +1,17 @@
+[package]
+name = "dev-config"
+description = "하네스 설정: JSON 읽기(모르는 칸 거부, 주소·포트 기본값 없음)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
