@@ -22,6 +22,7 @@
 | API 클라이언트는 `.proto`에서 생성 | 화면에서 손으로 쓴 fetch 요청 형식 금지(생성 패키지만) | QA 관문 WEB-01 |
 | 제품은 Linux에서 돎 | 빌드·시험·검사는 Linux에서. Windows 결과는 통과로 세지 않음 | 하네스 CI 실행 위치 |
 | 이름에 Rust를 붙이지 않음 | crate·실행 파일·이미지·설정 id에 `rust` 금지 | `check-stack.py` |
+| 언어별 코딩 규약(Rust·프론트엔드·SQL·Protobuf·도구) | 규약 정본 `docs/policy/conventions/`와 언어별 AI 스킬. 규칙마다 막는 수단을 적음. lint를 주석으로 끄는 것은 예외 등록부(만료일)에 없으면 실패 | clippy·eslint·tsc 설정, `check-lint-escapes.py`, QA CONV-01 |
 | 메모리 안전·오류 처리 | `#![forbid(unsafe_code)]`, unwrap·expect·panic 금지, clippy -D warnings | `check-forbid-unsafe.py`, clippy |
 | 의존성 | cargo-deny·cargo-audit, pnpm audit·라이선스·출처, lock 고정 | deny·audit, WEB-01 |
 | 담당 경로 | 그 턴이 만든 커밋이 담당 `owns` 밖을 건드리면 실패 | 하네스 경계 판정(`owners.json`) |
