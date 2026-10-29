@@ -18,6 +18,7 @@ description: MooKKo Rust 코딩 규약. crates/ 아래 Rust 코드를 쓰거나 
 - 속도: 공유 상태는 키별로 나눠 소유 작업 하나가 처리(잠금 대신), 빌리기·`Arc::clone`·`Bytes`, 쓸데없는 `clone`·`collect` 금지, 경계만 `dyn` 안쪽은 제네릭, 모아서 한 번에(R-PERF-*).
 - 모듈: 공개 항목은 `///` 문서, 기본 비공개, 도메인 값은 newtype, 함수 80줄 이하, `use x::*` 금지(R-MOD-*).
 - 로그는 `tracing`만, `println!` 금지, 비밀값 가리기(R-OBS-1).
+- Call-Tree: 주요 업무 함수에 `#[tracing::instrument(skip_all, fields(...))]`, 개인정보·비밀값은 필드에 넣지 않음. HTTP·gRPC·DB 구간은 엔진이 자동 계측(R-OBS-2).
 - 오류는 `thiserror` 열거형, 바깥 응답은 `EngineFault`/Problem(R-SAFE-5).
 - 이름은 Rust API Guidelines, crate는 `mookko-*`(rust 금지).
 
