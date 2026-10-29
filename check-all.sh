@@ -26,4 +26,6 @@ run scripts/ci/check-public-api.sh
 run python3 -X utf8 scripts/ci/check-forbid-unsafe.py
 run python3 -X utf8 scripts/ci/check-boundaries.py
 run python3 -X utf8 scripts/ci/check-no-hardcoded-endpoints.py
+run python3 -X utf8 scripts/ci/check-stack.py
+run python3 -X utf8 scripts/ci/check-lint-escapes.py
 echo "== all checks passed"
