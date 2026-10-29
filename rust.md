@@ -46,6 +46,7 @@
 - R-CFG-1 포트·주소·URL은 코드·상수에 두지 않고 JSON 설정에서만. 시험은 fixtures JSON. **[검사]** `check-no-hardcoded-endpoints.py`
 - R-CFG-2 설정 타입은 `deny_unknown_fields`, 주소·포트에 기본값 없음. **[QA]**
 - R-OBS-1 로그는 `tracing`만(구조화 필드, 요청 ID). `println!`·`print!` 금지. 비밀값·개인정보는 로그 전에 가린다. **[lint]** `print_stdout` **[QA]**
+- R-OBS-2 Call-Tree를 위해 서비스의 주요 업무 함수(공개 서비스 메서드, 원장·외부 호출을 하는 함수)에 `#[tracing::instrument]`를 붙인다. 인자는 기본으로 기록하지 않고(`skip_all`) 필요한 식별자만 `fields(...)`로, 개인정보·비밀값은 절대 넣지 않는다. HTTP·gRPC·DB·캐시·외부 호출 구간은 엔진이 자동으로 남기므로 직접 만들지 않는다. **[QA]** (`docs/spec/observability/README.md` §6)
 
 ## 6. 시험
 
