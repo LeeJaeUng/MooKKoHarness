@@ -1,5 +1,5 @@
 {
-  "_doc": "DB 규약 기한 있는 예외 등록부(sql.md S-BND-7). 지금은 서비스 코드의 DDL(이관 밖)만 받음. 칸: id, paths(저장소 기준 파일), rule, reason, adr(결정 근거 문서 — 저장소 기준 경로 [§절], 그리고 승인), condition(끝내는 조건), expires(YYYY-MM-DD, 이 날이 지나면 check-db 실패), approvedBy. gates.md waived 조건(근거 문서 + 만료일)에 맞춤. DB 담당만 고침. 엔진 생성 고정 이관 파일은 engine-generated.json, 규약 전 파일 유예는 pending.json.",
+  "_doc": "DB 규약 기한 있는 예외 등록부(sql.md S-BND-7). 지금은 서비스·실행 파일 코드의 DDL(이관 밖)만 받음. 칸: id, paths(저장소 기준 파일), rule, reason, adr(결정 근거 문서 — 저장소 기준 경로 [§절], 그리고 승인), condition(끝내는 조건), expires(YYYY-MM-DD, 이 날이 지나면 check-db 실패), approvedBy. gates.md waived 조건(근거 문서 + 만료일)에 맞춤. DB 담당만 고침. 엔진 생성 고정 이관 파일은 engine-generated.json, 규약 전 파일 유예는 pending.json.",
   "exceptions": [
     {
       "id": "links-partition-maintain",
@@ -10,6 +10,18 @@
       "reason": "엔진 파티션 유지보수 작업(E-DB-5)이 오기 전까지 `mookko-links maintain`이 이관 계정(links_migrate, SET LOCAL ROLE links_owner)으로 통계·클릭 달 파티션 만들기(CREATE TABLE … PARTITION OF), 보관 기한 지난 파티션 떼기(DETACH PARTITION … CONCURRENTLY)·지우기(DROP TABLE)를 함(docs/spec/links/data-model.md §4). 앱 계정(links_app)은 DDL을 하지 않음",
       "adr": "docs/spec/links/data-model.md §4, 통합 담당 승인 2026-10-30(MooKKoRustDev)",
       "condition": "엔진 E-DB-5가 통합된 뒤 다음 links 단위에서 `links_maint` + 파티션 함수(`ensure_partitions`·`detach_partitions_before`)로 옮기고 이 항목을 지움",
+      "expires": "2026-11-30",
+      "approvedBy": "통합 담당(MooKKoRustDev) 2026-10-30"
+    },
+    {
+      "id": "operations-partition-maintain",
+      "paths": [
+        "crates/apps/mookko-operations/src/migrate.rs"
+      ],
+      "rule": "S-BND-7, S-PART-3",
+      "reason": "엔진 파티션 유지보수 작업(E-DB-5)이 오기 전까지 이관 단계(`mookko-operations migrate`) 끝과 하루 한 번 `mookko-operations maintain`이 이관 계정(operations_migrate, 주인 역할 operations_owner)으로 `ensure_audit_partitions`를 돌려 audit_events·audit_reasons 달 파티션(CREATE TABLE IF NOT EXISTS … PARTITION OF)을 미리 만듦(crates/services/operations/docs/data-model.md §3 audit_events). 앱 계정(operations_app)은 DDL을 하지 않음",
+      "adr": "crates/services/operations/docs/data-model.md §3, 통합 담당 승인 2026-10-30(MooKKoRustDev, links와 같은 조건)",
+      "condition": "엔진 E-DB-5가 통합된 뒤 다음 운영툴 단위에서 `operations_maint` + 파티션 함수(`ensure_partitions`·`detach_partitions_before`)로 옮기고 이 항목을 지움",
       "expires": "2026-11-30",
       "approvedBy": "통합 담당(MooKKoRustDev) 2026-10-30"
     }

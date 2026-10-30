@@ -5,3 +5,7 @@
 const LEDGER_TABLE: &str = "ledger_entries";
 
 // migrator: SchemaMigrator::new(schema).add_dir(dir).await?.append_only(&SqlName::parse(LEDGER_TABLE)?)
+
+// 통과해야 할 글(SQL 문장이 아님): 감사 동작 이름·식별자·낱말 하나·설명 글.
+const ACTIONS: &[&str] = &["handle.revoke", "revoke_handle", "grant", "truncate", "drop", "staff.grant_role"];
+const MESSAGE: &str = "cannot revoke the last admin; ask another admin to grant access";

@@ -137,10 +137,17 @@ class ServiceDdl(unittest.TestCase):
 
     def test_ddl_string_is_caught(self) -> None:
         found = migration_lint.lint_service_ddl(self.ROOT, {"exceptions": []})
-        self.assertEqual([(f.path, f.line) for f in found], [(self.PATH, 2)])
+        self.assertEqual(
+            sorted((f.path, f.line) for f in found),
+            sorted([(self.PATH, 2), (self.PATH, 4), (self.PATH, 5), ("crates/apps/mookko-svc/src/main.rs", 2)]),
+        )
+
+    def test_action_names_and_identifiers_are_not_ddl(self) -> None:
+        # links 오탐(2026-10-30): "handle.revoke"를 REVOKE 문장으로 봄. 문장 머리의 SQL만 잡아야 함.
+        self.assertEqual(migration_lint.lint_service_ddl(FIXTURES / "repo-good", {"exceptions": []}), [])
 
     def test_registered_exception_passes_until_expiry(self) -> None:
-        self.assertEqual(migration_lint.lint_service_ddl(self.ROOT, self.entry()), [])
+        self.assertEqual([f.path for f in migration_lint.lint_service_ddl(self.ROOT, self.entry())], ["crates/apps/mookko-svc/src/main.rs"])
         expired = migration_lint.lint_service_ddl(self.ROOT, self.entry(expires="2000-01-01"))
         self.assertTrue(any("기한" in f.message for f in expired) and any(f.path == self.PATH for f in expired))
         self.assertTrue(any("칸이 없음" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(approvedBy=""))))

@@ -864,9 +864,15 @@ def lint_embedded(root: Path, registry: dict | None = None) -> list[Finding]:
 
 
 EXCEPTIONS = Path(__file__).resolve().parent / "exceptions.json"
+# SQL 문장 머리(문자열 처음이나 `;` 뒤)에 오는 DDL·권한 문장만 본다. 감사 동작 이름(`handle.revoke`)·식별자(`revoke_handle`)·
+# 낱말 하나(`"grant"`)는 문장이 아니므로 잡지 않는다(links 오탐 2026-10-30). ATTACH·DETACH PARTITION은 ALTER TABLE 문장 안에 있음.
 SERVICE_DDL = re.compile(
-    r"\b(CREATE|ALTER|DROP)\s+(TABLE|INDEX|SCHEMA|FUNCTION|PROCEDURE|TRIGGER|VIEW|ROLE|TYPE|EXTENSION)\b|\bTRUNCATE\b|\bGRANT\b|\bREVOKE\b|"
-    r"\b(ATTACH|DETACH)\s+PARTITION\b",
+    r"(?:^|;)\s*(?:"
+    r"(?:CREATE|ALTER|DROP)\s+(?:OR\s+REPLACE\s+|UNIQUE\s+|UNLOGGED\s+|TEMP(?:ORARY)?\s+|MATERIALIZED\s+)*"
+    r"(?:TABLE|INDEX|SCHEMA|FUNCTION|PROCEDURE|TRIGGER|VIEW|ROLE|TYPE|EXTENSION|SEQUENCE|POLICY|DATABASE)\b"
+    r"|TRUNCATE\s+(?:TABLE\s+)?[A-Za-z_\"{]"
+    r"|(?:GRANT|REVOKE)\s+[A-Za-z_, ]+?\s+(?:ON|TO|FROM)\s"
+    r")",
     re.I,
 )
 
@@ -892,13 +898,14 @@ def exception_paths(registry: dict, today: datetime.date | None = None, root: Pa
 
 
 def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
-    """서비스 crate(`crates/services/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7). DDL은 이관 파일과 엔진 유지보수 작업만 —
-    서비스 실행 경로가 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를 모두 비켜 간다. 기한 있는 예외는 exceptions.json."""
+    """서비스·실행 파일 crate(`crates/services/*/src`, `crates/apps/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7).
+    DDL은 이관 파일과 엔진 유지보수 작업(엔진 crate)만 — 서비스나 실행 파일이 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를
+    모두 비켜 간다(운영툴이 파티션 DDL을 apps로 옮긴 일, QA 6b7fdfe). 기한 있는 예외는 exceptions.json."""
     allowed, findings = exception_paths(registry, root=root)
-    services = root / "crates" / "services"
-    for path in walk(services, lambda name: name.endswith(".rs")):
-        if "src" not in path.relative_to(services).parts:
-            continue
+    sources: list[Path] = []
+    for base in (root / "crates" / "services", root / "crates" / "apps"):
+        sources += [p for p in walk(base, lambda name: name.endswith(".rs")) if "src" in p.relative_to(base).parts]
+    for path in sources:
         rel = path.relative_to(root).as_posix()
         if rel in allowed:
             continue
