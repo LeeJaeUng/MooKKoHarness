@@ -9,16 +9,17 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 
 ## 이관 파일을 쓸 때
 
-- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 출시된 서비스(`scripts/ci/db/migration-lock.json`에 잠김)의 이관은 고치지 않는다. 출시 전 예외(이미 커밋한 이관 다시 쓰기)는 **사용자 결정 대기**이고, 쓰려면 sql.md S-MIG-1의 조건 넷(개발·시험 DB뿐, 설계서 함께, 커밋 본문 `출시 전 이관 다시 씀: <파일>`과 이유 — 검사가 봄, 위에 쌓은 것 없음)을 모두 지킨다. 될 수 있으면 새 이관 파일을 더한다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 단계(`mookko-app migrate`, 이관 계정 `<서비스>_migrate`)에서만 돌고, 객체 주인은 `<서비스>_owner`(이관기가 `SET LOCAL ROLE`)다. 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다(S-BND-2).
+- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 출시된 서비스(`scripts/ci/db/migration-lock.json`에 잠김)의 이관은 고치지 않는다. 이미 커밋한 이관은 출시 전이라도 지금은 다시 쓸 수 없다(검사가 실패, 출시 전 예외는 사용자 결정 대기) — 새 이관 파일을 더한다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 단계(`mookko-app migrate`, 이관 계정 `<서비스>_migrate`)에서만 돌고, 객체 주인은 `<서비스>_owner`(이관기가 `SET LOCAL ROLE`)다. 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다(S-BND-2).
 - 머리: `-- mookko:phase expand|migrate|contract`(필수). `CONCURRENTLY` 색인 이관은 **비어 있지 않은 첫 줄을 `-- mookko:transaction off`**로 하고(엔진이 그 줄만 봄, phase는 다음 줄), 문장은 `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <이름> ON __SCHEMA__.<표>` 하나만(S-MIG-4·6). 스키마가 경로(`crates/services/<서비스>/`)로 정해지지 않으면 `-- mookko:schema <이름>`.
 - 기존 테이블을 바꾸면 맨 앞 `SET LOCAL lock_timeout = '3s';`(S-MIG-5).
 - 기존 테이블에 금지(S-MIG-2): 일반 `CREATE/DROP INDEX`·`REINDEX`(→ `CONCURRENTLY`), 휘발 기본값·`STORED`·`serial` 열 추가, 상수 기본값 없는 `NOT NULL` 열 추가, `ALTER COLUMN TYPE`, 검사 제약 확인 없는 `SET NOT NULL`, `NOT VALID` 없는 외래 키·검사 제약, `USING INDEX` 없는 PK·UNIQUE 추가, 열 추가와 `UNIQUE`·`PRIMARY KEY`·`CHECK`·`REFERENCES`를 한 문장에, `TRUNCATE`·`VACUUM FULL`·`CLUSTER`·`LOCK TABLE`, `CONCURRENTLY` 없는 `DETACH PARTITION`, `UPDATE`·`DELETE`(→ 배경 이관 작업). 큰 테이블 변경은 잠금 시간·데이터 양을 설계서에.
 - 이름 바꾸기 금지 — 테이블·열·보기·함수·**색인·제약** 모두(코드가 제약 이름으로 오류를 가름), `DROP COLUMN/TABLE`은 `contract` 파일에서만, `contract`에 `CREATE TABLE`·`ADD COLUMN`을 섞지 않음(S-MIG-4). 신구 판이 함께 돌므로 배포를 나눈다.
-- `DO` 블록, `CREATE OR REPLACE FUNCTION|PROCEDURE|TRIGGER` 금지 — 함수는 새 이름으로 만들고 옮긴다(S-MIG-9).
+- `DO` 블록, `CREATE OR REPLACE FUNCTION|PROCEDURE|TRIGGER`, 이관 최상위 `SELECT`·`CALL`·`WITH` 금지 — 함수는 새 이름으로 만들고 옮긴다(S-MIG-9).
+- 이관을 `include_str!`로 넣으면 ID = 파일 이름, 폴더 파일은 모두 목록에, transaction off 파일은 `.add()`로 넣지 않음(S-MIG-10). 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정하고, 막기 트리거를 끄거나 REPLICA·ALWAYS로 바꾸지 않음(S-MONEY-2).
 - 모든 테이블에 기본 키, 새 ID는 UUIDv7(S-MIG-3). 파티션 표의 기본 키·UNIQUE에는 파티션 열을 넣고(S-PART-1), 기본(`DEFAULT`) 파티션은 두지 않는다(S-PART-2).
 - 형식: `timestamptz`(맨 `timestamp` 금지), `text` + `CHECK`(`varchar` 금지, 통화 `char(3)`만), `jsonb`, enum 금지 → `text` + `CHECK IN`, `serial` 금지 → identity·UUIDv7, 이름 63바이트 이하 snake_case(S-TYPE-*).
 - 돈: `bigint` 최소 단위 + `char(3)` 통화, `numeric`·실수·`money` 금지(S-MONEY-1). `ledger`·`journal`·`audit` 테이블은 같은 파일에 `BEFORE UPDATE OR DELETE`·`BEFORE TRUNCATE` 막기 트리거, 앱 계정엔 `INSERT`·`SELECT`만, 멱등 키는 `UNIQUE`(파티션 표면 파티션 열과 함께), 분할 키(`user_id`·계좌·가맹점)를 처음부터 열로(S-MONEY-2). 사슬·구간 머리(`…_head(s)`, 분할 키당 한 행)는 지금 상태 표라 제외. 돈 판단은 주 DB에서 직렬화 또는 명시 잠금, 두 분할 키에 걸치면 outbox + 멱등(2PC 금지)(S-MONEY-3).
-- 경계: 자기 스키마·`pg_catalog`만, `dblink`·`fdw` 금지, `CREATE ROLE/EXTENSION/DATABASE`·`ALTER SYSTEM` 금지, `GRANT`는 자기 서비스 계정에게만(`PUBLIC`·`ALL` 금지), `SECURITY DEFINER`엔 `SET search_path`, 스키마·DB `CREATE` 권한을 주지 않음(S-BND-*). DB 안 암호화(`pgcrypto`) 금지(S-SEC-7).
+- 경계: 자기 스키마·`pg_catalog`만, `dblink`·`fdw` 금지, `CREATE ROLE/EXTENSION/DATABASE`·`ALTER SYSTEM` 금지, `GRANT`는 자기 서비스 계정(`<서비스>_owner`·`_migrate`·`_app`·`_ro`·`_recon`·`_maint`·`_audit_reader`)에게만(`PUBLIC`·`ALL` 금지), `SECURITY DEFINER`엔 `SET search_path`, 스키마·DB `CREATE` 권한을 주지 않음(S-BND-*). DB 안 암호화(`pgcrypto`) 금지(S-SEC-7).
 
 ## 이름 (S-NAME-1)
 
