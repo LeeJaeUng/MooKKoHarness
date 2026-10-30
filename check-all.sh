@@ -7,11 +7,11 @@ cd "$(dirname "$0")/../.."
 
 # 로그인 셸이 아니면 rustup이 PATH에 cargo를 넣지 않습니다(WSL에서 bash -c로 부를 때).
 if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
-    # shellcheck disable=SC1091
     . "$HOME/.cargo/env"
 fi
 
-# 남은 공간이 기준 아래거나 빌드 캐시가 상한을 넘으면 빌드를 시작하지 않습니다(2026-10-30 C 드라이브 0 사고 뒤).
+# 빌드 캐시가 한도를 넘거나 공간이 모자라면 24시간 넘게 안 쓴 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
+# (2026-10-30 C 드라이브 0 사고 뒤, scripts/dev/disk-guard.py).
 if [ -z "${MOOKKO_DISK_GUARD_DONE:-}" ]; then
     python3 -X utf8 scripts/dev/disk-guard.py
     export MOOKKO_DISK_GUARD_DONE=1

@@ -48,7 +48,12 @@ def registered_identifiers(problems: list[str]) -> list[str]:
         if missing:
             problems.append(f"identifier-uris.json: entry {item.get('uri')} is missing {missing}")
             continue
-        if datetime.date.fromisoformat(item["expires"]) < today:
+        try:
+            expires = datetime.date.fromisoformat(item["expires"])
+        except ValueError:
+            problems.append(f"identifier-uris.json: {item['uri']} expires is not YYYY-MM-DD: {item['expires']}")
+            continue
+        if expires < today:
             problems.append(f"identifier-uris.json: {item['uri']} expired on {item['expires']}")
             continue
         uris.append(item["uri"])
