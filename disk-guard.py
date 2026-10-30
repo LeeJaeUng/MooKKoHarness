@@ -178,9 +178,16 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
     keep = f"{cache_cfg['minIdleHours']}시간 안에 썼거나 지울 것만으로 모자라 지우지 않음, 사용자 결정 필요"
     if total > cache_cfg["maxTotalGiB"] * GIB:
         problems.append(f"{cache_cfg['dir']}: 빌드 캐시 합계 {total / GIB:.1f}GiB > 한도 {cache_cfg['maxTotalGiB']}GiB ({keep}; {top})")
+    # 한 폴더 한도는 그 캐시를 쓰는 빌드만 막는다(남의 큰 캐시가 모든 세션을 막지 않게). 다른 세션에는 알림만.
+    current = os.environ.get("CARGO_TARGET_DIR")
+    current_path = Path(current).resolve() if current else None
     for c in found:
         if c.size > cache_cfg["maxPerDirGiB"] * GIB:
-            problems.append(f"{c.path}: 캐시 {c.size / GIB:.1f}GiB > 폴더 한도 {cache_cfg['maxPerDirGiB']}GiB ({keep})")
+            line = f"{c.path}: 캐시 {c.size / GIB:.1f}GiB > 폴더 한도 {cache_cfg['maxPerDirGiB']}GiB ({keep})"
+            if current_path is not None and c.path.resolve() == current_path:
+                problems.append(line)
+            else:
+                notes.append(line)
     return problems, notes
 
 
