@@ -648,6 +648,51 @@ def engine_fixed_status(rel: str, text: str, registry: dict, today: datetime.dat
     return False, None
 
 
+def engine_fixed_tests(root: Path, registry: dict) -> list[Finding]:
+    """등록된 고정 파일마다 "파일 글 = 엔진 함수 출력(`__SCHEMA__` 바꾼 뒤)"을 비교하는 Rust 시험이 있어야 한다(S-MIG-11).
+    `test` 칸은 `<저장소 기준 .rs 경로>::<시험 함수 이름>`이고, 그 파일에 함수와 고정 파일 이름이 있어야 한다.
+    엔진 도우미(E-DB-14: 이관기가 직접 비교)가 들어오면 그것으로 바꾼다."""
+    findings: list[Finding] = []
+    for entry in registry.get("files", []):
+        where = entry.get("path", "scripts/ci/db/engine-generated.json")
+        test = entry.get("test", "")
+        if "::" not in test:
+            findings.append(Finding(where, 1, "S-MIG-11", "engine-generated.json 항목에 `test`(<파일>::<시험 함수>) 칸이 없음 — 파일 = 엔진 출력 비교 시험"))
+            continue
+        file, name = test.rsplit("::", 1)
+        source = root / file
+        text = source.read_text(encoding="utf-8") if source.is_file() else ""
+        if not re.search(rf"\bfn\s+{re.escape(name)}\s*\(", text) or Path(where).name not in text:
+            findings.append(Finding(where, 1, "S-MIG-11", f"비교 시험 `{test}`이 없거나 고정 파일 `{Path(where).name}`을 읽지 않음"))
+    return findings
+
+
+def code_id_to_file_findings(root: Path, since: str) -> list[tuple[str, str]] | None:
+    """`since` 뒤 커밋이 새로 더한(A) 이관 파일의 ID를, 그 바로 앞 커밋의 서비스 코드가 이미 글자로 쓰고 있었으면(코드로 적용하던 이관)
+    — 파일 내용이 엔진 출력과 같아야 하므로 — 엔진 생성 고정 파일로 등록돼 있고 그 커밋의 내용이 등록 SHA와 같아야 한다(S-MIG-11).
+    git을 못 읽으면 None."""
+    commits = migration_lock.history_commits(root, since)
+    if commits is None:
+        return None
+    registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
+    registered = {e.get("path"): e.get("sha256") for e in registry.get("files", [])}
+    problems: list[tuple[str, str]] = []
+    for sha, _, changes in commits:
+        for status, path in changes:
+            parts = path.split("/")
+            if status[:1] != "A" or len(parts) < 5 or parts[:2] != ["crates", "services"] or parts[3] != "migrations":
+                continue
+            ident = parts[-1].removesuffix(".sql")
+            src = "/".join(parts[:3] + ["src"])
+            used = migration_lock.git(root, "grep", "-l", "-F", f'"{ident}"', f"{sha}^", "--", src)
+            if not used:
+                continue
+            content = migration_lock.git(root, "show", f"{sha}:{path}") or ""
+            if registered.get(path) != text_sha(content):
+                problems.append((path, f"커밋 {sha[:10]}이 코드로 적용하던 이관 ID `{ident}`를 새 파일로 바꿈 — 엔진 출력 그대로 두고 engine-generated.json에 등록(S-MIG-11)"))
+    return problems
+
+
 def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list[str]]:
     """이관 글이 만드는 테이블과 열(파티션 자식은 부모 열을 받으므로 뺌). 설계서 대조(data_classes.py)가 씀."""
     lint = FileLint("", sqltext.split(sql), dialect, schema, first_nonempty_line(sql))
@@ -826,14 +871,18 @@ SERVICE_DDL = re.compile(
 )
 
 
-def exception_paths(registry: dict, today: datetime.date | None = None) -> tuple[set[str], list[Finding]]:
-    """기한 안의 예외 파일과, 등록부 문제(칸 빠짐·기한 지남)."""
+def exception_paths(registry: dict, today: datetime.date | None = None, root: Path | None = None) -> tuple[set[str], list[Finding]]:
+    """기한 안의 예외 파일과, 등록부 문제(칸 빠짐·근거 문서 없음·기한 지남). gates.md waived(근거 문서 + 만료일)."""
     paths: set[str] = set()
     problems: list[Finding] = []
     for item in registry.get("exceptions", []):
-        missing = [k for k in ("id", "paths", "rule", "reason", "condition", "expires", "approvedBy") if not item.get(k)]
+        missing = [k for k in ("id", "paths", "rule", "reason", "adr", "condition", "expires", "approvedBy") if not item.get(k)]
         if missing:
             problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item.get('id')}에 {missing} 칸이 없음"))
+            continue
+        document = item["adr"].split()[0].rstrip(",")
+        if root is not None and not (root / document).is_file():
+            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']}의 근거 문서 `{document}`가 없음"))
             continue
         if datetime.date.fromisoformat(item["expires"]) < (today or datetime.date.today()):
             problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']} 기한({item['expires']})이 지남 — 조건: {item['condition']}"))
@@ -845,7 +894,7 @@ def exception_paths(registry: dict, today: datetime.date | None = None) -> tuple
 def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
     """서비스 crate(`crates/services/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7). DDL은 이관 파일과 엔진 유지보수 작업만 —
     서비스 실행 경로가 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를 모두 비켜 간다. 기한 있는 예외는 exceptions.json."""
-    allowed, findings = exception_paths(registry)
+    allowed, findings = exception_paths(registry, root=root)
     services = root / "crates" / "services"
     for path in walk(services, lambda name: name.endswith(".rs")):
         if "src" not in path.relative_to(services).parts:
@@ -933,6 +982,9 @@ def history_findings(root: Path, locks: dict, lock_file: Path) -> list[tuple[str
         e["path"] for e in registry.get("files", [])
         if (root / e.get("path", "")).is_file() and engine_fixed_status(e["path"], (root / e["path"]).read_text(encoding="utf-8"), registry)[0]
     )
+    code_since = locks.get("codeIdCheckSince")
+    if code_since:
+        problems += code_id_to_file_findings(root, code_since) or []
     return problems + migration_lock.shrink_findings(versions) + migration_lock.rewrite_findings(commits, launched, allowed, exempt)
 
 
@@ -942,6 +994,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pending", type=Path, default=pending.LIST, help="기한부 유예 목록(시험용)")
     parser.add_argument("--lock-file", type=Path, default=migration_lock.LIST, help="이관 잠금 목록(시험용)")
     parser.add_argument("--exceptions", type=Path, default=EXCEPTIONS, help="기한 있는 예외 등록부(시험용)")
+    parser.add_argument("--engine-generated", type=Path, default=ENGINE_GENERATED, help="엔진 생성 고정 파일 등록부(시험용)")
     parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
     parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
     parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")
@@ -973,6 +1026,7 @@ def main(argv: list[str] | None = None) -> int:
     rust_findings, rust_files = lint_rust(root)
     rust_findings += lint_embedded(root)
     rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
+    rust_findings += engine_fixed_tests(root, json.loads(args.engine_generated.read_text(encoding="utf-8")))
     findings += rust_findings
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path))]
     waived = [f for f in findings if f not in failing]

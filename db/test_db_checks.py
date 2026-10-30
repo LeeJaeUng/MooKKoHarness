@@ -30,6 +30,8 @@ import pending  # noqa: E402
 FIXTURES = HERE / "fixtures"
 EMPTY_PENDING = FIXTURES / "pending-empty.json"
 EMPTY_LOCK = FIXTURES / "lock-empty.json"
+EMPTY_EXCEPTIONS = FIXTURES / "exceptions-empty.json"
+EMPTY_ENGINE = FIXTURES / "engine-generated-empty.json"
 
 
 def expected(text: str, pattern: str) -> set[str]:
@@ -59,7 +61,7 @@ class MigrationLintSamples(unittest.TestCase):
                 self.assertEqual(got, expected(text, r"-- expect: (.*)"))
 
     def test_good_repo_passes(self) -> None:
-        code, out = quiet(migration_lint.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK)])
+        code, out = quiet(migration_lint.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK), "--exceptions", str(EMPTY_EXCEPTIONS), "--engine-generated", str(EMPTY_ENGINE)])
         self.assertEqual(code, 0, out)
 
     def test_bad_repo_names_numbers_rust(self) -> None:
@@ -69,7 +71,7 @@ class MigrationLintSamples(unittest.TestCase):
         self.assertTrue(any("기대 0002" in f.message for f in findings))
         rust, _ = migration_lint.lint_rust(root)
         self.assertEqual(sorted(f.line for f in rust), [4, 5])
-        code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK)])
+        code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK), "--exceptions", str(EMPTY_EXCEPTIONS), "--engine-generated", str(EMPTY_ENGINE)])
         self.assertEqual(code, 1)
 
 
@@ -128,7 +130,8 @@ class ServiceDdl(unittest.TestCase):
     PATH = "crates/services/svc/src/ddl.rs"
 
     def entry(self, **change: str) -> dict:
-        item = {"id": "t", "paths": [self.PATH], "rule": "S-BND-7", "reason": "시험", "condition": "시험", "expires": "2099-01-01", "approvedBy": "통합 담당"}
+        item = {"id": "t", "paths": [self.PATH], "rule": "S-BND-7", "reason": "시험", "adr": f"{self.PATH} 시험",
+                "condition": "시험", "expires": "2099-01-01", "approvedBy": "통합 담당"}
         item.update(change)
         return {"exceptions": [item]}
 
@@ -141,11 +144,36 @@ class ServiceDdl(unittest.TestCase):
         expired = migration_lint.lint_service_ddl(self.ROOT, self.entry(expires="2000-01-01"))
         self.assertTrue(any("기한" in f.message for f in expired) and any(f.path == self.PATH for f in expired))
         self.assertTrue(any("칸이 없음" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(approvedBy=""))))
+        self.assertTrue(any("칸이 없음" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(adr=""))))
+        self.assertTrue(any("근거 문서" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(adr="docs/없는-문서.md §1"))))
 
     def test_repository_registry_is_valid(self) -> None:
         registry = json.loads(migration_lint.EXCEPTIONS.read_text(encoding="utf-8"))
         _, problems = migration_lint.exception_paths(registry, today=None)
         self.assertEqual([p for p in problems if "칸이 없음" in p.message], [])
+
+
+class EngineFixedEvidence(unittest.TestCase):
+    """S-MIG-11 보강: 등록 파일마다 비교 시험이 있어야 하고, 코드로 적용하던 이관 ID를 새 파일로 바꾼 커밋은 등록·SHA가 맞아야 한다."""
+
+    REPO = HERE.parents[2]
+
+    def test_repository_registry_has_comparison_tests(self) -> None:
+        registry = json.loads(migration_lint.ENGINE_GENERATED.read_text(encoding="utf-8"))
+        self.assertEqual(migration_lint.engine_fixed_tests(self.REPO, registry), [])
+        broken = {"files": [dict(registry["files"][0], test=registry["files"][0]["test"] + "_missing")]}
+        self.assertTrue(migration_lint.engine_fixed_tests(self.REPO, broken))
+        self.assertTrue(migration_lint.engine_fixed_tests(self.REPO, {"files": [dict(registry["files"][0], test="")]}))
+
+    def test_code_id_to_file_change_in_history(self) -> None:
+        since = migration_lock.load()["codeIdCheckSince"]
+        now = migration_lint.code_id_to_file_findings(self.REPO, since)
+        if now is None:
+            self.skipTest("git 기록을 읽을 수 없음(WSL에서 Windows worktree) — 건너뜀(통과 아님)")
+        self.assertEqual(now, [])
+        # 기준 전 기록: 6a749ed가 코드로 적용하던 0003_audit_entries를 다른 내용 파일로 바꿈(QA 10차) — 새 검사가 잡아야 함.
+        old = migration_lint.code_id_to_file_findings(self.REPO, migration_lock.load()["historyCheckedSince"]) or []
+        self.assertTrue(any(p.endswith("0003_audit_entries.sql") and "6a749ed" in m for p, m in old), old)
 
 
 class EmbeddedMigrations(unittest.TestCase):
