@@ -13,35 +13,36 @@
 ## 1. 경계·권한
 
 - S-BND-1 서비스마다 자기 DB·같은 이름 스키마·자기 계정. 다른 서비스 테이블을 읽거나 쓰지 않는다(연결은 gRPC). 이관 SQL의 스키마 이름은 자기 스키마·`pg_catalog`만. **[lint]** **[QA]**
-- S-BND-2 계정은 `<서비스>_migrate`(스키마·객체 주인, DDL, 이관 때만)·`_app`(테이블마다 필요한 DML만)·`_ro`(읽기만)·`_recon`(대사 보기만)·`_maint`(파티션 함수만). 이관은 이관 계정으로만(실행 파일이 앱 계정으로 이관하지 않음). 앱 계정에 DDL(스키마 `CREATE`)·`TRUNCATE`·`TRIGGER`·`REFERENCES` 없음, 덧붙이기만 하는 테이블에 `UPDATE`·`DELETE` 없음. 설계서에 계정 표를 둔다. **[검사]** `migration_apply.py`(앱 계정 권한 확인) **[QA]**(이관 단계 분리)
+- S-BND-2 계정은 `<서비스>_owner`(로그인 없음, 스키마·객체 주인)·`_migrate`(주인의 구성원, 이관 때만 — 엔진 이관기가 `SET LOCAL ROLE <서비스>_owner`로 만듦)·`_app`(테이블마다 DML만)·`_read`(읽기만)·`_recon`(대사 보기만)·`_maint`(파티션 함수만)·`_<목적>`(예: `_audit_reader`, 읽기만). 이관은 이관 단계(`mookko-app migrate`)에서만, 실행 파일은 `verify`만. 앱 계정에 DDL(스키마·DB `CREATE`)·`TRUNCATE`·`TRIGGER`·`REFERENCES` 없음, 덧붙이기만 하는 테이블에 `UPDATE`·`DELETE` 없음 — 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다. 설계서에 계정 표를 둔다. **[lint]**(스키마 CREATE 주기) **[검사]** `migration_apply.py`(주인·앱 계정 권한) **[QA]**(`append_only` 지정)
 - S-BND-3 `dblink`·`postgres_fdw`·`CREATE SERVER`·`COPY … PROGRAM`·서버 파일 `COPY` 금지. **[lint]**
 - S-BND-4 서비스 이관에 `CREATE ROLE`·`ALTER ROLE`·`DROP ROLE`·`CREATE DATABASE`·`CREATE EXTENSION`·`ALTER SYSTEM` 금지(DB 준비 스크립트의 일). **[lint]**
-- S-BND-5 `GRANT`는 자기 서비스 계정(`<스키마>_app`·`_ro`·`_recon`·`_maint`)에게만. `TO PUBLIC`·`GRANT ALL`·`WITH GRANT OPTION` 금지. **[lint]**
+- S-BND-5 `GRANT`는 자기 서비스 계정(이름이 `<스키마>_`로 시작)에게만. `TO PUBLIC`·`GRANT ALL`·`WITH GRANT OPTION` 금지. **[lint]**
 - S-BND-6 `SECURITY DEFINER` 함수는 `SET search_path = <스키마>, pg_catalog`를 함께 둔다(권한 올리기 방지). **[lint]**
 
 ## 2. 이관
 
 - S-MIG-1 이관 파일은 `<crate>/migrations/NNNN_<snake 설명>.sql`(엔진 `SchemaMigrator` ID 형식 `0001_name`과 같음 — 파일 이름에서 `.sql`을 뺀 것이 이관 ID), 번호는 0001부터 빠짐없이. 앞으로만, 적용된 이관은 고치지 않는다(엔진 이관기가 SHA-256으로 막음). 되돌리는 방법은 설계서에. 스키마 이름은 쓰지 않거나(이관 계정의 `search_path`) `__SCHEMA__.테이블` 자리 표시로 쓴다(이관기가 바꿈). **[lint]**(이름·번호) **[검사]** 엔진 이관기
-  - **출시 잠금**: 서비스가 출시되면 그 서비스 `migrations/` 파일의 SHA-256(엔진과 같은 계산)을 `scripts/ci/db/migration-lock.json`에 적는다. 그 뒤로 잠긴 파일을 고치거나 지우거나 이름을 바꾸면 검사가 실패하고, 이 실패는 유예(pending.json)로 넘길 수 없다. 출시된 서비스의 새 이관은 같은 커밋에서 잠금 목록에 더한다. **[lint]** `migration_lint.py`(잠금)
-  - **출시 전 예외**: 잠금 전에는 이미 커밋한 이관 파일을 다시 써도 된다(파일 합치기·고치기). 조건 넷이 모두 맞아야 한다. (1) 그 이관을 적용한 DB가 지우고 다시 만들 수 있는 개발·시험 DB뿐이다. (2) 같은 커밋에서 설계서(`data-model.md`)를 함께 고친다. (3) 커밋 본문에 `출시 전 이관 다시 씀: <파일>`과 이유를 적는다. (4) 다른 담당이 그 이관 위에 쌓은 것이 없다. 기한은 그 서비스의 출시까지다. 출시란 지울 수 없는 데이터를 담는 DB(라이브, 또는 데이터를 남기는 외부 시험)가 처음 생기는 것이다. **[QA]**(조건)
+  - **출시 잠금**: 서비스가 출시되면 그 서비스 `migrations/` 파일의 SHA-256(엔진과 같은 계산: `__SCHEMA__`를 운영 스키마 이름으로 바꾼 뒤, 줄 끝을 LF로)을 `scripts/ci/db/migration-lock.json`에 적는다. 그 뒤로 잠긴 파일을 고치거나 지우거나 이름을 바꾸면 검사가 실패하고, 이 실패는 유예(pending.json)로 넘길 수 없다. 잠금 목록에서 항목·파일·값을 지우거나 바꿔도 git 기록 비교로 실패한다. 출시된 서비스의 새 이관은 같은 커밋에서 잠금 목록에 더한다. **[lint]** `migration_lint.py`(잠금)
+  - **출시 전 예외 — 사용자 결정 대기**(규약 완화라 사용자 결정의 날짜·인용이 필요함, QA 7차 2026-10-30. 통합 담당이 사용자께 묻는 중이고, 결정이 오면 이 줄에 적고, 거절되면 이 문단을 지움): 잠금 전에는 이미 커밋한 이관 파일을 다시 써도 된다(파일 합치기·고치기). 조건 넷이 모두 맞아야 한다. (1) 그 이관을 적용한 DB가 지우고 다시 만들 수 있는 개발·시험 DB뿐이다. (2) 같은 커밋에서 설계서(`data-model.md`)를 함께 고친다. (3) 커밋 본문에 `출시 전 이관 다시 씀: <파일>`과 이유를 적는다. (4) 다른 담당이 그 이관 위에 쌓은 것이 없다. 기한은 그 서비스의 출시까지다. 출시란 지울 수 없는 데이터를 담는 DB(라이브, 또는 데이터를 남기는 외부 시험)가 처음 생기는 것이다. **[lint]** `migration_lint.py`(조건 (3): git 기록에서 `migration-lock.json`의 `historyCheckedSince` 뒤 커밋이 이미 있던 이관을 바꾸거나 이름을 바꾸거나 지웠으면 그 커밋 본문에 표시와 파일 이름이 있어야 함 — 기록을 못 읽으면 건너뜀(통과 아님), 하네스 CI는 `MOOKKO_REQUIRE_GIT_HISTORY=1`) **[QA]**(조건 (1)·(2)·(4))
   - **누가**: 출시 시점은 사용자가 정한다. 통합 담당이 출시 배포 전에 `python3 -X utf8 scripts/ci/db/migration_lint.py --lock <폴더> --decided-by <사용자 결정 근거> --launched-at YYYY-MM-DD`로 잠금을 남기고, 그 커밋은 DB 담당이 검토한다. 잠금을 풀거나 잠긴 값을 바꾸려면 사용자 결정이 있어야 하고, 운영 DB를 다시 만드는 경우뿐이다.
-- S-MIG-2 기존 테이블에 긴 잠금·다시 쓰기를 부르는 문장 금지(같은 파일에서 만든 새 테이블은 예외). 대신 쓰는 방법은 database.md §7.2 표. **[lint]**
+- S-MIG-2 기존 테이블에 긴 잠금·다시 쓰기를 부르는 문장 금지(같은 파일에서 만든 새 테이블은 예외). 대신 쓰는 방법은 database.md §7.2 표. 큰 테이블을 바꾸는 이관은 잠금 시간과 데이터 양을 설계서에 적는다(DBDES-01). **[lint]** **[QA]**(설계서의 잠금 시간)
   - a `CREATE INDEX`·`DROP INDEX`·`REINDEX`는 `CONCURRENTLY`로
   - b `ADD COLUMN`에 휘발 기본값(`clock_timestamp()`·`random()`·`gen_random_uuid()`·`uuidv7()`·`nextval()` 등)·`GENERATED … STORED`·`serial`·`identity` 금지(상수·`now()` 기본값은 허용 — 11+ 메타데이터만)
   - c `ADD COLUMN … NOT NULL`은 상수 기본값과 함께만
   - d `ALTER COLUMN … TYPE` 금지
   - e `SET NOT NULL`은 같은 파일 앞에서 `VALIDATE CONSTRAINT`(검사 제약 `c IS NOT NULL`)를 한 뒤에만
-  - f `ADD FOREIGN KEY`·`ADD CHECK`는 `NOT VALID`로, 검증은 다음 파일의 `VALIDATE CONSTRAINT`
-  - g `ADD PRIMARY KEY`·`ADD UNIQUE`는 `USING INDEX`(먼저 `CREATE UNIQUE INDEX CONCURRENTLY`)
+  - f `ADD FOREIGN KEY`·`ADD CHECK`는 `NOT VALID`로, 검증은 다음 파일의 `VALIDATE CONSTRAINT`. 열 추가와 `CHECK`·`REFERENCES`를 한 문장에 쓰지 않음
+  - g `ADD PRIMARY KEY`·`ADD UNIQUE`는 `USING INDEX`(먼저 `CREATE UNIQUE INDEX CONCURRENTLY`). 열 추가와 `UNIQUE`·`PRIMARY KEY`를 한 문장에 쓰지 않음
   - h `TRUNCATE`·`VACUUM FULL`·`CLUSTER`·`LOCK TABLE`·`SET TABLESPACE`·`SET LOGGED`·`SET UNLOGGED` 금지
   - i `DETACH PARTITION`은 `CONCURRENTLY`로
   - j 파티션 부모 색인은 `ON ONLY 부모` → 파티션마다 `CONCURRENTLY` → `ATTACH PARTITION` **[QA]**
 - S-MIG-3 모든 테이블에 기본 키(`PARTITION OF` 자식은 부모 것을 받음). 새 행 ID는 UUIDv7(`TimeOrderedId`). **[lint]**(기본 키) **[검사]** `migration_apply.py` **[QA]**(UUIDv7)
-- S-MIG-4 라이브 패치 동안 신구 판이 함께 돈다. 구조 변경은 **넓히기 → 옮기기 → 좁히기**를 서로 다른 배포에 싣는다. 파일 머리에 `-- mookko:phase expand|migrate|contract`가 있어야 하고, 테이블·열·보기·함수·스키마의 `RENAME`·`SET SCHEMA`는 언제나 금지(색인·제약 이름 바꾸기는 옛 판이 모르므로 허용), `DROP COLUMN`·`DROP TABLE`·`DROP SCHEMA`는 `contract` 파일에서만, `contract` 파일에는 `CREATE TABLE`·`ADD COLUMN`을 함께 넣지 않는다. 배포를 나눴는지는 **[QA]**. **[lint]**(머리·이름 바꾸기·지우기·섞기) (`docs/spec/observability/README.md` §9.3)
+- S-MIG-4 라이브 패치 동안 신구 판이 함께 돈다. 구조 변경은 **넓히기 → 옮기기 → 좁히기**를 서로 다른 배포에 싣는다. 파일 머리에 `-- mookko:phase expand|migrate|contract`가 있어야 하고, 이름 바꾸기(`RENAME` — 테이블·열·보기·함수·스키마·**색인·제약** 모두, `SET SCHEMA`)는 언제나 금지(서비스·엔진 코드가 제약 이름으로 오류를 가르므로 색인·제약 이름도 바꾸면 옛 판이 깨짐 — 새 이름으로 만들고 옮긴 뒤 좁히기에서 옛것을 지움), `DROP COLUMN`·`DROP TABLE`·`DROP SCHEMA`는 `contract` 파일에서만, `contract` 파일에는 `CREATE TABLE`·`ADD COLUMN`을 함께 넣지 않는다. 배포를 나눴는지는 **[QA]**. **[lint]**(머리·이름 바꾸기·지우기·섞기) (`docs/spec/observability/README.md` §9.3)
 - S-MIG-5 기존 테이블을 바꾸는 파일은 맨 앞에 `SET LOCAL lock_timeout = '…'`(5초 이하). 잠금 실패는 이관기가 지연을 두고 다시 시도한다(엔진 요청 E-DB-4). **[lint]**
-- S-MIG-6 `CONCURRENTLY`는 트랜잭션 안에서 돌 수 없다. 그런 문장은 머리에 `-- mookko:transaction off`를 둔 파일에 **문장 하나만**, `IF NOT EXISTS`·`IF EXISTS`로 다시 해도 안전하게. 트랜잭션 파일에는 `CONCURRENTLY`를 쓰지 않는다. **[lint]**
+- S-MIG-6 `CONCURRENTLY`는 트랜잭션 안에서 돌 수 없다. 그런 이관은 **파일의 비어 있지 않은 첫 줄을 `-- mookko:transaction off`**로 하고(엔진 이관기가 그 줄로 트랜잭션 밖을 고름 — phase 등 다른 머리는 그 다음 줄), 문장은 엔진이 받는 `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <이름> ON __SCHEMA__.<표>` **하나만** 둔다. `DROP INDEX`·`REINDEX`·`DETACH PARTITION`의 `CONCURRENTLY`는 엔진이 받을 때까지 쓰지 않는다. 트랜잭션 파일에는 `CONCURRENTLY`를 쓰지 않는다. **[lint]** **[검사]** `migration_apply.py`(엔진과 같은 규칙으로 적용)
 - S-MIG-7 이관 파일에서 기존 테이블의 `UPDATE`·`DELETE` 금지(채우기는 배경 이관 작업, database.md §7.1). 작은 참조 데이터 `INSERT`는 허용. **[lint]**
-- S-MIG-8 이관은 CI에서 실제 PostgreSQL(운영과 같은 큰 판)에 처음부터 적용해 본다. **[검사]** `migration_apply.py`
+- S-MIG-8 이관은 CI에서 실제 PostgreSQL(운영과 같은 큰 판)에 처음부터 엔진 이관기와 같은 길(주인 역할·`search_path`·`lock_timeout`·트랜잭션 밖 판정·`grant`)로 적용해 본다. **[검사]** `migration_apply.py`
+- S-MIG-9 `DO` 블록과 `CREATE OR REPLACE FUNCTION|PROCEDURE|TRIGGER` 금지. `DO` 본문은 검사가 볼 수 없고(안의 `UPDATE`·`TRUNCATE`·`DISABLE TRIGGER`가 빠져나감), `CREATE OR REPLACE`는 막기 함수를 거부하지 않는 함수로 바꿔칠 수 있다. 함수를 바꾸려면 새 이름으로 만들고 트리거를 옮긴 뒤 좁히기에서 옛것을 지운다. **[lint]** **[검사]** `migration_apply.py`(막기 함수가 `RAISE EXCEPTION`하는지)
 
 ## 3. 형식
 
@@ -55,7 +56,7 @@
 ## 4. 돈·원장
 
 - S-MONEY-1 금액은 `bigint`(최소 단위) + `char(3)` 통화. `numeric`·`decimal`·`real`·`double precision`·`float`·`money` 형식 금지. 금액 이름 열(`amount`·`balance`·`price`·`fee`·`_minor`)은 `bigint`이고 같은 테이블에 `…currency` 열이 있다. **[lint]**
-- S-MONEY-2 원장·감사·분개(이름에 `ledger`·`journal`·`audit`, 사슬·구간 머리 `…_head(s)`는 지금 상태 표라 제외)는 덧붙이기만. 오래된 것을 지울 때도 `DELETE`가 아니라 파티션 떼기 또는 키 파기로: 앱 계정에 `UPDATE`·`DELETE` 권한 없음 + 같은 파일에 `BEFORE UPDATE OR DELETE`·`BEFORE TRUNCATE` 막기 트리거. 멱등 키는 `UNIQUE`, 분할 키(`user_id`·계좌·가맹점)를 처음부터 열로. **[lint]**(트리거) **[검사]** `migration_apply.py`(권한) **[QA]**(분할 키·멱등)
+- S-MONEY-2 원장·감사·분개(이름에 `ledger`·`journal`·`audit`, 사슬·구간 머리 `…_head(s)`는 분할 키당 한 행을 고쳐 쓰는 지금 상태 표라 제외 — 이력을 그 표에 쌓으면 안 됨 [QA])는 덧붙이기만. 오래된 것을 지울 때도 `DELETE`가 아니라 파티션 떼기 또는 키 파기로: 앱 계정에 `UPDATE`·`DELETE` 권한 없음 + 같은 파일에 `BEFORE UPDATE OR DELETE`·`BEFORE TRUNCATE` 막기 트리거. 멱등 키는 `UNIQUE`, 분할 키(`user_id`·계좌·가맹점)를 처음부터 열로. **[lint]**(트리거) **[검사]** `migration_apply.py`(권한, 막기 함수가 실제로 거부) **[QA]**(분할 키·멱등, `append_only` 지정)
 - S-MONEY-3 돈을 움직이는 판단은 주 DB(`write`)에서(읽기 복제본 금지), 직렬화 격리 또는 명시한 행 잠금, 경합 재시도는 엔진 상한. 두 분할 키에 걸친 일은 outbox + 멱등 키(2PC 금지). **[QA]**
 
 ## 5. 분할
