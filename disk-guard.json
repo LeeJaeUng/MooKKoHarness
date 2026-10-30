@@ -1,0 +1,8 @@
+{
+  "note": "빌드 전 디스크 검사 기준(scripts/dev/disk-guard.py). 2026-10-30 C 드라이브가 0이 되어 WSL이 멈춘 뒤 정함. 경로가 없는 곳(예: CI에는 /mnt/c 없음)은 건너뜀.",
+  "freeSpace": [
+    { "path": "/mnt/c", "minFreeGiB": 50, "label": "Windows C 드라이브(WSL 가상 디스크와 worktree가 여기서 자람)" },
+    { "path": "/", "minFreeGiB": 20, "label": "Linux 루트" }
+  ],
+  "buildCache": { "dir": "~/target", "maxTotalGiB": 100, "label": "세션별 cargo 빌드 캐시(CARGO_TARGET_DIR=~/target/<이름>)" }
+}
