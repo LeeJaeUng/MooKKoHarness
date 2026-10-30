@@ -15,6 +15,7 @@
     "idleTimeoutMs": 60000,
     "statementTimeoutMs": 15000,
     "lockTimeoutMs": 10000,
-    "idleInTransactionTimeoutMs": 30000
+    "idleInTransactionTimeoutMs": 30000,
+    "clientTimeoutMarginMs": 1000
   }
 }
