@@ -19,6 +19,7 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     SLOT_DIR="$(slot_setting dir)"
     SLOT_COUNT="$(slot_setting count)"
     SLOT_POLL="$(slot_setting pollSeconds)"
+    SLOT_DEADLINE=$(( $(date +%s) + $(slot_setting maxWaitMinutes) * 60 ))
     export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(slot_setting jobs)}"
     mkdir -p "$SLOT_DIR"
     announced=""
@@ -32,6 +33,10 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
             exec {slot_fd}>&-
         done
         if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
+            if [ "$(date +%s)" -ge "$SLOT_DEADLINE" ]; then
+                echo "build slot wait timed out: 빌드 자리를 기다리다 기한을 넘겼습니다($SLOT_DIR). 통합 담당에 알리세요." >&2
+                exit 1
+            fi
             [ -z "$announced" ] && echo "== 빌드 자리 기다림(동시 ${SLOT_COUNT}개)"
             announced=1
             sleep "$SLOT_POLL"
