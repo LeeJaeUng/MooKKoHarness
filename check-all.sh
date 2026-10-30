@@ -10,6 +10,36 @@ if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
 
+# 빌드 자리: 여러 세션이 동시에 돌리면 WSL 메모리가 모자라 연결이 끊깁니다(2026-10-30). scripts/dev/build-slots.json의
+# 자리 수만큼만 동시에 돌고 나머지는 기다립니다. 잠금은 이 프로세스와 자식(시험용 DB 감싸기 포함)이 끝나면 풀립니다.
+if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
+    slot_setting() {
+        python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' scripts/dev/build-slots.json "$1"
+    }
+    SLOT_DIR="$(slot_setting dir)"
+    SLOT_COUNT="$(slot_setting count)"
+    SLOT_POLL="$(slot_setting pollSeconds)"
+    export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(slot_setting jobs)}"
+    mkdir -p "$SLOT_DIR"
+    announced=""
+    while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
+        for i in $(seq 1 "$SLOT_COUNT"); do
+            exec {slot_fd}>"$SLOT_DIR/slot-$i"
+            if flock -n "$slot_fd"; then
+                export MOOKKO_BUILD_SLOT="$i"
+                break
+            fi
+            exec {slot_fd}>&-
+        done
+        if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
+            [ -z "$announced" ] && echo "== 빌드 자리 기다림(동시 ${SLOT_COUNT}개)"
+            announced=1
+            sleep "$SLOT_POLL"
+        fi
+    done
+    echo "== 빌드 자리 $MOOKKO_BUILD_SLOT/$SLOT_COUNT, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
+fi
+
 # 빌드 캐시가 한도를 넘거나 공간이 모자라면 24시간 넘게 안 쓴 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
 # (2026-10-30 C 드라이브 0 사고 뒤, scripts/dev/disk-guard.py).
 if [ -z "${MOOKKO_DISK_GUARD_DONE:-}" ]; then
