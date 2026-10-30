@@ -1,0 +1,29 @@
+{
+  "_doc": "DB 규약(2026-10-30) 전에 들어온 파일. 기한까지 담당이 고치면 지움. 기한이 지나면 check-db가 실패. 규칙: scripts/ci/db/pending.py",
+  "pending": [
+    {
+      "path": "docs/spec/monitoring/data-model.md",
+      "owner": "monitoring",
+      "until": "2026-11-06",
+      "reason": "S-SEC-1 요약 표 → 테이블마다 열 표(등급·보호), S-SEC-6 보관"
+    },
+    {
+      "path": "crates/services/operations/docs/data-model.md",
+      "owner": "operations",
+      "until": "2026-11-06",
+      "reason": "S-SEC-1·6 열 표에 등급·보호 칸, 테이블마다 보관"
+    },
+    {
+      "path": "docs/spec/operations/data-model.md",
+      "owner": "operations",
+      "until": "2026-11-06",
+      "reason": "S-SEC-1 기획 요약의 열 요약 표 — 정본(crate 설계서)만 가리키게"
+    },
+    {
+      "path": "docs/architecture/engine-data-model.md",
+      "owner": "engine",
+      "until": "2026-11-06",
+      "reason": "E-DB-11 엔진 테이블 설계서: 요약 표 → 테이블마다 열 표(등급·보호), 보관"
+    }
+  ]
+}
