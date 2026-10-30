@@ -1,8 +1,19 @@
 {
-  "note": "빌드 전 디스크 검사 기준(scripts/dev/disk-guard.py). 2026-10-30 C 드라이브가 0이 되어 WSL이 멈춘 뒤 정함. 경로가 없는 곳(예: CI에는 /mnt/c 없음)은 건너뜀.",
-  "freeSpace": [
-    { "path": "/mnt/c", "minFreeGiB": 50, "label": "Windows C 드라이브(WSL 가상 디스크와 worktree가 여기서 자람)" },
-    { "path": "/", "minFreeGiB": 20, "label": "Linux 루트" }
-  ],
-  "buildCache": { "dir": "~/target", "maxTotalGiB": 100, "label": "세션별 cargo 빌드 캐시(CARGO_TARGET_DIR=~/target/<이름>)" }
+  "note": "빌드 전 디스크 검사·캐시 정리 기준(scripts/dev/disk-guard.py). 2026-10-30 C 드라이브가 0이 되어 WSL이 멈춘 뒤 정함. 캐시는 지워도 됨(사용자 결정 2026-10-30). 경로가 없는 곳(예: CI에는 /mnt/c·vhdx 없음)은 건너뜀.",
+  "host": {
+    "path": "/mnt/c",
+    "vhdx": "/mnt/c/Project/MooKKo/MooKKoRust/data/wsl/MooKKo-Linux/ext4.vhdx",
+    "minHeadroomGiB": 50,
+    "compactSlackGiB": 50,
+    "label": "Windows C 드라이브 남은 공간 + 가상 디스크 안에서 다시 쓸 수 있는 빈 곳"
+  },
+  "linuxRoot": { "path": "/", "minFreeGiB": 20 },
+  "buildCache": {
+    "dir": "~/target",
+    "maxTotalGiB": 60,
+    "maxPerDirGiB": 20,
+    "minIdleMinutes": 30,
+    "log": "~/.local/state/mookko/disk-guard.log",
+    "label": "세션별 cargo 빌드 캐시(CARGO_TARGET_DIR=~/target/<이름>)"
+  }
 }
