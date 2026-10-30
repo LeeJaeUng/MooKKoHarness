@@ -1,5 +1,5 @@
 {
-  "note": "빌드 전 디스크 검사·캐시 정리 기준(scripts/dev/disk-guard.py). 2026-10-30 C 드라이브가 0이 되어 WSL이 멈춘 뒤 정함. 캐시는 마지막으로 쓴 지 24시간 넘은 것만 지움(사용자 결정 2026-10-30). 한도를 넘었는데 지울 것이 모자라면 빌드를 막고 사용자 결정. 경로가 없는 곳(예: CI에는 /mnt/c·vhdx 없음)은 건너뜀.",
+  "note": "빌드 전 디스크 검사·캐시 정리 기준(scripts/dev/disk-guard.py). 2026-10-30 C 드라이브가 0이 되어 WSL이 멈춘 뒤 정함. 자기 캐시가 폴더 한도를 넘으면 자기 것만 지우고 새로 빌드, 남의 캐시는 24시간 넘은 것만 여유가 모자랄 때 지움, 합계 한도 없음(사용자 결정 2026-10-30). 모자라면 빌드를 막고 사용자 결정. 경로가 없는 곳(예: CI에는 /mnt/c·vhdx 없음)은 건너뜀.",
   "host": {
     "path": "/mnt/c",
     "vhdx": "/mnt/c/Project/MooKKo/MooKKoRust/data/wsl/MooKKo-Linux/ext4.vhdx",
@@ -10,7 +10,6 @@
   "linuxRoot": { "path": "/", "minFreeGiB": 20 },
   "buildCache": {
     "dir": "~/target",
-    "maxTotalGiB": 100,
     "maxPerDirGiB": 20,
     "minIdleHours": 24,
     "stampFile": ".mookko-last-build",

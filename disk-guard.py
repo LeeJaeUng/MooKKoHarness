@@ -1,10 +1,12 @@
-"""빌드 전 디스크 검사: 빌드 캐시가 한도를 넘거나 공간이 모자라면 오래된 캐시부터 지우고, 그래도 모자라면 빌드를 막는다.
+"""빌드 전 디스크 검사: 자기 캐시가 폴더 한도를 넘으면 지우고 새로 빌드하고, 공간이 모자라면 오래된 남의 캐시부터 지우고, 그래도 모자라면 빌드를 막는다.
 
 2026-10-30 세션마다 따로 쌓인 cargo 빌드 캐시로 WSL 가상 디스크가 189GB까지 자라 C 드라이브가 0이 되었고,
 WSL이 입출력 오류로 멈춰 모든 세션의 빌드·검사가 막혔다. 같은 일이 다시 생기지 않게 check-all.sh가 맨 먼저 부른다.
-- 캐시는 다시 만들 수 있어 휴지통 없이 지워도 되지만, 마지막으로 쓴 지 24시간(minIdleHours) 넘은 것만 지운다
-  (사용자 결정 2026-10-30). 지금 쓰는 캐시(CARGO_TARGET_DIR, 돌고 있는 cargo 프로세스의 /proc 환경 포함)도 지우지 않는다. 지운 것은 기록 파일에 남긴다.
-- 한도를 넘었는데 지울 수 있는 캐시만으로 모자라면 지우지 않고 빌드를 막는다(큰 캐시 목록과 함께, 사용자 결정).
+- 캐시는 다시 만들 수 있어 휴지통 없이 지워도 된다. 지운 것은 기록 파일에 남긴다(사용자 결정 2026-10-30).
+- 자기 캐시(CARGO_TARGET_DIR)가 폴더 한도(maxPerDirGiB)를 넘으면 24시간과 상관없이 자기 캐시만 지우고 새로 빌드한다
+  (사용자 결정 2026-10-30 "자기 캐시만 정리"). 다만 같은 캐시를 다른 프로세스가 쓰고 있으면 지우지 않고 막는다.
+- 남의 캐시는 마지막으로 쓴 지 24시간(minIdleHours) 넘었고 돌고 있는 프로세스(/proc 환경)가 쓰지 않는 것만, 여유가
+  모자랄 때 오래된 것부터 지운다. 지울 수 있는 것만으로 모자라면 하나도 지우지 않고 빌드를 막는다(사용자 결정). 합계 한도는 없다.
 - 마지막 사용 시각 = 캐시 폴더의 기록 파일(stampFile, 이 검사가 지금 캐시에 매번 남김)과 폴더 아래 두 단계
   (cargo가 debug/·.fingerprint를 고침) 수정 시각 중 가장 늦은 것. check-all 없이 cargo만 돌린 빌드도 잡힌다.
 - 가상 디스크는 안에서 지워도 줄지 않으므로, 여유 = C 드라이브 남은 공간 + (vhdx 크기 - Linux 사용량)으로 본다.
@@ -67,14 +69,28 @@ def caches(cache_dir: Path) -> list[Cache]:
     return sorted(found, key=lambda c: c.last_used)  # 오래된 것부터
 
 
-def in_use() -> set[Path]:
+def own_lineage() -> set[str]:
+    """이 검사 자신과 조상 프로세스 번호(check-all·감싸기 셸). 자기 캐시를 '남이 쓰는 중'으로 보지 않게."""
+    lineage: set[str] = set()
+    pid = str(os.getpid())
+    while pid not in ("0", "") and pid not in lineage:
+        lineage.add(pid)
+        try:
+            stat = (Path("/proc") / pid / "stat").read_text(encoding="utf-8")
+        except OSError:
+            break
+        pid = stat.rsplit(")", 1)[1].split()[1]  # 이름에 공백·괄호가 있어도 ')' 뒤 두 번째 칸이 부모
+    return lineage
+
+
+def in_use(exclude: set[str] | None = None) -> set[Path]:
     """지금 돌고 있는 프로세스가 쓰는 캐시(/proc/*/environ의 CARGO_TARGET_DIR). 시험만 오래 돌아 새 파일이 없어도 잡는다."""
     used: set[Path] = set()
     proc = Path("/proc")
     if not proc.is_dir():
         return used
     for entry in proc.iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or (exclude and entry.name in exclude):
             continue
         try:
             environ = (entry / "environ").read_bytes()
@@ -114,43 +130,47 @@ def record(log_path: Path, cache: Cache, reason: str) -> None:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
+def delete(cache: Cache, reason: str, log_path: Path, dry_run: bool, done: list[str]) -> bool:
+    if not dry_run:
+        try:
+            shutil.rmtree(cache.path)
+        except OSError as err:
+            done.append(f"{cache.path} 지우지 못함: {err}")
+            return False
+        record(log_path, cache, reason)
+    done.append(f"{cache.path} {cache.size / GIB:.1f}GiB ({reason})")
+    return True
+
+
 def prune(settings: dict, dry_run: bool) -> list[str]:
-    """한도를 넘은 만큼 오래된 캐시부터 지운다. 지운(또는 지울) 목록을 돌려준다."""
+    """자기 캐시가 폴더 한도를 넘으면 지우고, 여유가 모자라면 24시간 넘은 남의 캐시를 오래된 것부터 지운다."""
     cache_cfg = settings["buildCache"]
     cache_dir = Path(os.path.expanduser(cache_cfg["dir"]))
     log_path = Path(os.path.expanduser(cache_cfg["log"]))
     current = os.environ.get("CARGO_TARGET_DIR")
-    idle_before = time.time() - cache_cfg["minIdleHours"] * 3600
+    own_path = Path(current).resolve() if current else None
     found = caches(cache_dir)
-    busy = in_use()
-    if current:
-        busy.add(Path(current).resolve())
-    removable = [c for c in found if c.last_used < idle_before and c.path.resolve() not in busy]
-    total = sum(c.size for c in found)
+    others_busy = in_use(exclude=own_lineage())
+    done: list[str] = []
+    own = next((c for c in found if own_path is not None and c.path.resolve() == own_path), None)
+    if own is not None and own.size > cache_cfg["maxPerDirGiB"] * GIB and own_path not in others_busy:
+        delete(own, "자기 캐시 폴더 한도", log_path, dry_run, done)
+    idle_before = time.time() - cache_cfg["minIdleHours"] * 3600
+    removable = [
+        c for c in found
+        if c is not own and c.last_used < idle_before and c.path.resolve() not in others_busy
+    ]
     room = headroom(settings["host"])
     need_room = 0 if room is None else max(0, settings["host"]["minHeadroomGiB"] * GIB - room[0])
-    freeable = sum(c.size for c in removable)
-    # 지울 수 있는 것만으로 한도를 못 맞추면 하나도 지우지 않고 막는다(check가 알림, 사용자 결정).
-    if freeable < max(need_room, total - cache_cfg["maxTotalGiB"] * GIB, 0):
-        return []
+    # 지울 수 있는 것만으로 여유를 못 맞추면 하나도 지우지 않고 막는다(check가 알림, 사용자 결정).
+    if need_room == 0 or sum(c.size for c in removable) < need_room:
+        return done
     # 안쪽에서 지운 만큼은 가상 디스크가 다시 쓰므로, 지운 양이 곧 늘어난 여유다.
-    done: list[str] = []
     for cache in removable:
-        over_total = total > cache_cfg["maxTotalGiB"] * GIB
-        over_dir = cache.size > cache_cfg["maxPerDirGiB"] * GIB
-        if not (over_total or over_dir or need_room > 0):
-            continue
-        reason = "합계 한도" if over_total else ("폴더 한도" if over_dir else "여유 부족")
-        if not dry_run:
-            try:
-                shutil.rmtree(cache.path)
-            except OSError as err:
-                done.append(f"{cache.path} 지우지 못함: {err}")
-                continue
-            record(log_path, cache, reason)
-        done.append(f"{cache.path} {cache.size / GIB:.1f}GiB ({reason})")
-        total -= cache.size
-        need_room = max(0, need_room - cache.size)
+        if need_room <= 0:
+            break
+        if delete(cache, "여유 부족", log_path, dry_run, done):
+            need_room -= cache.size
     return done
 
 
@@ -163,7 +183,10 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
     if room is not None:
         free, slack = room
         if free < host["minHeadroomGiB"] * GIB:
-            problems.append(f"{host['path']}: 여유 {free / GIB:.1f}GiB < 기준 {host['minHeadroomGiB']}GiB ({host['label']})")
+            problems.append(
+                f"{host['path']}: 여유 {free / GIB:.1f}GiB < 기준 {host['minHeadroomGiB']}GiB "
+                f"({host['label']}; 24시간 넘은 남의 캐시만으로 모자라 지우지 않음, 사용자 결정 필요)"
+            )
         if slack > host["compactSlackGiB"] * GIB:
             notes.append(f"가상 디스크 안 빈 곳 {slack / GIB:.1f}GiB: 압축(WSL 끄고 diskpart compact, 관리자)을 통합 담당에 알리세요")
     linux = settings["linuxRoot"]
@@ -173,21 +196,16 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
             problems.append(f"{linux['path']}: 남은 공간 {free_linux / GIB:.1f}GiB < 기준 {linux['minFreeGiB']}GiB")
     cache_cfg = settings["buildCache"]
     found = caches(Path(os.path.expanduser(cache_cfg["dir"])))
-    total = sum(c.size for c in found)
-    top = ", ".join(f"{c.path.name} {c.size / GIB:.1f}GiB" for c in sorted(found, key=lambda c: -c.size)[:5])
-    keep = f"{cache_cfg['minIdleHours']}시간 안에 썼거나 지울 것만으로 모자라 지우지 않음, 사용자 결정 필요"
-    if total > cache_cfg["maxTotalGiB"] * GIB:
-        problems.append(f"{cache_cfg['dir']}: 빌드 캐시 합계 {total / GIB:.1f}GiB > 한도 {cache_cfg['maxTotalGiB']}GiB ({keep}; {top})")
-    # 한 폴더 한도는 그 캐시를 쓰는 빌드만 막는다(남의 큰 캐시가 모든 세션을 막지 않게). 다른 세션에는 알림만.
+    # 폴더 한도: 자기 캐시는 prune이 지웠어야 한다(남아 있으면 다른 프로세스가 쓰는 중이거나 지우기 실패). 남의 캐시는 알림만.
     current = os.environ.get("CARGO_TARGET_DIR")
     current_path = Path(current).resolve() if current else None
     for c in found:
         if c.size > cache_cfg["maxPerDirGiB"] * GIB:
-            line = f"{c.path}: 캐시 {c.size / GIB:.1f}GiB > 폴더 한도 {cache_cfg['maxPerDirGiB']}GiB ({keep})"
+            line = f"{c.path}: 캐시 {c.size / GIB:.1f}GiB > 폴더 한도 {cache_cfg['maxPerDirGiB']}GiB"
             if current_path is not None and c.path.resolve() == current_path:
-                problems.append(line)
+                problems.append(line + " (자기 캐시인데 다른 프로세스가 쓰는 중이거나 지우지 못함)")
             else:
-                notes.append(line)
+                notes.append(line + " (그 세션이 다음 빌드 때 스스로 지움)")
     return problems, notes
 
 
