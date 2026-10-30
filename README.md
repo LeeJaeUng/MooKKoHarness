@@ -11,7 +11,7 @@ MooKKo는 언어마다 규약을 따로 둡니다(사용자 결정 2026-10-29). 
 |---|---|---|---|
 | Rust | [rust.md](rust.md) | `.claude/skills/mookko-rust/` | `crates/` |
 | TypeScript·React·Tailwind (프론트엔드) | [frontend.md](frontend.md) | `.claude/skills/mookko-frontend/` | `web/` |
-| SQL (PostgreSQL) | [sql.md](sql.md) | `.claude/skills/mookko-sql/` | 각 crate `migrations/` |
+| SQL (PostgreSQL, ClickHouse — 로그·추적·지표) | [sql.md](sql.md) | `.claude/skills/mookko-sql/` | 각 crate `migrations/`(ClickHouse는 경로에 `clickhouse`가 든 `migrations/`) |
 | Protobuf | [proto.md](proto.md) | `.claude/skills/mookko-proto/` | `proto/` |
 | Python·Bash (CI·시험 도구) | [tools.md](tools.md) | `.claude/skills/mookko-tools/` | `scripts/`, `acceptance/` 도구 |
 
