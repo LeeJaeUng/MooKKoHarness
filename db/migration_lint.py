@@ -781,7 +781,8 @@ def rust_strings(text: str) -> list[tuple[int, str]]:
             body: list[str] = []
             while i < n and text[i] != '"':
                 if text[i] == "\\":
-                    body.append(" ")
+                    # `\n` 이스케이프는 줄바꿈으로 살림(SQL `--` 주석이 다음 줄까지 먹지 않게), 나머지 이스케이프는 공백.
+                    body.append("\n" if text[i + 1 : i + 2] == "n" else " ")
                     i += 2
                     continue
                 body.append(text[i])
@@ -897,6 +898,13 @@ def exception_paths(registry: dict, today: datetime.date | None = None, root: Pa
     return paths, problems
 
 
+def strip_sql_comments(text: str) -> str:
+    """SQL 주석(`-- …` 줄 끝까지, `/* … */`)을 지운다. 주석 줄로 시작하는 SQL 문자열의 문장 머리를 보려고(QA 1d41835 낮음).
+    문자열 값 안의 `--`까지 가릴 수는 있지만, 그러면 검사가 더 잡는 쪽(DDL이 문장 머리로 드러남)이라 닫힌 쪽이다."""
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return re.sub(r"--[^\n]*", " ", text)
+
+
 def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
     """서비스·실행 파일 crate(`crates/services/*/src`, `crates/apps/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7).
     DDL은 이관 파일과 엔진 유지보수 작업(엔진 crate)만 — 서비스나 실행 파일이 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를
@@ -911,7 +919,7 @@ def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
             continue
         text = path.read_text(encoding="utf-8")
         for start, body in rust_strings(text):
-            flat = " ".join(body.split())
+            flat = " ".join(strip_sql_comments(body).split())
             if SERVICE_DDL.search(flat):
                 findings.append(Finding(rel, text.count("\n", 0, start) + 1, "S-BND-7", "서비스 코드의 DDL·권한 문장 금지 — 이관 파일(migrations/)이나 엔진 유지보수 작업으로(기한 있는 예외는 exceptions.json)"))
     return findings

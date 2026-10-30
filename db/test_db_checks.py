@@ -139,7 +139,7 @@ class ServiceDdl(unittest.TestCase):
         found = migration_lint.lint_service_ddl(self.ROOT, {"exceptions": []})
         self.assertEqual(
             sorted((f.path, f.line) for f in found),
-            sorted([(self.PATH, 2), (self.PATH, 4), (self.PATH, 5), ("crates/apps/mookko-svc/src/main.rs", 2)]),
+            sorted([(self.PATH, 2), (self.PATH, 4), (self.PATH, 5), (self.PATH, 6), (self.PATH, 7), ("crates/apps/mookko-svc/src/main.rs", 2)]),
         )
 
     def test_action_names_and_identifiers_are_not_ddl(self) -> None:
