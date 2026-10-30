@@ -3,5 +3,6 @@
   "count": 2,
   "jobs": 4,
   "pollSeconds": 15,
+  "maxWaitMinutes": 90,
   "dir": "~/.local/state/mookko/build-slots"
 }

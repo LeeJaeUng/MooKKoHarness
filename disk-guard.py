@@ -82,7 +82,13 @@ def in_use() -> set[Path]:
             continue  # 끝났거나 남의 프로세스
         for item in environ.split(b"\0"):
             if item.startswith(b"CARGO_TARGET_DIR="):
-                used.add(Path(os.fsdecode(item.split(b"=", 1)[1])).resolve())
+                target = Path(os.fsdecode(item.split(b"=", 1)[1]))
+                if not target.is_absolute():
+                    try:
+                        target = Path(os.readlink(entry / "cwd")) / target  # 그 프로세스의 작업 폴더 기준
+                    except OSError:
+                        continue
+                used.add(target.resolve())
     return used
 
 
