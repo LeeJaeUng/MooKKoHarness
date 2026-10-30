@@ -23,10 +23,12 @@ sys.path.insert(0, str(HERE))
 import data_classes  # noqa: E402
 import migration_apply  # noqa: E402
 import migration_lint  # noqa: E402
+import migration_lock  # noqa: E402
 import pending  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 EMPTY_PENDING = FIXTURES / "pending-empty.json"
+EMPTY_LOCK = FIXTURES / "lock-empty.json"
 
 
 def expected(text: str, pattern: str) -> set[str]:
@@ -56,7 +58,7 @@ class MigrationLintSamples(unittest.TestCase):
                 self.assertEqual(got, expected(text, r"-- expect: (.*)"))
 
     def test_good_repo_passes(self) -> None:
-        code, out = quiet(migration_lint.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
+        code, out = quiet(migration_lint.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK)])
         self.assertEqual(code, 0, out)
 
     def test_bad_repo_names_numbers_rust(self) -> None:
@@ -66,8 +68,52 @@ class MigrationLintSamples(unittest.TestCase):
         self.assertTrue(any("기대 0002" in f.message for f in findings))
         rust, _ = migration_lint.lint_rust(root)
         self.assertEqual(sorted(f.line for f in rust), [4, 5])
-        code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING)])
+        code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK)])
         self.assertEqual(code, 1)
+
+
+class MigrationLockSamples(unittest.TestCase):
+    """S-MIG-1 출시 잠금: 출시 전에는 다시 써도 되고, 잠근 뒤에는 바꾸기·지우기·잠그지 않은 새 파일을 막는다."""
+
+    ROOT = FIXTURES / "repo-good"
+    DIR = "crates/services/svc/migrations"
+
+    def locked(self) -> dict:
+        import datetime
+
+        return migration_lock.record(self.ROOT, {"launched": []}, self.DIR, "시험", datetime.date(2026, 11, 1))
+
+    def test_prelaunch_has_no_lock(self) -> None:
+        self.assertEqual(migration_lock.check(self.ROOT, {"launched": []}), [])
+        self.assertEqual(migration_lock.entries(migration_lock.load()), [], "출시 전에는 잠금 목록이 비어 있어야 함")
+
+    def test_locked_unchanged_passes(self) -> None:
+        data = self.locked()
+        self.assertEqual(len(data["launched"][0]["files"]), 5)
+        self.assertEqual(migration_lock.check(self.ROOT, data), [])
+
+    def test_changed_missing_and_unlocked_files_fail(self) -> None:
+        data = self.locked()
+        files = data["launched"][0]["files"]
+        files["0001_accounts_and_ledger.sql"] = "0" * 64
+        files["0009_gone.sql"] = "0" * 64
+        del files["0005_accounts_drop_tier.sql"]
+        messages = " ".join(m for _, m in migration_lock.check(self.ROOT, data))
+        self.assertIn("내용이 바뀜", messages)
+        self.assertIn("없어짐", messages)
+        self.assertIn("잠금 목록에 더함", messages)
+
+    def test_checksum_matches_engine(self) -> None:
+        self.assertEqual(migration_lock.checksum("SELECT 1;\r\nSELECT 2;"), migration_lock.checksum("SELECT 1;\nSELECT 2;"))
+
+    def test_record_keeps_old_values(self) -> None:
+        import datetime
+
+        data = self.locked()
+        data["launched"][0]["files"]["0001_accounts_and_ledger.sql"] = "keep"
+        again = migration_lock.record(self.ROOT, data, self.DIR, "다시", datetime.date(2026, 12, 1))
+        self.assertEqual(again["launched"][0]["files"]["0001_accounts_and_ledger.sql"], "keep")
+        self.assertEqual(again["launched"][0]["launchedAt"], "2026-11-01")
 
 
 class DataClassSamples(unittest.TestCase):

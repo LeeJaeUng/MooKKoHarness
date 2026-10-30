@@ -58,3 +58,14 @@ TTL Timestamp + INTERVAL 45 DAY DELETE;
 | `otel_logs` | (나머지) | 내부 | 평문 | 시각·서비스 |
 
 보관: TTL 45일.
+
+## 5. 엔진 테이블(서비스가 이름을 정함)
+
+### `<원장>_heads`
+
+| 열 | 형식 | 등급 | 보호 |
+|---|---|---|---|
+| `partition_key` | `text` | 내부 | 평문 |
+| `head_hash` | `bytea` | 내부 | 평문 |
+
+보관: 구간마다 한 행, 지우지 않음.

@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
 import os
 import re
 import sys
@@ -18,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import migration_lock  # noqa: E402
 import pending  # noqa: E402
 import sqltext  # noqa: E402
 from sqltext import IDENT, QNAME, parse_qname, paren_body, split_top_level  # noqa: E402
@@ -719,8 +722,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
     parser.add_argument("--pending", type=Path, default=pending.LIST, help="기한부 유예 목록(시험용)")
+    parser.add_argument("--lock-file", type=Path, default=migration_lock.LIST, help="이관 잠금 목록(시험용)")
+    parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
+    parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
+    parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    locks = migration_lock.load(args.lock_file)
+    if args.lock:
+        if not args.decided_by or not args.launched_at:
+            print("--lock에는 --decided-by와 --launched-at이 필요합니다")
+            return 2
+        updated = migration_lock.record(root, locks, args.lock.rstrip("/"), args.decided_by, args.launched_at)
+        args.lock_file.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"locked {args.lock} in {args.lock_file.name}")
+        return 0
     problems: list[str] = []
     waivers = pending.load(problems, args.pending)
     findings: list[Finding] = []
@@ -733,6 +749,8 @@ def main(argv: list[str] | None = None) -> int:
     findings += rust_findings
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path))]
     waived = [f for f in findings if f not in failing]
+    # 잠금 위반은 유예하지 않음(출시 뒤 이관 다시 쓰기).
+    failing += [Finding(path, 1, "S-MIG-1", message) for path, message in migration_lock.check(root, locks)]
     for f in waived:
         item = pending.match(waivers, f.path)
         print(f"  유예({item.owner}, {item.until} 까지): {f}" if item else f"  유예: {f}")
@@ -743,7 +761,8 @@ def main(argv: list[str] | None = None) -> int:
         for f in failing:
             print(f"  - {f}")
         return 1
-    print(f"migration lint passed ({len(dirs)} dirs, {files} migrations, {rust_files} rust files, 유예 {len(waived)})")
+    locked = len(migration_lock.entries(locks))
+    print(f"migration lint passed ({len(dirs)} dirs, {files} migrations, {rust_files} rust files, 유예 {len(waived)}, 출시 잠금 {locked} dirs)")
     return 0
 
 

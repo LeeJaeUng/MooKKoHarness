@@ -70,6 +70,11 @@ class Section:
     text: list[str] = field(default_factory=list)
 
 
+def table_names(heading: str) -> list[str]:
+    """제목의 백틱 안 테이블 이름. 서비스가 정하는 이름은 `<원장>`처럼 꺾쇠 자리 표시로 쓸 수 있다(엔진 테이블)."""
+    return [n.split(".")[-1] for n in re.findall(r"`((?:[A-Za-z_]|<[^>`]+>)(?:[A-Za-z0-9_.]|<[^>`]+>)*)`", heading)]
+
+
 def snake(name: str) -> str:
     """`PascalCase`·`snake_case` 이름을 비교용 snake로."""
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name).lower()
@@ -112,7 +117,7 @@ def sections(lines: list[str]) -> list[Section]:
             in_fence = not in_fence
         heading = None if in_fence else re.match(r"^(#{2,6})\s+(.*)$", line)
         if heading:
-            names = [n.split(".")[-1] for n in re.findall(r"`([A-Za-z_][A-Za-z0-9_.]*)`", heading.group(2))]
+            names = table_names(heading.group(2))
             out.append(Section(title=heading.group(2), line=no, tables=names, level=len(heading.group(1))))
         else:
             out[-1].text.append(line)
@@ -162,7 +167,7 @@ class DocCheck:
             if heading:
                 self.flush_table(table_rows, current_tables)
                 table_rows = []
-                current_tables = [n.split(".")[-1] for n in re.findall(r"`([A-Za-z_][A-Za-z0-9_.]*)`", heading.group(2))]
+                current_tables = table_names(heading.group(2))
                 continue
             if stripped.startswith("|"):
                 table_rows.append((no, line))
@@ -282,7 +287,7 @@ class DocCheck:
             following = all_sections[index + 1] if index + 1 < len(all_sections) else None
             if following is not None and following.level > section.level:
                 continue  # 아래 절을 묶는 제목(DB 이름 등)
-            if len(section.tables) == 1 and re.match(r"^(?:[\d.]+\s+)?`[A-Za-z_][A-Za-z0-9_.]*`", title):
+            if len(section.tables) == 1 and re.match(r"^(?:[\d.]+\s+)?`(?:(?:[A-Za-z_]|<[^>`]+>)(?:[A-Za-z0-9_.]|<[^>`]+>)*)`", title):
                 table = section.tables[0]
                 if table not in self.classified and table not in self.sql_tables:
                     self.add(section.line, "S-SEC-1", f"`{table}` 절에 열 표가 없음(문장으로만 적음)")

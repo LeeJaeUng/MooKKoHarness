@@ -1,0 +1,4 @@
+{
+  "_doc": "출시된 서비스의 이관 잠금(sql.md S-MIG-1). 출시 전에는 비어 있고, 출시 때 통합 담당이 `python3 -X utf8 scripts/ci/db/migration_lint.py --lock <폴더> --decided-by <근거> --launched-at YYYY-MM-DD`로 적음. 잠긴 파일은 고치거나 지울 수 없음. 손으로 고치지 않음(DB 담당 검토).",
+  "launched": []
+}
