@@ -9,7 +9,7 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 
 ## 이관 파일을 쓸 때
 
-- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 적용된 파일은 고치지 않는다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 계정(`<서비스>_migrate`)으로만, 앱 계정으로 돌리지 않는다(S-BND-2).
+- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 출시된 서비스(`scripts/ci/db/migration-lock.json`에 잠김)의 이관은 고치지 않는다. 출시 전에는 다시 써도 되지만 조건(개발·시험 DB뿐, 설계서 함께, 커밋 본문 `출시 전 이관 다시 씀`)을 지킨다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 계정(`<서비스>_migrate`)으로만, 앱 계정으로 돌리지 않는다(S-BND-2).
 - 머리 첫 줄들: `-- mookko:phase expand|migrate|contract`(필수), `CONCURRENTLY`를 쓰면 `-- mookko:transaction off` + 문장 하나 + `IF NOT EXISTS`(S-MIG-4·6). 스키마가 경로(`crates/services/<서비스>/`)로 정해지지 않으면 `-- mookko:schema <이름>`.
 - 기존 테이블을 바꾸면 맨 앞 `SET LOCAL lock_timeout = '3s';`(S-MIG-5).
 - 기존 테이블에 금지(S-MIG-2): 일반 `CREATE/DROP INDEX`·`REINDEX`(→ `CONCURRENTLY`), 휘발 기본값·`STORED`·`serial` 열 추가, 상수 기본값 없는 `NOT NULL` 열 추가, `ALTER COLUMN TYPE`, 검사 제약 확인 없는 `SET NOT NULL`, `NOT VALID` 없는 외래 키·검사 제약, `USING INDEX` 없는 PK·UNIQUE 추가, `TRUNCATE`·`VACUUM FULL`·`CLUSTER`·`LOCK TABLE`, `CONCURRENTLY` 없는 `DETACH PARTITION`, `UPDATE`·`DELETE`(→ 배경 이관 작업).
