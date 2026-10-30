@@ -2,8 +2,11 @@
 
 2026-10-30 세션마다 따로 쌓인 cargo 빌드 캐시로 WSL 가상 디스크가 189GB까지 자라 C 드라이브가 0이 되었고,
 WSL이 입출력 오류로 멈춰 모든 세션의 빌드·검사가 막혔다. 같은 일이 다시 생기지 않게 check-all.sh가 맨 먼저 부른다.
-- 캐시는 다시 만들 수 있어 휴지통 없이 지워도 된다(사용자 결정 2026-10-30). 지운 것은 기록 파일에 남긴다.
-- 지금 쓰는 캐시(CARGO_TARGET_DIR)와 최근에 쓴 캐시(minIdleMinutes 안)는 지우지 않는다(다른 세션 빌드를 깨지 않게).
+- 캐시는 다시 만들 수 있어 휴지통 없이 지워도 되지만, 마지막으로 쓴 지 24시간(minIdleHours) 넘은 것만 지운다
+  (사용자 결정 2026-10-30). 지금 쓰는 캐시(CARGO_TARGET_DIR)도 지우지 않는다. 지운 것은 기록 파일에 남긴다.
+- 한도를 넘었는데 지울 수 있는 캐시만으로 모자라면 지우지 않고 빌드를 막는다(큰 캐시 목록과 함께, 사용자 결정).
+- 마지막 사용 시각 = 캐시 폴더의 기록 파일(stampFile, 이 검사가 지금 캐시에 매번 남김)과 폴더 아래 두 단계
+  (cargo가 debug/·.fingerprint를 고침) 수정 시각 중 가장 늦은 것. check-all 없이 cargo만 돌린 빌드도 잡힌다.
 - 가상 디스크는 안에서 지워도 줄지 않으므로, 여유 = C 드라이브 남은 공간 + (vhdx 크기 - Linux 사용량)으로 본다.
   안쪽 빈 곳이 compactSlackGiB를 넘으면 압축(diskpart compact, 관리자)을 권한다.
 기준은 scripts/dev/disk-guard.json에서만 읽는다. `--dry-run`이면 지우지 않고 무엇을 지울지만 보인다.
@@ -44,7 +47,7 @@ def tree_size(base: Path) -> int:
 
 
 def last_used(base: Path) -> float:
-    """캐시 폴더와 그 아래 두 단계까지의 가장 늦은 수정 시각(cargo가 debug/·.fingerprint를 고친다)."""
+    """캐시 폴더와 그 아래 두 단계까지의 가장 늦은 수정 시각(기록 파일과 cargo가 고치는 debug/·.fingerprint 포함)."""
     newest = base.stat().st_mtime
     for child in base.iterdir():
         try:
@@ -92,12 +95,16 @@ def prune(settings: dict, dry_run: bool) -> list[str]:
     cache_dir = Path(os.path.expanduser(cache_cfg["dir"]))
     log_path = Path(os.path.expanduser(cache_cfg["log"]))
     current = os.environ.get("CARGO_TARGET_DIR")
-    idle_before = time.time() - cache_cfg["minIdleMinutes"] * 60
+    idle_before = time.time() - cache_cfg["minIdleHours"] * 3600
     found = caches(cache_dir)
     removable = [c for c in found if c.last_used < idle_before and (current is None or c.path != Path(current))]
     total = sum(c.size for c in found)
     room = headroom(settings["host"])
     need_room = 0 if room is None else max(0, settings["host"]["minHeadroomGiB"] * GIB - room[0])
+    freeable = sum(c.size for c in removable)
+    # 지울 수 있는 것만으로 한도를 못 맞추면 하나도 지우지 않고 막는다(check가 알림, 사용자 결정).
+    if freeable < max(need_room, total - cache_cfg["maxTotalGiB"] * GIB, 0):
+        return []
     # 안쪽에서 지운 만큼은 가상 디스크가 다시 쓰므로, 지운 양이 곧 늘어난 여유다.
     done: list[str] = []
     for cache in removable:
@@ -135,22 +142,38 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
     cache_cfg = settings["buildCache"]
     found = caches(Path(os.path.expanduser(cache_cfg["dir"])))
     total = sum(c.size for c in found)
+    top = ", ".join(f"{c.path.name} {c.size / GIB:.1f}GiB" for c in sorted(found, key=lambda c: -c.size)[:5])
+    keep = f"{cache_cfg['minIdleHours']}시간 안에 썼거나 지울 것만으로 모자라 지우지 않음, 사용자 결정 필요"
     if total > cache_cfg["maxTotalGiB"] * GIB:
-        top = ", ".join(f"{c.path.name} {c.size / GIB:.1f}GiB" for c in sorted(found, key=lambda c: -c.size)[:5])
-        problems.append(f"{cache_cfg['dir']}: 빌드 캐시 합계 {total / GIB:.1f}GiB > 한도 {cache_cfg['maxTotalGiB']}GiB, 최근 쓴 것뿐이라 못 지움 ({top})")
+        problems.append(f"{cache_cfg['dir']}: 빌드 캐시 합계 {total / GIB:.1f}GiB > 한도 {cache_cfg['maxTotalGiB']}GiB ({keep}; {top})")
+    for c in found:
+        if c.size > cache_cfg["maxPerDirGiB"] * GIB:
+            problems.append(f"{c.path}: 캐시 {c.size / GIB:.1f}GiB > 폴더 한도 {cache_cfg['maxPerDirGiB']}GiB ({keep})")
     return problems, notes
+
+
+def stamp(settings: dict) -> None:
+    """지금 쓰는 캐시에 마지막 빌드 시각을 남긴다(24시간 판정용)."""
+    current = os.environ.get("CARGO_TARGET_DIR")
+    if not current:
+        return
+    target = Path(current)
+    target.mkdir(parents=True, exist_ok=True)
+    (target / settings["buildCache"]["stampFile"]).touch()
 
 
 def main() -> int:
     dry_run = "--dry-run" in sys.argv[1:]
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    if not dry_run:
+        stamp(settings)
     for line in prune(settings, dry_run):
         print(f"disk guard: {'지울 것' if dry_run else '지움'} {line}")
     problems, notes = check(settings)
     for note in notes:
         print(f"disk guard: 알림 {note}")
     if problems:
-        print("disk guard failed (빌드를 시작하지 않습니다. 통합 담당에 알리세요):")
+        print("disk guard failed (빌드를 시작하지 않습니다. 통합 담당·PM에 알리세요):")
         for p in problems:
             print(f"  - {p}")
         return 1
