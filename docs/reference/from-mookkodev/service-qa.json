@@ -1,0 +1,29 @@
+{
+  "id": "{id}/qa",
+  "title": "{name} QA",
+  "owner": "{owner}",
+  "code": "{code}",
+  "parent": "{id}/lead",
+  "engine": "claude",
+  "engines": ["claude", "codex", "muse"],
+  "permission": "read",
+  "allowedTools": [
+    "Read(./**)", "Grep(./**)", "Glob(./**)",
+    "Bash(dotnet build:*)", "Bash(dotnet test:*)",
+    "Bash(git diff:*)", "Bash(git log:*)", "Bash(git status:*)", "Bash(git show:*)",
+    "Bash(mookko show:*)"
+  ],
+  "workdir": "@worktrees/{id}-qa",
+  "view": "mookko/{id}/work",
+  "rules": ["00_공통.md", "service-qa.md", "@MooKKo/AGENTS.md", "@docs:common", "@docs:qa", "@docs:service", "@MooKKo/{code}AGENTS.md", "@MooKKo/docs/quality/code-quality-security-checklist.md"],
+  "canSend": ["@parent"],
+  "owns": [],
+  "qa": {
+    "passScore": 90,
+    "maxRounds": 3,
+    "maxFollowups": 2,
+    "stopIfSameIssue": 2,
+    "stopIfNoGain": 2,
+    "escalateTo": "pm"
+  }
+}

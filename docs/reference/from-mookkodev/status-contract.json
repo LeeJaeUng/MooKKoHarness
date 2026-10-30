@@ -1,0 +1,491 @@
+{
+  "version": 1,
+  "browser": "openrig_bridge/ui/status-definitions.js",
+  "types": {
+    "job": {
+      "pending": {
+        "label": "대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [
+          "retry",
+          "cancel",
+          "attach",
+          "follow"
+        ],
+        "attention": false,
+        "filterGroup": "pending"
+      },
+      "in-progress": {
+        "label": "진행 중",
+        "tone": "working",
+        "rank": 20,
+        "group": "active",
+        "terminal": false,
+        "actions": [
+          "cancel",
+          "follow"
+        ],
+        "attention": false,
+        "filterGroup": "working"
+      },
+      "blocked": {
+        "label": "막힘",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [
+          "retry",
+          "cancel",
+          "attach",
+          "detach",
+          "follow"
+        ],
+        "attention": true,
+        "filterGroup": "blocked"
+      },
+      "failed": {
+        "label": "실패",
+        "tone": "blocked",
+        "rank": 10,
+        "group": "history",
+        "terminal": true,
+        "actions": [
+          "retry"
+        ],
+        "attention": true,
+        "filterGroup": "failed"
+      },
+      "done": {
+        "label": "작업 완료",
+        "tone": "done",
+        "rank": 40,
+        "group": "history",
+        "terminal": true,
+        "actions": [
+          "retry"
+        ],
+        "attention": false,
+        "reopen": true,
+        "filterGroup": "done"
+      },
+      "canceled": {
+        "label": "취소",
+        "tone": "muted",
+        "rank": 60,
+        "group": "history",
+        "terminal": true,
+        "actions": [
+          "retry"
+        ],
+        "attention": false,
+        "reopen": true,
+        "filterGroup": "history"
+      },
+      "denied": {
+        "label": "거절",
+        "tone": "muted",
+        "rank": 70,
+        "group": "history",
+        "terminal": true,
+        "actions": [
+          "retry"
+        ],
+        "attention": false,
+        "filterGroup": "history"
+      },
+      "handed-off": {
+        "label": "전달 완료",
+        "tone": "done",
+        "rank": 50,
+        "group": "history",
+        "terminal": true,
+        "actions": [
+          "retry"
+        ],
+        "attention": false,
+        "reopen": true,
+        "filterGroup": "history"
+      }
+    },
+    "worker": {
+      "paused": {
+        "label": "멈춤",
+        "tone": "muted",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "stopping": {
+        "label": "멈춤 처리 중",
+        "tone": "pending",
+        "rank": 1,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "starting": {
+        "label": "시작 중",
+        "tone": "working",
+        "rank": 2,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "working": {
+        "label": "작업 중",
+        "tone": "working",
+        "rank": 3,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "needs-input": {
+        "label": "입력 대기",
+        "tone": "blocked",
+        "rank": 4,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "blocked": {
+        "label": "확인 필요",
+        "tone": "blocked",
+        "rank": 5,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "waiting": {
+        "label": "대기",
+        "tone": "pending",
+        "rank": 6,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "idle": {
+        "label": "다음 일감 대기",
+        "tone": "muted",
+        "rank": 7,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      },
+      "no-jobs": {
+        "label": "일감 없음",
+        "tone": "muted",
+        "rank": 8,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false
+      }
+    },
+    "reason": {
+      "cap": {
+        "label": "사용 상한 도달",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "limit": {
+        "label": "계정 한도 도달",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "busy": {
+        "label": "동시 작업 수가 가득 참",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "profile-switch": {
+        "label": "다른 계정 전환 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "manager-queue": {
+        "label": "AI 매니저 자리 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "local-cap": {
+        "label": "PC 자원 상한",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "memory": {
+        "label": "메모리 여유 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "qa-independence": {
+        "label": "다른 엔진의 QA 검토 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "dependency": {
+        "label": "선행 일감 완료 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "launch-retry": {
+        "label": "시작 다시 시도 대기",
+        "tone": "pending",
+        "rank": 30,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": false,
+        "retryable": true,
+        "automatic": true
+      },
+      "nologin": {
+        "label": "로그인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "disabled": {
+        "label": "사용 끔",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": false
+      },
+      "no-selected-engine": {
+        "label": "사용할 엔진 미설정",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "manager": {
+        "label": "AI 매니저 요청 확인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "personal": {
+        "label": "개인 로그인 사용 불가",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": false
+      },
+      "rules-hold": {
+        "label": "최신 규칙 적용 보류",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "launch-failed": {
+        "label": "시작 실패",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "stop-failed": {
+        "label": "멈춤 실패",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "worker-stalled": {
+        "label": "워커 진행 확인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "qa-metadata": {
+        "label": "QA 요청 확인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "external": {
+        "label": "외부 원인 확인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "missing-dependency": {
+        "label": "선행 일감 미확인",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "dependency-ended": {
+        "label": "선행 일감 종료 후 해제 확인 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "dependency-cycle": {
+        "label": "선행 일감 순환 연결",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "inherited-block": {
+        "label": "선행 일감의 장애 해결 필요",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "needs-input": {
+        "label": "워커 입력 대기",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "paused": {
+        "label": "사용자 멈춤",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "actions": [],
+        "attention": true,
+        "retryable": true
+      },
+      "worker-exited": {
+        "label": "담당 워커 종료 · 완료 보고 없음",
+        "tone": "blocked",
+        "rank": 0,
+        "group": "active",
+        "terminal": false,
+        "attention": true,
+        "actions": [],
+        "retryable": false,
+        "automatic": false
+      }
+    }
+  }
+}
