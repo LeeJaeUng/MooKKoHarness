@@ -75,5 +75,6 @@ run python3 -X utf8 scripts/ci/check-boundaries.py
 run python3 -X utf8 scripts/ci/check-no-hardcoded-endpoints.py
 run python3 -X utf8 scripts/ci/check-stack.py
 run python3 -X utf8 scripts/ci/check-lint-escapes.py
+run python3 -X utf8 scripts/ci/check-waivers.py
 run scripts/ci/db/check-db.sh
 echo "== all checks passed"
