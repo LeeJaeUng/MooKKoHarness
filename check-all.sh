@@ -45,7 +45,7 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     echo "== 빌드 자리 $MOOKKO_BUILD_SLOT/$SLOT_COUNT, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
 fi
 
-# 빌드 캐시가 한도를 넘거나 공간이 모자라면 24시간 넘게 안 쓴 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
+# 자기 캐시가 폴더 한도를 넘으면 자기 것만 지우고 새로 빌드하고, 여유가 모자라면 24시간 넘은 남의 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
 # (2026-10-30 C 드라이브 0 사고 뒤, scripts/dev/disk-guard.py).
 if [ -z "${MOOKKO_DISK_GUARD_DONE:-}" ]; then
     python3 -X utf8 scripts/dev/disk-guard.py
