@@ -3,7 +3,7 @@
 2026-10-30 세션마다 따로 쌓인 cargo 빌드 캐시로 WSL 가상 디스크가 189GB까지 자라 C 드라이브가 0이 되었고,
 WSL이 입출력 오류로 멈춰 모든 세션의 빌드·검사가 막혔다. 같은 일이 다시 생기지 않게 check-all.sh가 맨 먼저 부른다.
 - 캐시는 다시 만들 수 있어 휴지통 없이 지워도 되지만, 마지막으로 쓴 지 24시간(minIdleHours) 넘은 것만 지운다
-  (사용자 결정 2026-10-30). 지금 쓰는 캐시(CARGO_TARGET_DIR)도 지우지 않는다. 지운 것은 기록 파일에 남긴다.
+  (사용자 결정 2026-10-30). 지금 쓰는 캐시(CARGO_TARGET_DIR, 돌고 있는 cargo 프로세스의 /proc 환경 포함)도 지우지 않는다. 지운 것은 기록 파일에 남긴다.
 - 한도를 넘었는데 지울 수 있는 캐시만으로 모자라면 지우지 않고 빌드를 막는다(큰 캐시 목록과 함께, 사용자 결정).
 - 마지막 사용 시각 = 캐시 폴더의 기록 파일(stampFile, 이 검사가 지금 캐시에 매번 남김)과 폴더 아래 두 단계
   (cargo가 debug/·.fingerprint를 고침) 수정 시각 중 가장 늦은 것. check-all 없이 cargo만 돌린 빌드도 잡힌다.
@@ -67,6 +67,25 @@ def caches(cache_dir: Path) -> list[Cache]:
     return sorted(found, key=lambda c: c.last_used)  # 오래된 것부터
 
 
+def in_use() -> set[Path]:
+    """지금 돌고 있는 프로세스가 쓰는 캐시(/proc/*/environ의 CARGO_TARGET_DIR). 시험만 오래 돌아 새 파일이 없어도 잡는다."""
+    used: set[Path] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return used
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            environ = (entry / "environ").read_bytes()
+        except OSError:
+            continue  # 끝났거나 남의 프로세스
+        for item in environ.split(b"\0"):
+            if item.startswith(b"CARGO_TARGET_DIR="):
+                used.add(Path(os.fsdecode(item.split(b"=", 1)[1])).resolve())
+    return used
+
+
 def headroom(host: dict) -> tuple[int, int] | None:
     """(여유 바이트, 가상 디스크 안 빈 곳 바이트). 이 PC가 아니면(경로 없음) None."""
     host_path, vhdx = Path(host["path"]), Path(host["vhdx"])
@@ -97,7 +116,10 @@ def prune(settings: dict, dry_run: bool) -> list[str]:
     current = os.environ.get("CARGO_TARGET_DIR")
     idle_before = time.time() - cache_cfg["minIdleHours"] * 3600
     found = caches(cache_dir)
-    removable = [c for c in found if c.last_used < idle_before and (current is None or c.path != Path(current))]
+    busy = in_use()
+    if current:
+        busy.add(Path(current).resolve())
+    removable = [c for c in found if c.last_used < idle_before and c.path.resolve() not in busy]
     total = sum(c.size for c in found)
     room = headroom(settings["host"])
     need_room = 0 if room is None else max(0, settings["host"]["minHeadroomGiB"] * GIB - room[0])
@@ -113,10 +135,14 @@ def prune(settings: dict, dry_run: bool) -> list[str]:
         if not (over_total or over_dir or need_room > 0):
             continue
         reason = "합계 한도" if over_total else ("폴더 한도" if over_dir else "여유 부족")
-        done.append(f"{cache.path} {cache.size / GIB:.1f}GiB ({reason})")
         if not dry_run:
-            shutil.rmtree(cache.path)
+            try:
+                shutil.rmtree(cache.path)
+            except OSError as err:
+                done.append(f"{cache.path} 지우지 못함: {err}")
+                continue
             record(log_path, cache, reason)
+        done.append(f"{cache.path} {cache.size / GIB:.1f}GiB ({reason})")
         total -= cache.size
         need_room = max(0, need_room - cache.size)
     return done

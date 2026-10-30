@@ -10,7 +10,7 @@
   "linuxRoot": { "path": "/", "minFreeGiB": 20 },
   "buildCache": {
     "dir": "~/target",
-    "maxTotalGiB": 60,
+    "maxTotalGiB": 100,
     "maxPerDirGiB": 20,
     "minIdleHours": 24,
     "stampFile": ".mookko-last-build",
