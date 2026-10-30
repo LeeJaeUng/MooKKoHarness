@@ -109,8 +109,17 @@ def shrink_findings(versions: list[tuple[str, dict]]) -> list[tuple[str, str]]:
     return problems
 
 
-def rewrite_findings(commits: list[tuple[str, str, list[tuple[str, str]]]], launched_dirs: set[str]) -> list[tuple[str, str]]:
-    """커밋(SHA, 본문, [(상태, 경로)]) 가운데 잠기지 않은 폴더의 이관을 고친(M)·이름 바꾼(R)·지운(D) 것은 본문 표시가 있어야 함."""
+def prelaunch_allowed(data: dict) -> bool:
+    """출시 전 예외(이미 커밋한 이관 다시 쓰기)가 사용자 결정으로 켜졌는지. 결정 기록(`decidedBy`) 없이는 꺼진 것으로 본다."""
+    rule = data.get("prelaunchRewrite") or {}
+    return rule.get("allowed") is True and bool(rule.get("decidedBy"))
+
+
+def rewrite_findings(
+    commits: list[tuple[str, str, list[tuple[str, str]]]], launched_dirs: set[str], allowed: bool, exempt: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
+    """커밋(SHA, 본문, [(상태, 경로)]) 가운데 이관을 고친(M)·이름 바꾼(R)·지운(D) 것.
+    출시 전 예외가 사용자 결정으로 켜지지 않았으면 표시와 상관없이 모두 문제, 켜졌으면 잠기지 않은 폴더는 본문 표시가 있어야 함."""
     problems: list[tuple[str, str]] = []
     for sha, body, changes in commits:
         for status, path in changes:
@@ -118,8 +127,12 @@ def rewrite_findings(commits: list[tuple[str, str, list[tuple[str, str]]]], laun
                 continue
             if any(path.startswith(d.rstrip("/") + "/") for d in launched_dirs):
                 continue  # 잠긴 폴더는 잠금 검사가 막음
+            if status[:1] == "M" and path in exempt:
+                continue  # 엔진 생성 고정 파일을 등록부 SHA대로(이미 적용된 모양으로) 되돌림 — engine-generated.json
             name = path.rsplit("/", 1)[-1]
-            if REWRITE_MARK not in body or name not in body:
+            if not allowed:
+                problems.append((path, f"커밋 {sha[:10]}이 이미 커밋한 이관을 바꿈 — 출시 전 예외는 사용자 결정 전이라 쓸 수 없음, 새 이관 파일을 더함(S-MIG-1)"))
+            elif REWRITE_MARK not in body or name not in body:
                 problems.append((path, f"커밋 {sha[:10]}이 이미 커밋한 이관을 바꿈 — 본문에 `{REWRITE_MARK} {name}`과 이유(출시 전 예외, sql.md S-MIG-1)"))
     return problems
 

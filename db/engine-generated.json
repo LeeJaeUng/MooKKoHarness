@@ -1,0 +1,13 @@
+{
+  "_doc": "엔진이 만든 SQL을 글자 그대로 고정한 이관 파일 등록부(sql.md S-MIG-11). 이미 코드로 적용한 이관(엔진 create_table_sql 등)을 파일로 옮길 때, 체크섬을 지키려고 엔진 출력과 똑같이 둔 파일만. 등록된 파일은 SHA가 같을 때만 phase 머리(S-MIG-4)·큰따옴표 이름(S-TYPE-6)을 건너뛰고, 나머지 규칙은 그대로 봄. 내용이 바뀌면 예외가 없어짐. DB 담당만 고침. 칸: path, sha256(파일 글, 줄 끝 LF), source(어떤 엔진 함수의 출력), reason, expires, approvedBy.",
+  "files": [
+    {
+      "path": "crates/services/monitoring/migrations/0003_audit_entries.sql",
+      "sha256": "034de2efaf1cc7870995973eefed677d1f8446d425c188b464ebbd1ce19fdd15",
+      "source": "mookko_data::SequencedStream::create_table_sql() (표 audit_entries, 스키마 자리 __SCHEMA__)",
+      "reason": "모니터링 1단계(141410b)가 이관 ID 0003_audit_entries를 엔진 함수 출력으로 적용함. 이미 적용한 DB의 체크섬을 지키려고 파일을 그 출력과 글자 하나까지 같게 고정(QA 10차 S-MIG-1). 그 뒤 바꿀 것은 0006~0008 새 이관으로",
+      "expires": "2027-10-30",
+      "approvedBy": "DB 담당 결정, 통합 담당(MooKKoRustDev) 지지 2026-10-30"
+    }
+  ]
+}

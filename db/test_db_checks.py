@@ -73,6 +73,97 @@ class MigrationLintSamples(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class EngineFixedFiles(unittest.TestCase):
+    """S-MIG-11: 엔진 생성 SQL을 그대로 고정한 파일은 등록부 SHA가 같을 때만 phase 머리·따옴표 이름을 건너뛴다."""
+
+    TEXT = 'CREATE TABLE __SCHEMA__."audit_entries" (id uuid NOT NULL, CONSTRAINT "audit_entries_pkey" PRIMARY KEY (id));\n'
+    PATH = "crates/services/svc/migrations/0003_audit_entries.sql"
+
+    def registry(self, **change: str) -> dict:
+        entry = {
+            "path": self.PATH,
+            "sha256": migration_lint.text_sha(self.TEXT),
+            "source": "SequencedStream::create_table_sql",
+            "reason": "시험",
+            "expires": "2099-01-01",
+            "approvedBy": "DB 담당",
+        }
+        entry.update(change)
+        return {"files": [entry]}
+
+    def test_matching_file_skips_only_header_and_quotes(self) -> None:
+        fixed, problem = migration_lint.engine_fixed_status(self.PATH, self.TEXT.replace("\n", "\r\n"), self.registry())
+        self.assertTrue(fixed)
+        self.assertIsNone(problem)
+        self.assertEqual({f.rule for f in migration_lint.lint_text(self.PATH, self.TEXT, "postgres", "svc", fixed)}, {"S-MONEY-2"})
+        self.assertTrue({"S-MIG-4", "S-TYPE-6"} <= {f.rule for f in migration_lint.lint_text(self.PATH, self.TEXT, "postgres", "svc", False)})
+
+    def test_changed_expired_or_incomplete_entry_gives_no_exception(self) -> None:
+        # 내용이 다르면 예외만 없어지고(보통 규칙으로 판정 — 머리·따옴표가 잡음), 등록부 자체 문제는 따로 알린다.
+        changed = self.TEXT + "-- 바뀜\n"
+        self.assertEqual(migration_lint.engine_fixed_status(self.PATH, changed, self.registry()), (False, None))
+        self.assertTrue({"S-MIG-4", "S-TYPE-6"} <= {f.rule for f in migration_lint.lint_text(self.PATH, changed, "postgres", "svc", False)})
+        for registry, needle in ((self.registry(expires="2000-01-01"), "끝남"), (self.registry(approvedBy=""), "칸이 없음")):
+            fixed, problem = migration_lint.engine_fixed_status(self.PATH, self.TEXT, registry)
+            self.assertFalse(fixed)
+            self.assertIn(needle, problem or "")
+        self.assertEqual(migration_lint.engine_fixed_status("other.sql", self.TEXT, self.registry()), (False, None))
+
+    def test_registered_monitoring_file_is_listed(self) -> None:
+        registry = json.loads(migration_lint.ENGINE_GENERATED.read_text(encoding="utf-8"))
+        for entry in registry["files"]:
+            self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
+            self.assertTrue(entry["approvedBy"] and entry["source"] and entry["reason"])
+
+    def test_restoring_fixed_file_is_not_a_rewrite(self) -> None:
+        commits = [("e" * 40, "[MooKKo] 0003을 엔진 출력으로 되돌림", [("M", self.PATH)])]
+        self.assertEqual(migration_lock.rewrite_findings(commits, set(), allowed=False, exempt=frozenset({self.PATH})), [])
+        self.assertTrue(migration_lock.rewrite_findings(commits, set(), allowed=False))
+
+
+class ServiceDdl(unittest.TestCase):
+    """S-BND-7: 서비스 코드의 DDL은 막고, 기한 안의 예외 등록부에 오른 파일만 통과."""
+
+    ROOT = FIXTURES / "repo-bad"
+    PATH = "crates/services/svc/src/ddl.rs"
+
+    def entry(self, **change: str) -> dict:
+        item = {"id": "t", "paths": [self.PATH], "rule": "S-BND-7", "reason": "시험", "condition": "시험", "expires": "2099-01-01", "approvedBy": "통합 담당"}
+        item.update(change)
+        return {"exceptions": [item]}
+
+    def test_ddl_string_is_caught(self) -> None:
+        found = migration_lint.lint_service_ddl(self.ROOT, {"exceptions": []})
+        self.assertEqual([(f.path, f.line) for f in found], [(self.PATH, 2)])
+
+    def test_registered_exception_passes_until_expiry(self) -> None:
+        self.assertEqual(migration_lint.lint_service_ddl(self.ROOT, self.entry()), [])
+        expired = migration_lint.lint_service_ddl(self.ROOT, self.entry(expires="2000-01-01"))
+        self.assertTrue(any("기한" in f.message for f in expired) and any(f.path == self.PATH for f in expired))
+        self.assertTrue(any("칸이 없음" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(approvedBy=""))))
+
+    def test_repository_registry_is_valid(self) -> None:
+        registry = json.loads(migration_lint.EXCEPTIONS.read_text(encoding="utf-8"))
+        _, problems = migration_lint.exception_paths(registry, today=None)
+        self.assertEqual([p for p in problems if "칸이 없음" in p.message], [])
+
+
+class EmbeddedMigrations(unittest.TestCase):
+    """S-MIG-10·S-MONEY-2: 이관을 실행 파일에 넣어 쓰는 서비스의 ID·파일 대조, transaction off, append_only 지정."""
+
+    def test_bad_service_is_caught(self) -> None:
+        found = migration_lint.lint_embedded(FIXTURES / "repo-embedded")
+        messages = " ".join(f"{f.rule} {f.message}" for f in found)
+        self.assertEqual({f.rule for f in found}, {"S-MIG-10", "S-MONEY-2"}, messages)
+        self.assertIn("`0001_audit`가 파일 이름", messages)
+        self.assertIn("0002_index.sql`은 transaction off", messages)
+        self.assertIn("0003_notes.sql", " ".join(f.path for f in found))
+        self.assertIn("`audit_log`", messages)
+
+    def test_good_service_passes(self) -> None:
+        self.assertEqual(migration_lint.lint_embedded(FIXTURES / "repo-good"), [])
+
+
 class MigrationLockSamples(unittest.TestCase):
     """S-MIG-1 출시 잠금: 출시 전에는 다시 써도 되고, 잠근 뒤에는 바꾸기·지우기·잠그지 않은 새 파일을 막는다."""
 
@@ -145,9 +236,18 @@ class MigrationLockSamples(unittest.TestCase):
             ("c" * 40, "[MooKKo] 몰래 고침", [("M", path)]),
             ("d" * 40, "[MooKKo] 이름 바꿈", [("R100", "crates/services/svc/migrations/0001_renamed.sql"), ("D", path)]),
         ]
-        found = migration_lock.rewrite_findings(commits, set())
+        # 사용자 결정으로 예외가 켜진 뒤: 표시가 있는 커밋만 통과.
+        found = migration_lock.rewrite_findings(commits, set(), allowed=True)
         self.assertEqual(sorted(m[:13] for _, m in found), sorted(["커밋 " + "c" * 10, "커밋 " + "d" * 10, "커밋 " + "d" * 10]))
-        self.assertEqual(migration_lock.rewrite_findings(commits, {"crates/services/svc/migrations"}), [])
+        self.assertEqual(migration_lock.rewrite_findings(commits, {"crates/services/svc/migrations"}, allowed=True), [])
+        # 사용자 결정 전(지금): 표시가 있어도 다시 쓰기는 모두 실패, 새 파일 더하기는 통과.
+        blocked = migration_lock.rewrite_findings(commits, set(), allowed=False)
+        self.assertEqual(sorted(m[:13] for _, m in blocked), sorted(["커밋 " + "b" * 10, "커밋 " + "c" * 10, "커밋 " + "d" * 10, "커밋 " + "d" * 10]))
+
+    def test_prelaunch_exception_needs_recorded_decision(self) -> None:
+        self.assertFalse(migration_lock.prelaunch_allowed({}))
+        self.assertFalse(migration_lock.prelaunch_allowed({"prelaunchRewrite": {"allowed": True, "decidedBy": None}}))
+        self.assertTrue(migration_lock.prelaunch_allowed({"prelaunchRewrite": {"allowed": True, "decidedBy": "사용자 결정 2026-11-01 '…'"}}))
 
 
 class DataClassSamples(unittest.TestCase):
@@ -206,7 +306,8 @@ class ApplySamples(unittest.TestCase):
         for needle in (
             "S-MIG-8 적용 실패 42703",
             "S-MONEY-2 덧붙이기만 하는 `audit_events`에 막기 트리거 없음: TRUNCATE",
-            "S-MONEY-2 `audit_log`의 막기 트리거 함수 `allow_change`가 거부하지 않음",
+            "S-MONEY-2 `audit_log` UPDATE가 막히지 않음",
+            "S-MONEY-2 `audit_log` DELETE가 막히지 않음",
             "S-TYPE `audit_events.amount` 형식 `numeric`",
             "S-MIG-3 `loose_rows`에 기본 키가 없음",
             "S-BND-2 앱 계정이 스키마에 CREATE",

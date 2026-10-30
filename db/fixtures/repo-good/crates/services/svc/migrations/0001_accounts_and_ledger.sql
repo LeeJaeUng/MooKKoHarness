@@ -47,7 +47,7 @@ CREATE TRIGGER ledger_entries_no_truncate
 BEFORE TRUNCATE ON __SCHEMA__.ledger_entries
 FOR EACH STATEMENT EXECUTE FUNCTION __SCHEMA__.reject_change();
 
-GRANT USAGE ON SCHEMA __SCHEMA__ TO svc_app, svc_read;
+GRANT USAGE ON SCHEMA __SCHEMA__ TO svc_app, svc_ro;
 GRANT SELECT, INSERT, UPDATE ON __SCHEMA__.accounts TO svc_app;
 GRANT SELECT, INSERT ON __SCHEMA__.ledger_entries TO svc_app;
-GRANT SELECT ON __SCHEMA__.accounts, __SCHEMA__.ledger_entries TO svc_read;
+GRANT SELECT ON __SCHEMA__.accounts, __SCHEMA__.ledger_entries TO svc_ro;

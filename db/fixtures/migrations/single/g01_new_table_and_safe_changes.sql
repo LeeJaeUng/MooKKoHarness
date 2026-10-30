@@ -41,6 +41,6 @@ INSERT INTO __SCHEMA__.items (item_id, owner_id, label, price_minor, price_curre
 SELECT g, g, 'x', 0, 'KRW' FROM unnest(ARRAY[]::uuid[]) AS g
 ON CONFLICT (item_id) DO NOTHING;
 
-GRANT USAGE ON SCHEMA __SCHEMA__ TO svc_app, svc_read;
+GRANT USAGE ON SCHEMA __SCHEMA__ TO svc_app, svc_ro;
 GRANT SELECT, INSERT, UPDATE ON __SCHEMA__.items TO svc_app;
-GRANT SELECT ON __SCHEMA__.items, __SCHEMA__.item_counts TO svc_read;
+GRANT SELECT ON __SCHEMA__.items, __SCHEMA__.item_counts TO svc_ro;

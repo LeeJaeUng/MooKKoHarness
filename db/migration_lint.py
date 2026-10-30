@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -38,6 +39,7 @@ VOLATILE = re.compile(
     r"txid_current|pg_current_xact_id)\s*\(",
     re.I,
 )
+ROLE_SUFFIXES = ("owner", "migrate", "app", "ro", "recon", "maint", "audit_reader")  # sql.md S-BND-2·5 계정 접미어
 SCHEMA_PLACEHOLDER = "__schema__"  # 이관기가 자기 스키마 이름으로 바꾸는 자리 표시(`__SCHEMA__.테이블`)
 SNAKE = re.compile(r"^[a-z_][a-z0-9_]*$")
 IS = re.I | re.S
@@ -125,8 +127,11 @@ class TableInfo:
 class FileLint:
     """이관 파일 하나의 판정."""
 
-    def __init__(self, rel: str, script: sqltext.Script, dialect: str, schema: str | None, first_line: str = "") -> None:
+    def __init__(
+        self, rel: str, script: sqltext.Script, dialect: str, schema: str | None, first_line: str = "", engine_fixed: bool = False
+    ) -> None:
         self.rel = rel
+        self.engine_fixed = engine_fixed  # 엔진 생성 SQL 고정 파일(engine-generated.json, SHA 일치): phase 머리·따옴표 이름만 건너뜀
         self.script = script
         self.first_line = first_line
         self.dialect = dialect
@@ -156,7 +161,8 @@ class FileLint:
         for line in self.script.late_directives:
             self.add(line, "S-MIG-4", "`-- mookko:` 지시는 첫 문장 앞 머리에만")
         if self.phase is None:
-            self.add(1, "S-MIG-4", "머리에 `-- mookko:phase expand|migrate|contract`가 없음")
+            if not self.engine_fixed:
+                self.add(1, "S-MIG-4", "머리에 `-- mookko:phase expand|migrate|contract`가 없음")
         elif self.phase not in PHASES:
             self.add(d["phase"][1], "S-MIG-4", f"phase `{self.phase}`: expand·migrate·contract 중 하나")
         if "transaction" in d and d["transaction"][0] != "off":
@@ -217,7 +223,7 @@ class FileLint:
             self.add(st.line, "S-TYPE-4", "enum 금지 → text + CHECK (c IN (…))")
         if re.search(r"\b(pgp_sym_encrypt|pgp_pub_encrypt|pgp_sym_decrypt|pgp_pub_decrypt|encrypt_iv|decrypt_iv|encrypt|decrypt|crypt|gen_salt)\s*\(", t, re.I):
             self.add(st.line, "S-SEC-7", "DB 안 암호화(pgcrypto) 금지 — 엔진 FieldCipher")
-        if '"' in t:
+        if '"' in t and not self.engine_fixed:
             self.add(st.line, "S-TYPE-6", "큰따옴표 이름 금지")
         if re.match(r"^SET\b", t, re.I) and not re.match(r"^SET\s+LOCAL\b", t, re.I):
             self.add(st.line, "S-MIG-5", "`SET`은 `SET LOCAL`로만(세션 설정이 풀 접속에 남음)")
@@ -233,9 +239,10 @@ class FileLint:
         to = re.search(r"\bTO\s+(.+?)(?:\s+WITH\b|\s+GRANTED\s+BY\b|$)", t, re.I)
         grantees = [parse_qname(g)[1] for g in to.group(1).split(",")] if to else []
         for grantee in grantees:
-            # 자기 서비스 계정(`<스키마>_app`·`_read`·`_recon`·`_maint`·`_audit_reader` 등, database.md §2.2)만.
-            if grantee != "public" and not re.fullmatch(rf"{re.escape(self.schema or '')}_[a-z][a-z0-9_]*", grantee):
-                self.add(st.line, "S-BND-5", f"`{grantee}`에게 GRANT: 자기 서비스 계정(`{self.schema}_…`)만")
+            # 자기 서비스 계정만: `<스키마>_` + S-BND-2 접미어 목록(넓히기는 규약 변경 — 사용자 결정).
+            allowed = {f"{self.schema}_{suffix}" for suffix in ROLE_SUFFIXES}
+            if grantee != "public" and grantee not in allowed:
+                self.add(st.line, "S-BND-5", f"`{grantee}`에게 GRANT: 자기 서비스 계정({', '.join(sorted(allowed))})만")
         if re.match(r"^GRANT\s+(?:[A-Z ,]*\b)?(CREATE|TEMPORARY|TEMP)\b[^;]*\bON\s+(SCHEMA|DATABASE)\b", t, re.I):
             self.add(st.line, "S-BND-2", "스키마·DB에 CREATE 권한을 주지 않음(DDL은 주인 역할만)")
         privs = re.match(r"^GRANT\s+(.+?)\s+ON\b", t, re.I)
@@ -361,8 +368,8 @@ class FileLint:
             if existing:
                 self.add(line, "S-MIG-4", f"`{table}` 이름 바꾸기 금지 — 새 열·테이블로 넓히기→옮기기→좁히기")
             return
-        if re.match(r"^DISABLE\s+TRIGGER\b", a, re.I) and APPEND_ONLY.search(table):
-            self.add(line, "S-MONEY-2", f"덧붙이기만 하는 `{table}`의 막기 트리거를 끌 수 없음")
+        if re.match(r"^(DISABLE\s+TRIGGER|ENABLE\s+(REPLICA|ALWAYS)\s+TRIGGER)\b", a, re.I) and APPEND_ONLY.search(table):
+            self.add(line, "S-MONEY-2", f"덧붙이기만 하는 `{table}`의 막기 트리거를 끄거나 REPLICA·ALWAYS로 바꿀 수 없음(기본 ENABLE만)")
             return
         add_col = re.match(
             rf"^ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN|EXCLUDE)\b)({IDENT})\s+(.*)$",
@@ -440,6 +447,10 @@ class FileLint:
             self.add(line, "S-MIG-4", "이름 바꾸기 금지(옛 판이 깨짐 — 색인·제약 이름으로 오류를 가르는 코드가 있음)")
         if re.match(r"^DO\b", t, re.I):
             self.add(line, "S-MIG-9", "`DO` 블록 금지(검사가 본문을 볼 수 없음 — 문장을 그대로 씀)")
+        if re.match(r"^(SELECT|CALL|EXECUTE|WITH|PERFORM)\b", t, re.I):
+            self.add(line, "S-MIG-9", "이관 최상위의 함수 호출·`SELECT`·`CALL`·`WITH` 금지(새 이름 함수로 검사를 피해 데이터를 바꿀 수 있음)")
+        if re.search(r"\bsession_replication_role\b", t, re.I):
+            self.add(line, "S-MONEY-2", "`session_replication_role`을 바꾸지 않음(막기 트리거가 돌지 않게 됨)")
         if re.match(r"^CREATE\s+OR\s+REPLACE\s+(FUNCTION|PROCEDURE|TRIGGER)\b", t, re.I):
             self.add(line, "S-MIG-9", "`CREATE OR REPLACE` 금지(막기 함수 바꿔치기 방지) — 새 이름으로 만들고 트리거를 옮긴 뒤 contract에서 옛것을 지움")
         if re.match(r"^(TRUNCATE|VACUUM\s+(\(.*\bFULL\b.*\)|FULL)|CLUSTER|LOCK)\b", t, re.I):
@@ -608,9 +619,33 @@ class FileLint:
         return self.findings
 
 
-def lint_text(rel: str, sql: str, dialect: str, schema: str | None) -> list[Finding]:
+def lint_text(rel: str, sql: str, dialect: str, schema: str | None, engine_fixed: bool = False) -> list[Finding]:
     """이관 SQL 글 하나를 판정한다(시험이 직접 부름)."""
-    return FileLint(rel, sqltext.split(sql), dialect, schema, first_nonempty_line(sql)).run()
+    return FileLint(rel, sqltext.split(sql), dialect, schema, first_nonempty_line(sql), engine_fixed).run()
+
+
+ENGINE_GENERATED = Path(__file__).resolve().parent / "engine-generated.json"
+
+
+def text_sha(text: str) -> str:
+    """등록부의 SHA-256: 파일 글 그대로(자리 표시 `__SCHEMA__` 포함), 줄 끝만 LF로."""
+    return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def engine_fixed_status(rel: str, text: str, registry: dict, today: datetime.date | None = None) -> tuple[bool, str | None]:
+    """(예외 적용 여부, 문제). 등록부에 없으면 (False, None). 있는데 SHA가 다르거나 기한이 지났거나 칸이 빠졌으면 예외 없이 문제."""
+    for entry in registry.get("files", []):
+        if entry.get("path") != rel:
+            continue
+        missing = [k for k in ("path", "sha256", "reason", "expires", "approvedBy", "source") if not entry.get(k)]
+        if missing:
+            return False, f"engine-generated.json 항목에 {missing} 칸이 없음"
+        if datetime.date.fromisoformat(entry["expires"]) < (today or datetime.date.today()):
+            return False, f"엔진 생성 고정 파일 예외가 {entry['expires']}에 끝남"
+        if text_sha(text) != entry["sha256"]:
+            return False, None  # 내용이 등록부 SHA와 다르면 예외 없이 보통 규칙으로 판정(고친 고정 파일은 머리·따옴표 규칙이 잡음)
+        return True, None
+    return False, None
 
 
 def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list[str]]:
@@ -637,6 +672,7 @@ def default_schema(rel_dir: Path) -> str | None:
 
 def lint_dir(root: Path, directory: Path) -> list[Finding]:
     """`migrations/` 폴더 하나: 파일 이름·번호 + 파일마다 판정."""
+    registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
     rel_dir = directory.relative_to(root)
     dialect = "clickhouse" if any("clickhouse" in p for p in rel_dir.parts) else "postgres"
     findings: list[Finding] = []
@@ -655,7 +691,10 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
         override = sqltext.split(text).directives.get("schema")
         if override:
             schema = override[0]
-        findings += lint_text(rel, text, dialect, schema)
+        fixed, problem = engine_fixed_status(rel, text, registry)
+        if problem:
+            findings.append(Finding(rel, 1, "S-MIG-1", problem))
+        findings += lint_text(rel, text, dialect, schema, fixed)
     for expected, actual in enumerate(sorted(numbers), start=1):
         if expected != actual:
             findings.append(Finding(rel_dir.as_posix(), 1, "S-MIG-1", f"번호가 0001부터 빠짐없이 이어지지 않음(기대 {expected:04d}, 실제 {actual:04d})"))
@@ -710,6 +749,116 @@ def rust_strings(text: str) -> list[tuple[int, str]]:
         else:
             i += 1
     return out
+
+
+EMBEDDED = re.compile(
+    r'\(\s*"(?P<id>[^"]+)"\s*,\s*include_str!\(\s*"(?P<path>[^"]*migrations/(?P<file>[^"/]+)\.sql)"\s*\)\s*,?\s*\)', re.S
+)
+
+
+def lint_embedded(root: Path, registry: dict | None = None) -> list[Finding]:
+    """서비스가 이관을 실행 파일에 넣어(`include_str!` + `SchemaMigrator::add`) 쓰는 경우(S-MIG-10, S-MONEY-2):
+    - 코드의 이관 ID는 파일 이름(`.sql` 뺀 것)과 같고, 폴더의 이관 파일은 모두 한 번씩 들어 있어야 함(빠지거나 남는 파일 없음).
+    - `.add()`는 늘 트랜잭션 안에서 돌리므로 첫 줄이 `-- mookko:transaction off`인 파일은 넣을 수 없음(엔진 `add_dir`·도우미 필요, E-DB-13).
+    - 이관이 만드는 덧붙이기만 표(이름에 ledger·journal·audit, `_head(s)` 제외)는 서비스 코드가 `append_only`로 지정해야 함
+      (엔진 `grant`가 지정 안 된 표에 UPDATE·DELETE를 줌). 표 이름 글자와 `append_only`가 crate 소스에 있는지로 본다."""
+    findings: list[Finding] = []
+    if registry is None:
+        registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
+    services = root / "crates" / "services"
+    if not services.is_dir():
+        return findings
+    for crate in sorted(p for p in services.iterdir() if (p / "migrations").is_dir()):
+        sources = walk(crate / "src", lambda name: name.endswith(".rs"))
+        text_by_file = {p: p.read_text(encoding="utf-8") for p in sources}
+        all_text = "\n".join(text_by_file.values())
+        files = {p.name: p for p in sorted((crate / "migrations").glob("*.sql"))}
+        embedded: dict[str, tuple[Path, int, str]] = {}
+        for path, text in text_by_file.items():
+            for m in EMBEDDED.finditer(text):
+                line = text.count("\n", 0, m.start()) + 1
+                rel = path.relative_to(root).as_posix()
+                name = f"{m.group('file')}.sql"
+                if m.group("id") != m.group("file"):
+                    findings.append(Finding(rel, line, "S-MIG-10", f"이관 ID `{m.group('id')}`가 파일 이름 `{name}`과 다름(파일 이름이 이관 ID)"))
+                if name in embedded:
+                    findings.append(Finding(rel, line, "S-MIG-10", f"`{name}`을 두 번 넣음"))
+                embedded[name] = (path, line, m.group("id"))
+        if embedded:
+            for name in sorted(set(files) - set(embedded)):
+                rel = files[name].relative_to(root).as_posix()
+                if engine_fixed_status(rel, files[name].read_text(encoding="utf-8"), registry)[0]:
+                    continue  # 엔진 생성 고정 파일: 코드가 엔진 함수로 같은 글을 만들어 적용함(S-MIG-11)
+                findings.append(Finding(rel, 1, "S-MIG-10", "코드의 이관 목록(include_str)에 이 파일이 없음 — 적용되지 않음"))
+            for name in sorted(set(embedded) - set(files)):
+                path, line, _ = embedded[name]
+                findings.append(Finding(path.relative_to(root).as_posix(), line, "S-MIG-10", f"`migrations/{name}` 파일이 없음"))
+            # 넣은 글을 판정해 `add_concurrent_index`로 보내는 서비스는 transaction off 파일을 넣어도 됨(그 분기 자체는 [QA]).
+            routes_concurrent = "add_concurrent_index" in all_text
+            for name in sorted(set(embedded) & set(files)):
+                if routes_concurrent:
+                    break
+                if first_nonempty_line(files[name].read_text(encoding="utf-8")) == "-- mookko:transaction off":
+                    path, line, _ = embedded[name]
+                    findings.append(
+                        Finding(
+                            path.relative_to(root).as_posix(),
+                            line,
+                            "S-MIG-10",
+                            f"`{name}`은 transaction off인데 include_str + `.add()`는 트랜잭션 안에서 돌림 — `add_concurrent_index` 또는 엔진 도우미(E-DB-13)",
+                        )
+                    )
+        schema = crate.name
+        for path in files.values():
+            for table in created_tables(path.read_text(encoding="utf-8"), "postgres", schema):
+                if APPEND_ONLY.search(table) and (f'"{table}"' not in all_text or "append_only" not in all_text):
+                    findings.append(
+                        Finding(path.relative_to(root).as_posix(), 1, "S-MONEY-2", f"덧붙이기만 하는 `{table}`을 서비스 이관기에서 `append_only`로 지정하지 않음(엔진 grant가 UPDATE·DELETE를 줌)")
+                    )
+    return findings
+
+
+EXCEPTIONS = Path(__file__).resolve().parent / "exceptions.json"
+SERVICE_DDL = re.compile(
+    r"\b(CREATE|ALTER|DROP)\s+(TABLE|INDEX|SCHEMA|FUNCTION|PROCEDURE|TRIGGER|VIEW|ROLE|TYPE|EXTENSION)\b|\bTRUNCATE\b|\bGRANT\b|\bREVOKE\b|"
+    r"\b(ATTACH|DETACH)\s+PARTITION\b",
+    re.I,
+)
+
+
+def exception_paths(registry: dict, today: datetime.date | None = None) -> tuple[set[str], list[Finding]]:
+    """기한 안의 예외 파일과, 등록부 문제(칸 빠짐·기한 지남)."""
+    paths: set[str] = set()
+    problems: list[Finding] = []
+    for item in registry.get("exceptions", []):
+        missing = [k for k in ("id", "paths", "rule", "reason", "condition", "expires", "approvedBy") if not item.get(k)]
+        if missing:
+            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item.get('id')}에 {missing} 칸이 없음"))
+            continue
+        if datetime.date.fromisoformat(item["expires"]) < (today or datetime.date.today()):
+            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']} 기한({item['expires']})이 지남 — 조건: {item['condition']}"))
+            continue
+        paths.update(item["paths"])
+    return paths, problems
+
+
+def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
+    """서비스 crate(`crates/services/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7). DDL은 이관 파일과 엔진 유지보수 작업만 —
+    서비스 실행 경로가 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를 모두 비켜 간다. 기한 있는 예외는 exceptions.json."""
+    allowed, findings = exception_paths(registry)
+    services = root / "crates" / "services"
+    for path in walk(services, lambda name: name.endswith(".rs")):
+        if "src" not in path.relative_to(services).parts:
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel in allowed:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for start, body in rust_strings(text):
+            flat = " ".join(body.split())
+            if SERVICE_DDL.search(flat):
+                findings.append(Finding(rel, text.count("\n", 0, start) + 1, "S-BND-7", "서비스 코드의 DDL·권한 문장 금지 — 이관 파일(migrations/)이나 엔진 유지보수 작업으로(기한 있는 예외는 exceptions.json)"))
+    return findings
 
 
 def lint_rust(root: Path) -> tuple[list[Finding], int]:
@@ -769,9 +918,22 @@ def history_findings(root: Path, locks: dict, lock_file: Path) -> list[tuple[str
         print(f"  {message}")
         return []
     launched = {e["dir"] for e in migration_lock.entries(locks) if e.get("dir")}
+    allowed = migration_lock.prelaunch_allowed(locks)
+    problems: list[tuple[str, str]] = []
+    registry_paths = {e.get("path") for e in json.loads(ENGINE_GENERATED.read_text(encoding="utf-8")).get("files", [])}
     for path in migration_lock.uncommitted_rewrites(root):
-        print(f"  알림: {path} — 이미 커밋한 이관을 바꿈. 커밋 본문에 `{migration_lock.REWRITE_MARK} <파일>`과 이유가 있어야 CI가 통과")
-    return migration_lock.shrink_findings(versions) + migration_lock.rewrite_findings(commits, launched)
+        if path in registry_paths:
+            continue  # 엔진 생성 고정 파일(SHA는 lint_dir이 확인)
+        if allowed:
+            print(f"  알림: {path} — 이미 커밋한 이관을 바꿈. 커밋 본문에 `{migration_lock.REWRITE_MARK} <파일>`과 이유가 있어야 CI가 통과")
+        else:
+            problems.append((path, "이미 커밋한 이관을 바꿈 — 출시 전 예외는 사용자 결정 전이라 쓸 수 없음, 되돌리고 새 이관 파일을 더함(S-MIG-1)"))
+    registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
+    exempt = frozenset(
+        e["path"] for e in registry.get("files", [])
+        if (root / e.get("path", "")).is_file() and engine_fixed_status(e["path"], (root / e["path"]).read_text(encoding="utf-8"), registry)[0]
+    )
+    return problems + migration_lock.shrink_findings(versions) + migration_lock.rewrite_findings(commits, launched, allowed, exempt)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -779,6 +941,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
     parser.add_argument("--pending", type=Path, default=pending.LIST, help="기한부 유예 목록(시험용)")
     parser.add_argument("--lock-file", type=Path, default=migration_lock.LIST, help="이관 잠금 목록(시험용)")
+    parser.add_argument("--exceptions", type=Path, default=EXCEPTIONS, help="기한 있는 예외 등록부(시험용)")
     parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
     parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
     parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")
@@ -808,6 +971,8 @@ def main(argv: list[str] | None = None) -> int:
         files += sum(1 for p in directory.iterdir() if p.suffix == ".sql")
         findings += lint_dir(root, directory)
     rust_findings, rust_files = lint_rust(root)
+    rust_findings += lint_embedded(root)
+    rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
     findings += rust_findings
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path))]
     waived = [f for f in findings if f not in failing]

@@ -3,13 +3,14 @@
 글로 읽는 검사(migration_lint.py)가 놓치는 것 — 문법 오류, 트랜잭션 안의 CONCURRENTLY, 계정·주인, 실제로 생긴 형식, 막기 함수 — 를
 시험용 PostgreSQL(scripts/dev/with-test-postgres.sh, 접속 JSON은 MOOKKO_TEST_POSTGRES)에서 엔진 이관기와 같은 길로 확인한다.
 서비스 `migrations/` 폴더마다:
-1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_read`·`_recon`·`_maint`.
+1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_ro`·`_recon`·`_maint`.
    스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
 2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 비어 있지 않은 첫 줄이
    `-- mookko:transaction off`면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
 3. 엔진 `grant`처럼 권한을 맞춘 뒤(덧붙이기만 표는 이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
    기본 키, 금지 형식, enum, 기본 파티션, 잘못된 색인, 앱 계정 권한(스키마 CREATE·TRUNCATE·TRIGGER·REFERENCES·덧붙이기만 표의
-   UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거와 그 함수가 실제로 거부하는지(RAISE, TRUNCATE를 실제로 시도), 객체 주인.
+   UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거(기본 ENABLE만 켜진 것으로 셈)와 그것이 실제로 거부하는지
+   (UPDATE·DELETE는 같은 모양 임시 표에 같은 트리거를 붙여 해 보고, TRUNCATE는 원래 표에 해 봄), 객체 주인.
 4. DB와 계정을 지운다(시험 컨테이너 안, 파일 아님).
 접속 설정이 없으면 "건너뜀(통과 아님)"을 출력하고, MOOKKO_REQUIRE_TEST_POSTGRES=1이면 실패한다.
 """
@@ -33,7 +34,7 @@ from pgwire import Connection, PgError, quote_ident, quote_literal  # noqa: E402
 
 APPEND_ONLY = "ledger|journal|audit"
 HEAD = "_heads?$"  # 사슬·구간 머리는 지금 상태 표(migration_lint.APPEND_ONLY와 같음)
-ROLE_SUFFIXES = ("owner", "migrate", "app", "read", "recon", "maint")
+ROLE_SUFFIXES = ("owner", "migrate", "app", "ro", "recon", "maint")
 OUTSIDE_TRANSACTION = "-- mookko:transaction off"  # 엔진 migrate.rs와 같은 표시
 LOCK_TIMEOUT_MS = 3000  # 엔진 MigrateSettings 기본값
 TIMEOUT_SECONDS = 30.0
@@ -137,13 +138,49 @@ def grant_like_engine(db: Connection, target: Target) -> None:
     서비스가 실제로 지정했는지는 [QA]."""
     schema = quote_ident(target.schema)
     app = quote_ident(f"{target.schema}_app")
-    reader = quote_ident(f"{target.schema}_read")
+    reader = quote_ident(f"{target.schema}_ro")
     sql = [f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;", f"GRANT USAGE ON SCHEMA {schema} TO {app}, {reader};"]
     for (name,) in db.query(f"SELECT tablename FROM pg_tables WHERE schemaname = {quote_literal(target.schema)} ORDER BY 1").rows:
         table = f"{schema}.{quote_ident(name or '')}"
         allowed = "SELECT, INSERT" if re.search(APPEND_ONLY, name or "") and not re.search(HEAD, name or "") else "SELECT, INSERT, UPDATE, DELETE"
         sql += [f"REVOKE ALL ON {table} FROM {app};", f"GRANT {allowed} ON {table} TO {app};", f"GRANT SELECT ON {table} TO {reader};"]
     db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
+
+
+def probe_row_change(db: Connection, schema: str, table: str, event: str) -> str | None:
+    """덧붙이기만 표의 UPDATE·DELETE를 실제로 해 본다. 원래 표에 넣을 행은 제약 때문에 만들 수 없으므로, 열만 같은 임시 표
+    (`CREATE TEMP TABLE … AS … WITH NO DATA` — NOT NULL·CHECK가 없음)에 원래 표의 켜진 UPDATE·DELETE 트리거를 같은 함수로
+    붙이고, 빈 행 하나를 넣은 뒤 바꿔 본다. 거부되면 통과, 바뀌면 문제. 모두 한 트랜잭션 안에서 하고 되돌린다."""
+    qualified = f"{quote_ident(schema)}.{quote_ident(table)}"
+    try:
+        db.query("BEGIN")
+        db.query(f"CREATE TEMP TABLE dbcheck_probe ON COMMIT DROP AS SELECT * FROM {qualified} WITH NO DATA")
+        definitions = db.query(
+            f"SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t WHERE t.tgrelid = {quote_literal(qualified)}::regclass "
+            f"AND NOT t.tgisinternal AND t.tgenabled = 'O' AND t.tgtype & (8 | 16) <> 0"
+        ).rows
+        for (definition,) in definitions:
+            moved = re.sub(r"\bON\s+\S+\s+FOR\s+EACH\b", "ON pg_temp.dbcheck_probe FOR EACH", definition or "", count=1)
+            db.query(moved)
+        db.query("INSERT INTO pg_temp.dbcheck_probe DEFAULT VALUES")
+        column = db.query(
+            "SELECT attname FROM pg_attribute WHERE attrelid = 'pg_temp.dbcheck_probe'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum LIMIT 1"
+        ).rows[0][0]
+        statement = (
+            f"UPDATE pg_temp.dbcheck_probe SET {quote_ident(column or '')} = {quote_ident(column or '')}"
+            if event == "UPDATE"
+            else "DELETE FROM pg_temp.dbcheck_probe"
+        )
+    except PgError as error:
+        db.query("ROLLBACK")
+        return f"{event} 시험을 준비하지 못함 {error.sqlstate} {error.message}"
+    try:
+        db.query(statement)
+    except PgError:
+        db.query("ROLLBACK")
+        return None  # 막기 트리거가 거부함(기대한 결과)
+    db.query("ROLLBACK")
+    return f"{event}가 막히지 않음(막기 트리거 함수가 거부하지 않음)"
 
 
 def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
@@ -197,7 +234,7 @@ def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
         f"SELECT c.relname, "
         f"bool_or(t.tgtype & 16 <> 0), bool_or(t.tgtype & 8 <> 0), bool_or(t.tgtype & 32 <> 0) "
         f"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-        f"LEFT JOIN pg_trigger t ON t.tgrelid = c.oid AND NOT t.tgisinternal AND t.tgenabled <> 'D' "
+        f"LEFT JOIN pg_trigger t ON t.tgrelid = c.oid AND NOT t.tgisinternal AND t.tgenabled = 'O' "
         f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p') AND NOT c.relispartition AND c.relname ~ '{APPEND_ONLY}' AND c.relname !~ '{HEAD}' "
         f"GROUP BY c.relname ORDER BY 1"
     )
@@ -206,13 +243,10 @@ def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
         if missing:
             problems.append(f"{where}: S-MONEY-2 덧붙이기만 하는 `{name}`에 막기 트리거 없음: {', '.join(missing)}")
             continue
-        # 막기 함수가 실제로 거부하는지(바꿔치기한 함수는 RETURN NEW만 할 수 있음). 행 트리거는 행이 없으면 돌지 않으므로 본문을 본다.
-        for (function,) in rows(
-            f"SELECT DISTINCT p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_class c ON c.oid = t.tgrelid "
-            f"JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = {s} AND c.relname = {quote_literal(name or '')} "
-            f"AND NOT t.tgisinternal AND t.tgtype & (8 | 16 | 32) <> 0 AND p.prosrc !~* 'raise[[:space:]]+exception' ORDER BY 1"
-        ):
-            problems.append(f"{where}: S-MONEY-2 `{name}`의 막기 트리거 함수 `{function}`가 거부하지 않음(RAISE EXCEPTION 없음)")
+        for event in ("UPDATE", "DELETE"):
+            problem = probe_row_change(db, target.schema, name or "", event)
+            if problem:
+                problems.append(f"{where}: S-MONEY-2 `{name}` {problem}")
         try:
             db.query(f"BEGIN; TRUNCATE {quote_ident(target.schema)}.{quote_ident(name or '')};")
             problems.append(f"{where}: S-MONEY-2 `{name}` TRUNCATE가 막히지 않음")

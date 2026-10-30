@@ -1,0 +1,14 @@
+{
+  "_doc": "DB 규약 기한 있는 예외 등록부(sql.md S-BND-7). 지금은 서비스 코드의 DDL(이관 밖)만 받음. 칸: id, paths(저장소 기준 파일), rule, reason, condition(끝내는 조건), expires(YYYY-MM-DD, 이 날이 지나면 check-db 실패), approvedBy. DB 담당만 고침. 엔진 생성 고정 이관 파일은 engine-generated.json, 규약 전 파일 유예는 pending.json.",
+  "exceptions": [
+    {
+      "id": "links-partition-maintain",
+      "paths": ["crates/services/links/src/guard.rs"],
+      "rule": "S-BND-7, S-PART-3",
+      "reason": "엔진 파티션 유지보수 작업(E-DB-5)이 오기 전까지 `mookko-links maintain`이 이관 계정(links_migrate, SET LOCAL ROLE links_owner)으로 통계·클릭 달 파티션 만들기(CREATE TABLE … PARTITION OF), 보관 기한 지난 파티션 떼기(DETACH PARTITION … CONCURRENTLY)·지우기(DROP TABLE)를 함(docs/spec/links/data-model.md §4). 앱 계정(links_app)은 DDL을 하지 않음",
+      "condition": "엔진 E-DB-5가 통합된 뒤 다음 links 단위에서 `links_maint` + 파티션 함수(`ensure_partitions`·`detach_partitions_before`)로 옮기고 이 항목을 지움",
+      "expires": "2026-11-30",
+      "approvedBy": "통합 담당(MooKKoRustDev) 2026-10-30"
+    }
+  ]
+}
