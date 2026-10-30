@@ -125,14 +125,16 @@ class TableInfo:
 class FileLint:
     """이관 파일 하나의 판정."""
 
-    def __init__(self, rel: str, script: sqltext.Script, dialect: str, schema: str | None) -> None:
+    def __init__(self, rel: str, script: sqltext.Script, dialect: str, schema: str | None, first_line: str = "") -> None:
         self.rel = rel
         self.script = script
+        self.first_line = first_line
         self.dialect = dialect
         self.schema = schema
         self.findings: list[Finding] = []
         self.created: dict[str, TableInfo] = {}
         self.triggers: dict[str, set[str]] = {}
+        self.added: dict[str, list[str]] = {}  # ALTER TABLE … ADD COLUMN으로 더한 열(설계서 대조용)
         self.validated = False
         self.lock_timeout_set = False
         phase = script.directives.get("phase")
@@ -229,11 +231,13 @@ class FileLint:
         if re.search(r"\bTO\s+(?:.*,\s*)?PUBLIC\b", t, re.I) or re.search(r"^GRANT\s+ALL\b", t, re.I) or re.search(r"\bWITH\s+(GRANT|ADMIN)\s+OPTION\b", t, re.I):
             self.add(st.line, "S-BND-5", "`TO PUBLIC`·`GRANT ALL`·`WITH GRANT OPTION` 금지")
         to = re.search(r"\bTO\s+(.+?)(?:\s+WITH\b|\s+GRANTED\s+BY\b|$)", t, re.I)
-        allowed = {f"{self.schema}_{suffix}" for suffix in ("app", "ro", "recon", "maint")}
         grantees = [parse_qname(g)[1] for g in to.group(1).split(",")] if to else []
         for grantee in grantees:
-            if grantee != "public" and grantee not in allowed:
-                self.add(st.line, "S-BND-5", f"`{grantee}`에게 GRANT: 자기 서비스 계정({', '.join(sorted(allowed))})만")
+            # 자기 서비스 계정(`<스키마>_app`·`_read`·`_recon`·`_maint`·`_audit_reader` 등, database.md §2.2)만.
+            if grantee != "public" and not re.fullmatch(rf"{re.escape(self.schema or '')}_[a-z][a-z0-9_]*", grantee):
+                self.add(st.line, "S-BND-5", f"`{grantee}`에게 GRANT: 자기 서비스 계정(`{self.schema}_…`)만")
+        if re.match(r"^GRANT\s+(?:[A-Z ,]*\b)?(CREATE|TEMPORARY|TEMP)\b[^;]*\bON\s+(SCHEMA|DATABASE)\b", t, re.I):
+            self.add(st.line, "S-BND-2", "스키마·DB에 CREATE 권한을 주지 않음(DDL은 주인 역할만)")
         privs = re.match(r"^GRANT\s+(.+?)\s+ON\b", t, re.I)
         on = re.search(r"\bON\s+(?:TABLE\s+)?(.+?)\s+TO\b", t, re.I)
         if privs and on and re.search(r"\b(UPDATE|DELETE|TRUNCATE)\b", privs.group(1), re.I):
@@ -371,6 +375,7 @@ class FileLint:
             ctype = column_type(body)
             self.check_name(line, add_col.group(1), "열")
             self.check_column_type(line, table, cname, ctype)
+            self.added.setdefault(table, []).append(cname)
             if self.phase == "contract":
                 self.add(line, "S-MIG-4", "contract 파일에 ADD COLUMN(넓히기)을 섞지 않음")
             if existing:
@@ -379,6 +384,10 @@ class FileLint:
                     self.add(line, "S-MIG-2b", f"`{table}.{cname}`: 휘발 기본값·STORED·identity·serial 열 추가는 테이블을 다시 씀")
                 elif re.search(r"\bNOT\s+NULL\b", body, re.I) and not default:
                     self.add(line, "S-MIG-2c", f"`{table}.{cname}`: NOT NULL 열은 상수 기본값과 함께만(아니면 NULL로 넓히고 나중에 굳힘)")
+                if re.search(r"\b(UNIQUE|PRIMARY\s+KEY)\b", body, re.I):
+                    self.add(line, "S-MIG-2g", f"`{table}.{cname}`: 열 추가와 UNIQUE·PK를 한 문장에 두면 잠근 채 색인을 만듦 — CONCURRENTLY 색인 뒤 USING INDEX")
+                if re.search(r"\b(CHECK|REFERENCES)\b", body, re.I):
+                    self.add(line, "S-MIG-2f", f"`{table}.{cname}`: 열 추가와 CHECK·REFERENCES를 한 문장에 두면 잠근 채 검증함 — NOT VALID 제약을 따로 더한 뒤 VALIDATE")
             return
         if not existing:
             return
@@ -427,8 +436,12 @@ class FileLint:
         trig = re.match(rf"^DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?{IDENT}\s+ON\s+({QNAME})", t, re.I)
         if trig and APPEND_ONLY.search(parse_qname(trig.group(1))[1]):
             self.add(line, "S-MONEY-2", "덧붙이기만 하는 테이블의 막기 트리거를 지울 수 없음")
-        if re.match(r"^ALTER\s+(VIEW|MATERIALIZED\s+VIEW|SCHEMA|FUNCTION|PROCEDURE|SEQUENCE|TYPE)\b.*\b(RENAME|SET\s+SCHEMA)\b", t, re.I):
-            self.add(line, "S-MIG-4", "이름 바꾸기 금지(옛 판이 깨짐)")
+        if re.match(r"^ALTER\s+(VIEW|MATERIALIZED\s+VIEW|SCHEMA|FUNCTION|PROCEDURE|SEQUENCE|TYPE|INDEX)\b.*\b(RENAME|SET\s+SCHEMA)\b", t, re.I):
+            self.add(line, "S-MIG-4", "이름 바꾸기 금지(옛 판이 깨짐 — 색인·제약 이름으로 오류를 가르는 코드가 있음)")
+        if re.match(r"^DO\b", t, re.I):
+            self.add(line, "S-MIG-9", "`DO` 블록 금지(검사가 본문을 볼 수 없음 — 문장을 그대로 씀)")
+        if re.match(r"^CREATE\s+OR\s+REPLACE\s+(FUNCTION|PROCEDURE|TRIGGER)\b", t, re.I):
+            self.add(line, "S-MIG-9", "`CREATE OR REPLACE` 금지(막기 함수 바꿔치기 방지) — 새 이름으로 만들고 트리거를 옮긴 뒤 contract에서 옛것을 지움")
         if re.match(r"^(TRUNCATE|VACUUM\s+(\(.*\bFULL\b.*\)|FULL)|CLUSTER|LOCK)\b", t, re.I):
             self.add(line, "S-MIG-2h", "TRUNCATE·VACUUM FULL·CLUSTER·LOCK TABLE 금지")
         upd = re.match(rf"^(?:UPDATE\s+(?:ONLY\s+)?|DELETE\s+FROM\s+(?:ONLY\s+)?)({QNAME})", t, re.I)
@@ -465,13 +478,21 @@ class FileLint:
                 if re.search(r"\bCONCURRENTLY\b", st.text, re.I):
                     self.add(st.line, "S-MIG-6", "CONCURRENTLY는 트랜잭션 안에서 돌 수 없음 — `-- mookko:transaction off` 파일에 문장 하나로")
             return
+        if self.first_line != "-- mookko:transaction off":
+            self.add(1, "S-MIG-6", "`-- mookko:transaction off`는 파일의 비어 있지 않은 첫 줄(엔진 이관기가 그 줄만 봄 — 아니면 트랜잭션 안에서 돌다 실패)")
         if len(stmts) != 1:
             self.add(1, "S-MIG-6", f"transaction off 파일에는 문장 하나만(지금 {len(stmts)}개)")
         for st in stmts:
-            if not re.search(r"\bCONCURRENTLY\b", st.text, re.I):
-                self.add(st.line, "S-MIG-6", "transaction off 파일은 CONCURRENTLY 문장만")
-            if not re.search(r"\bIF\s+(NOT\s+)?EXISTS\b", st.text, re.I) and not re.match(r"^(REINDEX|ALTER\s+TABLE)\b", st.text, re.I):
-                self.add(st.line, "S-MIG-6", "다시 해도 안전하게 `IF NOT EXISTS`·`IF EXISTS`")
+            # 엔진 `add_concurrent_index`가 받는 모양만: 이름 있는 CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS, 표는 스키마를 붙여서.
+            if not re.match(
+                rf"^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+{IDENT}\s+ON\s+{IDENT}\s*\.\s*{IDENT}", st.text, re.I
+            ):
+                self.add(
+                    st.line,
+                    "S-MIG-6",
+                    "transaction off 파일은 `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <이름> ON __SCHEMA__.<표>`만"
+                    "(엔진이 DROP·REINDEX·DETACH CONCURRENTLY는 아직 지원하지 않음)",
+                )
 
     def check_append_only(self) -> None:
         for table, info in self.created.items():
@@ -589,7 +610,22 @@ class FileLint:
 
 def lint_text(rel: str, sql: str, dialect: str, schema: str | None) -> list[Finding]:
     """이관 SQL 글 하나를 판정한다(시험이 직접 부름)."""
-    return FileLint(rel, sqltext.split(sql), dialect, schema).run()
+    return FileLint(rel, sqltext.split(sql), dialect, schema, first_nonempty_line(sql)).run()
+
+
+def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list[str]]:
+    """이관 글이 만드는 테이블과 열(파티션 자식은 부모 열을 받으므로 뺌). 설계서 대조(data_classes.py)가 씀."""
+    lint = FileLint("", sqltext.split(sql), dialect, schema, first_nonempty_line(sql))
+    lint.run()
+    tables = {name: list(info.columns) for name, info in lint.created.items() if not info.is_partition}
+    for name, columns in lint.added.items():
+        tables.setdefault(name, []).extend(c for c in columns if c not in tables.get(name, []))
+    return tables
+
+
+def first_nonempty_line(sql: str) -> str:
+    """엔진 이관기(`migrate.rs` `outside_transaction`)가 보는 줄: 비어 있지 않은 첫 줄, 앞뒤 공백 뺌."""
+    return next((line.strip() for line in sql.replace("\r\n", "\n").split("\n") if line.strip()), "")
 
 
 def default_schema(rel_dir: Path) -> str | None:
@@ -718,6 +754,26 @@ def migration_dirs(root: Path) -> list[Path]:
     return sorted(dirs)
 
 
+def history_findings(root: Path, locks: dict, lock_file: Path) -> list[tuple[str, str]]:
+    """git 기록으로 보는 S-MIG-1: 잠금 목록 줄이기, 출시 전 이관 다시 쓰기의 커밋 본문 표시. 기록을 못 읽으면 건너뜀(통과 아님)."""
+    since = locks.get("historyCheckedSince")
+    required = os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1"
+    if not since or lock_file.resolve() != migration_lock.LIST.resolve():
+        return []  # 시험용 목록·뿌리
+    commits = migration_lock.history_commits(root, since)
+    versions = migration_lock.lock_versions(root, since, locks) if commits is not None else None
+    if commits is None or versions is None:
+        message = "git 기록을 읽을 수 없어 잠금 목록 줄이기·커밋 본문 표시 확인을 건너뜀(통과 아님)"
+        if required:
+            return [(migration_lock.LIST_REL, message + " — MOOKKO_REQUIRE_GIT_HISTORY=1")]
+        print(f"  {message}")
+        return []
+    launched = {e["dir"] for e in migration_lock.entries(locks) if e.get("dir")}
+    for path in migration_lock.uncommitted_rewrites(root):
+        print(f"  알림: {path} — 이미 커밋한 이관을 바꿈. 커밋 본문에 `{migration_lock.REWRITE_MARK} <파일>`과 이유가 있어야 CI가 통과")
+    return migration_lock.shrink_findings(versions) + migration_lock.rewrite_findings(commits, launched)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
@@ -726,6 +782,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
     parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
     parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")
+    parser.add_argument("--schema", help="--lock: 운영 스키마 이름(기본은 서비스 이름, 엔진 SHA 계산에 씀)")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     locks = migration_lock.load(args.lock_file)
@@ -733,7 +790,12 @@ def main(argv: list[str] | None = None) -> int:
         if not args.decided_by or not args.launched_at:
             print("--lock에는 --decided-by와 --launched-at이 필요합니다")
             return 2
-        updated = migration_lock.record(root, locks, args.lock.rstrip("/"), args.decided_by, args.launched_at)
+        rel_dir = args.lock.rstrip("/")
+        schema = args.schema or default_schema(Path(rel_dir))
+        if not schema:
+            print("--lock 폴더의 스키마를 정할 수 없음 — --schema <이름>")
+            return 2
+        updated = migration_lock.record(root, locks, rel_dir, schema, args.decided_by, args.launched_at)
         args.lock_file.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"locked {args.lock} in {args.lock_file.name}")
         return 0
@@ -751,6 +813,7 @@ def main(argv: list[str] | None = None) -> int:
     waived = [f for f in findings if f not in failing]
     # 잠금 위반은 유예하지 않음(출시 뒤 이관 다시 쓰기).
     failing += [Finding(path, 1, "S-MIG-1", message) for path, message in migration_lock.check(root, locks)]
+    failing += [Finding(path, 1, "S-MIG-1", message) for path, message in history_findings(root, locks, args.lock_file)]
     for f in waived:
         item = pending.match(waivers, f.path)
         print(f"  유예({item.owner}, {item.until} 까지): {f}" if item else f"  유예: {f}")

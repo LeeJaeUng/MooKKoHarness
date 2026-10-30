@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import sys
@@ -81,11 +82,15 @@ class MigrationLockSamples(unittest.TestCase):
     def locked(self) -> dict:
         import datetime
 
-        return migration_lock.record(self.ROOT, {"launched": []}, self.DIR, "시험", datetime.date(2026, 11, 1))
+        return migration_lock.record(self.ROOT, {"launched": []}, self.DIR, "svc", "시험", datetime.date(2026, 11, 1))
 
     def test_prelaunch_has_no_lock(self) -> None:
         self.assertEqual(migration_lock.check(self.ROOT, {"launched": []}), [])
-        self.assertEqual(migration_lock.entries(migration_lock.load()), [], "출시 전에는 잠금 목록이 비어 있어야 함")
+
+    def test_repository_lock_is_consistent(self) -> None:
+        # 출시한 날에도 깨지지 않게: 실제 목록이 비었는지가 아니라 실제 저장소와 맞는지를 본다.
+        self.assertEqual(migration_lock.check(HERE.parents[2], migration_lock.load()), [])
+        self.assertIn("historyCheckedSince", migration_lock.load())
 
     def test_locked_unchanged_passes(self) -> None:
         data = self.locked()
@@ -104,16 +109,45 @@ class MigrationLockSamples(unittest.TestCase):
         self.assertIn("잠금 목록에 더함", messages)
 
     def test_checksum_matches_engine(self) -> None:
-        self.assertEqual(migration_lock.checksum("SELECT 1;\r\nSELECT 2;"), migration_lock.checksum("SELECT 1;\nSELECT 2;"))
+        import hashlib
+
+        # 엔진: `__SCHEMA__` → `"svc"` 바꾼 뒤 줄 끝을 맞춰 SHA-256(migrate.rs add_dir·push).
+        expected = hashlib.sha256('CREATE TABLE "svc".t (id int);\nSELECT 1;'.encode()).hexdigest()
+        self.assertEqual(migration_lock.checksum("CREATE TABLE __SCHEMA__.t (id int);\r\nSELECT 1;", "svc"), expected)
+        self.assertNotEqual(migration_lock.checksum("CREATE TABLE __SCHEMA__.t (id int);", "other"), expected)
 
     def test_record_keeps_old_values(self) -> None:
         import datetime
 
         data = self.locked()
         data["launched"][0]["files"]["0001_accounts_and_ledger.sql"] = "keep"
-        again = migration_lock.record(self.ROOT, data, self.DIR, "다시", datetime.date(2026, 12, 1))
+        again = migration_lock.record(self.ROOT, data, self.DIR, "svc", "다시", datetime.date(2026, 12, 1))
         self.assertEqual(again["launched"][0]["files"]["0001_accounts_and_ledger.sql"], "keep")
         self.assertEqual(again["launched"][0]["launchedAt"], "2026-11-01")
+
+    def test_shrinking_the_lock_list_fails(self) -> None:
+        data = self.locked()
+        removed_file = json.loads(json.dumps(data))
+        del removed_file["launched"][0]["files"]["0001_accounts_and_ledger.sql"]
+        changed = json.loads(json.dumps(data))
+        changed["launched"][0]["decidedBy"] = "다른 근거"
+        self.assertEqual(migration_lock.shrink_findings([("a", {"launched": []}), ("b", data), ("c", data)]), [])
+        self.assertTrue(migration_lock.shrink_findings([("b", data), ("c", {"launched": []})]))
+        self.assertIn("0001_accounts_and_ledger.sql", " ".join(m for _, m in migration_lock.shrink_findings([("b", data), ("c", removed_file)])))
+        self.assertIn("decidedBy", " ".join(m for _, m in migration_lock.shrink_findings([("b", data), ("c", changed)])))
+
+    def test_rewrite_needs_commit_mark(self) -> None:
+        path = "crates/services/svc/migrations/0001_accounts_and_ledger.sql"
+        marked = f"[MooKKo] 고침\n\n{migration_lock.REWRITE_MARK} 0001_accounts_and_ledger.sql — 출시 전, 시험 DB뿐\n"
+        commits = [
+            ("a" * 40, "[MooKKo] 새 이관", [("A", "crates/services/svc/migrations/0006_new.sql")]),
+            ("b" * 40, marked, [("M", path)]),
+            ("c" * 40, "[MooKKo] 몰래 고침", [("M", path)]),
+            ("d" * 40, "[MooKKo] 이름 바꿈", [("R100", "crates/services/svc/migrations/0001_renamed.sql"), ("D", path)]),
+        ]
+        found = migration_lock.rewrite_findings(commits, set())
+        self.assertEqual(sorted(m[:13] for _, m in found), sorted(["커밋 " + "c" * 10, "커밋 " + "d" * 10, "커밋 " + "d" * 10]))
+        self.assertEqual(migration_lock.rewrite_findings(commits, {"crates/services/svc/migrations"}), [])
 
 
 class DataClassSamples(unittest.TestCase):
@@ -125,6 +159,23 @@ class DataClassSamples(unittest.TestCase):
             got = {p.rule for p in data_classes.check_text(path.name, text)}
             with self.subTest(path.name):
                 self.assertEqual(got, expected(text, r"<!-- expect: (.*?) -->"))
+
+
+class MigrationCoverage(unittest.TestCase):
+    """S-SEC-1 이관 대조: 서비스 이관이 만드는 열(ADD COLUMN 포함)마다 그 서비스 설계서에 등급이 있어야 한다."""
+
+    def test_complete_doc_passes(self) -> None:
+        self.assertEqual(data_classes.migration_coverage(FIXTURES / "repo-good"), [])
+
+    def test_missing_doc_and_column_fail(self) -> None:
+        found = data_classes.migration_coverage(FIXTURES / "apply-bad")
+        self.assertTrue(any("`audit_events`의 열 등급 표" in p.message for p in found), found)
+        tables = migration_lint.created_tables(
+            "-- mookko:phase expand\nSET LOCAL lock_timeout = '3s';\nALTER TABLE __SCHEMA__.accounts ADD COLUMN nickname text;\n",
+            "postgres",
+            "svc",
+        )
+        self.assertEqual(tables, {"accounts": ["nickname"]})
 
 
 class PendingList(unittest.TestCase):
@@ -154,11 +205,11 @@ class ApplySamples(unittest.TestCase):
         self.assertEqual(code, 1, out)
         for needle in (
             "S-MIG-8 적용 실패 42703",
-            "S-MONEY-2 앱 계정이 `audit_events`에 UPDATE",
             "S-MONEY-2 덧붙이기만 하는 `audit_events`에 막기 트리거 없음: TRUNCATE",
+            "S-MONEY-2 `audit_log`의 막기 트리거 함수 `allow_change`가 거부하지 않음",
             "S-TYPE `audit_events.amount` 형식 `numeric`",
             "S-MIG-3 `loose_rows`에 기본 키가 없음",
-            "S-BND-2 앱 계정이 `loose_rows`에 TRUNCATE",
+            "S-BND-2 앱 계정이 스키마에 CREATE",
         ):
             self.assertIn(needle, out)
 

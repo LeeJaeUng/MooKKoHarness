@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import migration_lint  # noqa: E402
 import pending  # noqa: E402
 import sqltext  # noqa: E402
 from sqltext import IDENT, QNAME, paren_body, parse_qname, split_top_level  # noqa: E402
@@ -310,6 +311,41 @@ def design_docs(root: Path) -> list[Path]:
     return sorted(out)
 
 
+def service_docs(root: Path, service: str) -> list[Path]:
+    """서비스 하나의 설계서: `crates/services/<서비스>/`와 `docs/spec/<서비스>/` 아래 `*data-model.md`."""
+    return [p for p in design_docs(root) if p.relative_to(root).parts[:3] == ("crates", "services", service)
+            or p.relative_to(root).parts[:3] == ("docs", "spec", service)]
+
+
+def migration_coverage(root: Path) -> list[Problem]:
+    """서비스 이관이 만드는 테이블의 열마다 그 서비스 설계서에 등급이 있는지(S-SEC-1). 설계서 표 형식만 보면 놓치는 것을 잡는다."""
+    problems: list[Problem] = []
+    for directory in migration_lint.migration_dirs(root):
+        rel_dir = directory.relative_to(root)
+        service = migration_lint.default_schema(rel_dir)
+        if not service or any("clickhouse" in part for part in rel_dir.parts):
+            continue
+        classified: dict[str, dict[str, str]] = {}
+        for doc in service_docs(root, service):
+            check = DocCheck(doc.relative_to(root).as_posix(), doc.read_text(encoding="utf-8"))
+            check.run()
+            for table, columns in check.classified.items():
+                classified.setdefault(table, {}).update(columns)
+        for path in sorted(directory.glob("*.sql")):
+            rel = path.relative_to(root).as_posix()
+            for table, columns in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service).items():
+                known = classified.get(table)
+                if known is None:
+                    problems.append(Problem(rel, 1, "S-SEC-1", f"이관이 만드는 `{table}`의 열 등급 표가 `{service}` 설계서에 없음"))
+                    continue
+                if REST in known:
+                    continue
+                missing = [c for c in columns if c not in known]
+                if missing:
+                    problems.append(Problem(rel, 1, "S-SEC-1", f"이관의 `{table}` 열이 설계서 등급 표에 없음: {', '.join(missing)}"))
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
@@ -334,6 +370,12 @@ def main(argv: list[str] | None = None) -> int:
         if not found and item is not None:
             print(f"  알림: {rel}은 이제 통과합니다 — pending.json에서 지워도 됩니다")
         failing += found
+    for problem in migration_coverage(root):
+        item = pending.match(waivers, problem.path)
+        if pending.is_waived(item):
+            print(f"  유예({item.owner}, {item.until} 까지): {problem}")
+        else:
+            failing.append(problem)
     if failing or load_problems:
         print(f"data class check failed ({len(failing) + len(load_problems)}):")
         for line in load_problems:

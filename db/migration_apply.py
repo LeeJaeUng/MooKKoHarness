@@ -1,13 +1,16 @@
 """이관 실제 적용 시험 (docs/policy/conventions/sql.md S-MIG-8·S-MIG-3·S-BND-2·S-MONEY-2, database.md §2·§7).
 
-글로 읽는 검사(migration_lint.py)가 놓치는 것 — 문법 오류, 트랜잭션 안의 CONCURRENTLY, 계정 권한, 실제로 생긴 형식 — 을
-시험용 PostgreSQL(scripts/dev/with-test-postgres.sh, 접속 JSON은 MOOKKO_TEST_POSTGRES)에서 확인한다.
+글로 읽는 검사(migration_lint.py)가 놓치는 것 — 문법 오류, 트랜잭션 안의 CONCURRENTLY, 계정·주인, 실제로 생긴 형식, 막기 함수 — 를
+시험용 PostgreSQL(scripts/dev/with-test-postgres.sh, 접속 JSON은 MOOKKO_TEST_POSTGRES)에서 엔진 이관기와 같은 길로 확인한다.
 서비스 `migrations/` 폴더마다:
-1. 새 DB와 서비스 계정(`<스키마>_migrate`·`_app`·`_ro`·`_recon`·`_maint`)을 DB 준비 스크립트처럼 만든다(database.md §2.2).
-2. 이관 계정으로 파일을 차례대로 적용한다(`__SCHEMA__`는 스키마 이름으로, 파일마다 한 트랜잭션, `transaction off`는 따로).
-3. 목록(catalog)으로 다시 본다: 기본 키, 금지 형식, enum, 기본 파티션, 잘못된 색인, 앱 계정 권한(DDL·TRUNCATE·덧붙이기만 표의
-   UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거(TRUNCATE를 실제로 시도).
-4. DB와 계정을 지운다.
+1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_read`·`_recon`·`_maint`.
+   스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
+2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 비어 있지 않은 첫 줄이
+   `-- mookko:transaction off`면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
+3. 엔진 `grant`처럼 권한을 맞춘 뒤(덧붙이기만 표는 이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
+   기본 키, 금지 형식, enum, 기본 파티션, 잘못된 색인, 앱 계정 권한(스키마 CREATE·TRUNCATE·TRIGGER·REFERENCES·덧붙이기만 표의
+   UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거와 그 함수가 실제로 거부하는지(RAISE, TRUNCATE를 실제로 시도), 객체 주인.
+4. DB와 계정을 지운다(시험 컨테이너 안, 파일 아님).
 접속 설정이 없으면 "건너뜀(통과 아님)"을 출력하고, MOOKKO_REQUIRE_TEST_POSTGRES=1이면 실패한다.
 """
 
@@ -25,12 +28,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import sqltext  # noqa: E402
-from migration_lint import ROOT, default_schema, migration_dirs  # noqa: E402
+from migration_lint import ROOT, default_schema, first_nonempty_line, migration_dirs  # noqa: E402
 from pgwire import Connection, PgError, quote_ident, quote_literal  # noqa: E402
 
 APPEND_ONLY = "ledger|journal|audit"
 HEAD = "_heads?$"  # 사슬·구간 머리는 지금 상태 표(migration_lint.APPEND_ONLY와 같음)
-ROLE_SUFFIXES = ("migrate", "app", "ro", "recon", "maint")
+ROLE_SUFFIXES = ("owner", "migrate", "app", "read", "recon", "maint")
+OUTSIDE_TRANSACTION = "-- mookko:transaction off"  # 엔진 migrate.rs와 같은 표시
+LOCK_TIMEOUT_MS = 3000  # 엔진 MigrateSettings 기본값
 TIMEOUT_SECONDS = 30.0
 FORBIDDEN_TYPES = (
     "'real', 'double precision', 'numeric', 'money', 'json', 'timestamp without time zone', "
@@ -80,38 +85,41 @@ def targets(root: Path) -> list[Target]:
 
 
 def bootstrap(admin: Connection, database: str, schema: str, password: str) -> None:
-    """DB 준비 스크립트가 하는 일(database.md §2.2)."""
+    """DB 준비 스크립트가 하는 일(database.md §2.2): 주인 역할(로그인 없음), 이관 계정(주인 역할의 구성원), 앱·읽기 계정."""
     for suffix in ROLE_SUFFIXES:
         role = quote_ident(f"{schema}_{suffix}")
         login = f"LOGIN PASSWORD {quote_literal(password)}" if suffix == "migrate" else "NOLOGIN"
         admin.query(f"CREATE ROLE {role} {login} NOSUPERUSER NOCREATEDB NOCREATEROLE")
+    admin.query(f"GRANT {quote_ident(schema + '_owner')} TO {quote_ident(schema + '_migrate')}")
     admin.query(f"CREATE DATABASE {quote_ident(database)}")
     admin.query(f"REVOKE ALL ON DATABASE {quote_ident(database)} FROM PUBLIC")
     roles = ", ".join(quote_ident(f"{schema}_{s}") for s in ROLE_SUFFIXES)
     admin.query(f"GRANT CONNECT ON DATABASE {quote_ident(database)} TO {roles}")
 
 
-def bootstrap_schema(db_admin: Connection, database: str, schema: str) -> None:
-    migrate = quote_ident(f"{schema}_migrate")
+def bootstrap_schema(db_admin: Connection, schema: str) -> None:
     db_admin.query(
         f"REVOKE ALL ON SCHEMA public FROM PUBLIC;\n"
-        f"CREATE SCHEMA {quote_ident(schema)} AUTHORIZATION {migrate};\n"
-        f"ALTER ROLE {migrate} IN DATABASE {quote_ident(database)} SET search_path = {quote_ident(schema)}, pg_catalog;\n"
-        f"ALTER ROLE {migrate} IN DATABASE {quote_ident(database)} SET lock_timeout = '3s';"
+        f"CREATE SCHEMA {quote_ident(schema)} AUTHORIZATION {quote_ident(schema + '_owner')};"
     )
 
 
 def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
+    """엔진 `SchemaMigrator`와 같은 길: 비어 있지 않은 첫 줄이 `-- mookko:transaction off`면 트랜잭션 밖 한 문장,
+    아니면 트랜잭션 안에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout` → 문장(migrate.rs, engine.md §저장소)."""
     applied = 0
+    owner = quote_ident(f"{target.schema}_owner")
     for path in sorted(target.directory.glob("*.sql")):
         text = path.read_text(encoding="utf-8").replace("__SCHEMA__", quote_ident(target.schema))
-        tx_off = sqltext.split(text).directives.get("transaction", ("",))[0] == "off"
         rel = f"{target.rel}/{path.name}"
         try:
-            if tx_off:
+            if first_nonempty_line(text) == OUTSIDE_TRANSACTION:
                 conn.query(text)
             else:
-                conn.query(f"BEGIN;\n{text}\n;COMMIT;")
+                conn.query(
+                    f"BEGIN;\nSET LOCAL ROLE {owner};\nSET LOCAL search_path = {quote_ident(target.schema)}, pg_catalog;\n"
+                    f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_MS}ms';\n{text}\n;COMMIT;"
+                )
             applied += 1
         except PgError as error:
             problems.append(f"{rel}: S-MIG-8 적용 실패 {error.sqlstate} {error.message}")
@@ -121,6 +129,21 @@ def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
                 pass  # 이미 트랜잭션 밖(transaction off 파일)
             break
     return applied
+
+
+def grant_like_engine(db: Connection, target: Target) -> None:
+    """엔진 `SchemaMigrator::grant`와 같은 권한: 앱 계정은 표마다 DML만, 덧붙이기만 표는 SELECT·INSERT만, 읽기 계정은 SELECT.
+    덧붙이기만 표는 서비스가 `append_only`로 지정한 것이라 SQL에서 알 수 없으므로 이름 규칙(S-MONEY-2)으로 고른다 —
+    서비스가 실제로 지정했는지는 [QA]."""
+    schema = quote_ident(target.schema)
+    app = quote_ident(f"{target.schema}_app")
+    reader = quote_ident(f"{target.schema}_read")
+    sql = [f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;", f"GRANT USAGE ON SCHEMA {schema} TO {app}, {reader};"]
+    for (name,) in db.query(f"SELECT tablename FROM pg_tables WHERE schemaname = {quote_literal(target.schema)} ORDER BY 1").rows:
+        table = f"{schema}.{quote_ident(name or '')}"
+        allowed = "SELECT, INSERT" if re.search(APPEND_ONLY, name or "") and not re.search(HEAD, name or "") else "SELECT, INSERT, UPDATE, DELETE"
+        sql += [f"REVOKE ALL ON {table} FROM {app};", f"GRANT {allowed} ON {table} TO {app};", f"GRANT SELECT ON {table} TO {reader};"]
+    db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
 
 
 def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
@@ -183,12 +206,27 @@ def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
         if missing:
             problems.append(f"{where}: S-MONEY-2 덧붙이기만 하는 `{name}`에 막기 트리거 없음: {', '.join(missing)}")
             continue
+        # 막기 함수가 실제로 거부하는지(바꿔치기한 함수는 RETURN NEW만 할 수 있음). 행 트리거는 행이 없으면 돌지 않으므로 본문을 본다.
+        for (function,) in rows(
+            f"SELECT DISTINCT p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_class c ON c.oid = t.tgrelid "
+            f"JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = {s} AND c.relname = {quote_literal(name or '')} "
+            f"AND NOT t.tgisinternal AND t.tgtype & (8 | 16 | 32) <> 0 AND p.prosrc !~* 'raise[[:space:]]+exception' ORDER BY 1"
+        ):
+            problems.append(f"{where}: S-MONEY-2 `{name}`의 막기 트리거 함수 `{function}`가 거부하지 않음(RAISE EXCEPTION 없음)")
         try:
-            db.query(f"BEGIN; TRUNCATE {quote_ident(target.schema)}.{quote_ident(name)};")
+            db.query(f"BEGIN; TRUNCATE {quote_ident(target.schema)}.{quote_ident(name or '')};")
             problems.append(f"{where}: S-MONEY-2 `{name}` TRUNCATE가 막히지 않음")
-        except PgError:
-            pass  # 막기 트리거가 거부함(기대한 결과)
+        except PgError as error:
+            # 시험 계정은 초사용자라 권한 문제가 아니라 트리거가 거부한 것이어야 함(사용자 정의 오류 코드는 그대로 둠).
+            if error.sqlstate.startswith(("42P", "0A")):
+                problems.append(f"{where}: S-MONEY-2 `{name}` TRUNCATE가 트리거가 아닌 이유로 실패 {error.sqlstate} {error.message}")
         db.query("ROLLBACK")
+    owner = quote_literal(f"{target.schema}_owner")
+    for name, kind, actual in rows(
+        f"SELECT c.relname, c.relkind::text, pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND pg_get_userbyid(c.relowner) <> {owner} ORDER BY 1"
+    ):
+        problems.append(f"{where}: S-BND-2 `{name}`({kind})의 주인이 `{actual}` — 주인 역할 `{target.schema}_owner`(SET LOCAL ROLE)로 만듦")
 
 
 def run_target(config: dict, target: Target) -> list[str]:
@@ -200,10 +238,11 @@ def run_target(config: dict, target: Target) -> list[str]:
         try:
             bootstrap(admin, database, target.schema, password)
             with connect(config, config["user"], config["password"], database) as db_admin:
-                bootstrap_schema(db_admin, database, target.schema)
+                bootstrap_schema(db_admin, target.schema)
             with connect(config, f"{target.schema}_migrate", password, database) as migrate:
                 applied = apply_files(migrate, target, problems)
             with connect(config, config["user"], config["password"], database) as db_admin:
+                grant_like_engine(db_admin, target)
                 catalog_checks(db_admin, target, problems)
             print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용")
         finally:
