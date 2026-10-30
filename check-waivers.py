@@ -1,7 +1,7 @@
 """관문 waived 예외 등록부 검사(docs/policy/waivers.json, gates.md › waived).
 
 waived는 근거 문서와 만료일이 있는 등록부 항목이 있어야 한다. 이 검사는 항목마다 칸이 다 있는지, paths와 adr이 가리키는
-파일이 저장소에 있는지, 만료일이 지나지 않았는지, id가 겹치지 않는지를 본다. 하나라도 어기면 실패한다.
+파일이 저장소에 있는지, 만료일이 지나지 않았고 오늘부터 MAX_DAYS 안인지(끝없는 예외 막기), id가 겹치지 않는지를 본다. 하나라도 어기면 실패한다.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = ROOT / "docs" / "policy" / "waivers.json"
+MAX_DAYS = 180  # 예외는 길어야 반년. 더 필요하면 다시 승인받아 날짜를 고친다.
 FIELDS = ("id", "paths", "rule", "reason", "adr", "condition", "expires", "approvedBy")
 
 
@@ -35,6 +36,8 @@ def check(data: dict, today: datetime.date) -> list[str]:
             continue
         if expires < today:
             problems.append(f"waivers.json: {name}: {item['expires']}에 만료됨({item['condition']})")
+        elif (expires - today).days > MAX_DAYS:
+            problems.append(f"waivers.json: {name}: expires {item['expires']}가 오늘부터 {MAX_DAYS}일을 넘음")
         for rel in item["paths"]:
             if not (ROOT / rel).exists():
                 problems.append(f"waivers.json: {name}: 없는 경로 {rel}")
