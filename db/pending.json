@@ -9,6 +9,24 @@
       "owner": "operations-dev",
       "until": "2026-11-08",
       "reason": "S-SEC-9(2026-11-01, 엔진 E-DB-12 d569b5a): audit_reasons.reason(개인)을 읽기 계정 operations_ro에서 감추기 — READER_HIDDEN 또는 READER_COLUMNS를 reader_hidden·reader_columns로 넘김"
+    },
+    {
+      "path": "crates/services/links",
+      "rules": [
+        "S-PART-3"
+      ],
+      "owner": "links-dev",
+      "until": "2026-11-30",
+      "reason": "S-PART-3(2026-11-01, 엔진 E-DB-5 af8c252·통합 d0274dd): 파티션 부모 daily_stats·click_events·audit_events를 서비스 코드에서 SchemaMigrator::partitioned(PartitionedTable::monthly(…).keep_days(n))로 엔진에 넘기고, 서비스 코드의 파티션 DDL(exceptions.json S-BND-7, 같은 기한)을 지움"
+    },
+    {
+      "path": "crates/services/operations",
+      "rules": [
+        "S-PART-3"
+      ],
+      "owner": "operations-dev",
+      "until": "2026-11-30",
+      "reason": "S-PART-3(2026-11-01, 엔진 E-DB-5 af8c252·통합 d0274dd): 파티션 부모 audit_events·audit_reasons를 서비스 코드에서 SchemaMigrator::partitioned(PartitionedTable::monthly(…).keep_days(n))로 엔진에 넘기고, 서비스 코드의 파티션 DDL(exceptions.json S-BND-7, 같은 기한)을 지움"
     }
   ]
 }

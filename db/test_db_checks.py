@@ -5,6 +5,7 @@
 - fixtures/repo-good, repo-bad: 폴더 단위(이름·번호·Rust 문자열)
 - fixtures/data-model/*.md: `<!-- expect: … -->`
 - fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9)
+- fixtures/repo-partition-bad: 파티션 부모를 엔진에 적기(S-PART-3)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
 """
 
@@ -349,6 +350,17 @@ class MigrationCoverage(unittest.TestCase):
             "svc",
         )
         self.assertEqual(tables, {"accounts": ["nickname"]})
+
+
+class PartitionedTables(unittest.TestCase):
+    """S-PART-3: 이관은 파티션 부모만 만들고(달 파티션 `PARTITION OF` 금지), 부모는 서비스 코드가 엔진 `partitioned`로 적는다(E-DB-5)."""
+
+    def test_good_repo_registers_parent(self) -> None:
+        self.assertEqual(migration_lint.lint_partitioned(FIXTURES / "repo-good"), [])
+
+    def test_unregistered_parent_is_caught(self) -> None:
+        found = migration_lint.lint_partitioned(FIXTURES / "repo-partition-bad")
+        self.assertEqual([(f.rule, "`events`" in f.message) for f in found], [("S-PART-3", True)], found)
 
 
 class ReaderCoverage(unittest.TestCase):

@@ -34,10 +34,6 @@ CREATE TABLE __SCHEMA__.ledger_entries (
     CONSTRAINT ledger_entries_idempotency UNIQUE (idempotency_key, occurred_at)
 ) PARTITION BY RANGE (occurred_at);
 
-CREATE TABLE __SCHEMA__.ledger_entries_2026_10 PARTITION OF __SCHEMA__.ledger_entries
-    FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00');
-CREATE TABLE __SCHEMA__.ledger_entries_2026_11 PARTITION OF __SCHEMA__.ledger_entries
-    FOR VALUES FROM ('2026-11-01 00:00:00+00') TO ('2026-12-01 00:00:00+00');
 
 CREATE TRIGGER ledger_entries_append_only
 BEFORE UPDATE OR DELETE ON __SCHEMA__.ledger_entries

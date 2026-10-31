@@ -2,8 +2,7 @@
 
 DB 규약이 생기기 전에 들어온 파일(이관·설계서)은 담당이 고칠 때까지 기한을 두고 경고로만 알린다.
 기한이 지나면 그 파일의 판정이 다시 실패가 된다. 목록에 없는 새 파일은 처음부터 실패.
-항목: path(파일 또는 폴더, 저장소 기준), owner, until(YYYY-MM-DD), reason, 고를 수 있는 rules(규칙 ID 목록 — 있으면 그 규칙 판정만 유예하고,
-규칙을 넘기지 않는 검사(migration_lint)에는 효력이 없음). 근거: docs/policy/conventions/sql.md.
+항목: path(파일 또는 폴더, 저장소 기준), owner, until(YYYY-MM-DD), reason, 고를 수 있는 rules(규칙 ID 목록 — 있으면 그 규칙 판정만 유예). 근거: docs/policy/conventions/sql.md.
 """
 
 from __future__ import annotations

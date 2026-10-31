@@ -8,6 +8,13 @@ const LEDGER_TABLE: &str = "ledger_entries";
 const READER_COLUMNS: &[(&str, &[&str])] = &[("accounts", &["account_id", "state", "created_at", "closed_at", "region"])];
 
 // migrator: SchemaMigrator::new(schema).add_dir(dir).await?.append_only(&SqlName::parse(LEDGER_TABLE)?)
+
+fn ledger_partitions(migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+    // 달 파티션 `ledger_entries_YYYYMM`은 엔진이 만들고 기한 지난 달을 떼어 지움(S-PART-3, E-DB-5).
+    let table = PartitionedTable::monthly(SqlName::parse(LEDGER_TABLE)?, PartitionKey::TimestampUtc).keep_days(1830);
+    Ok(migrator.partitioned(table.archive_before_drop()))
+}
+
 fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
     for (table, columns) in READER_COLUMNS {
         migrator = migrator.reader_columns(&SqlName::parse(table)?, &names(columns)?);

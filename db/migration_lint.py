@@ -122,6 +122,7 @@ class TableInfo:
     line: int
     columns: dict[str, str] = field(default_factory=dict)
     is_partition: bool = False
+    partitioned: bool = False
 
 
 class FileLint:
@@ -272,6 +273,8 @@ class FileLint:
         rest = m.group("rest")
         if re.match(r"^PARTITION\s+OF\b", rest, re.I):
             info.is_partition = True
+            if self.dialect == "postgres":
+                self.add(st.line, "S-PART-3", "달 파티션은 이관이 만들지 않음 — 부모만 만들고 엔진 `partitioned`가 `<표>_YYYYMM`을 만듦(E-DB-5)")
             if re.search(rf"^PARTITION\s+OF\s+{QNAME}\s+DEFAULT\b", rest, re.I):
                 self.add(st.line, "S-PART-2", "기본(DEFAULT) 파티션 금지 — 앞 파티션을 미리 만듦")
             return True
@@ -282,6 +285,7 @@ class FileLint:
             self.add(st.line, "S-MIG-3", "열 목록을 읽을 수 없음")
             return True
         body, after = paren_body(rest, 0)
+        info.partitioned = bool(re.search(r"\bPARTITION\s+BY\b", rest[after:], re.I))
         has_pk = False
         keys: list[tuple[str, list[str]]] = []
         for element in split_top_level(body):
@@ -710,6 +714,62 @@ def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list
     return tables
 
 
+def partitioned_parents(sql: str, schema: str | None) -> list[str]:
+    """이관 글이 만드는 파티션 부모 표(`PARTITION BY`)."""
+    lint = FileLint("", sqltext.split(sql), "postgres", schema, outside_transaction(sql))
+    lint.run()
+    return [name for name, info in lint.created.items() if info.partitioned]
+
+
+PARTITIONED_CALL = re.compile(r"PartitionedTable::monthly\(")
+STR_CONST = re.compile(r"\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*&(?:'static\s+)?str\s*=\s*\"([^\"]*)\"\s*;")
+PARTITIONED_LIST = re.compile(r"\bconst\s+PARTITIONED\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
+
+
+def registered_partitions(text: str) -> set[str]:
+    """`PartitionedTable::monthly(…)` 첫 인자로 엔진에 넘긴 표 이름(주석은 뺀 글). 인정하는 모양: 글자(`"표"`), `&str` 상수 이름,
+    또는 `const PARTITIONED: &[…] = &[…]`(그 안의 글자 모두, 반복문으로 넘길 때). 그 밖의 모양은 검사가 따라가지 못하므로 쓰지 않는다."""
+    if ".partitioned(" not in text:
+        return set()
+    consts = dict(STR_CONST.findall(text))
+    names: set[str] = set()
+    for m in PARTITIONED_CALL.finditer(text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        args = text[m.end():i - 1]
+        names.update(re.findall(r"\"([^\"]*)\"", args))
+        names.update(consts[ident] for ident in re.findall(r"\b[A-Z][A-Z0-9_]*\b", args) if ident in consts)
+        if re.search(r"\bPARTITIONED\b", text[:m.start()]) or "PARTITIONED" in args:
+            listed = PARTITIONED_LIST.search(text)
+            if listed:
+                names.update(re.findall(r"\"([^\"]*)\"", listed.group(1)))
+    return names
+
+
+def lint_partitioned(root: Path) -> list[Finding]:
+    """S-PART-3: 서비스 이관이 만든 파티션 부모는 모두 서비스 코드가 엔진 이관기에 `partitioned(PartitionedTable::monthly(…))`로
+    적어야 한다(E-DB-5). 안 적으면 아무도 달 파티션을 만들지 않아 기본 파티션 없는 표(S-PART-2)에 쓰기가 막힌다."""
+    findings: list[Finding] = []
+    for directory in migration_dirs(root):
+        rel_dir = directory.relative_to(root)
+        if any("clickhouse" in part for part in rel_dir.parts):
+            continue
+        schema = default_schema(rel_dir)
+        registered: set[str] = set()
+        for path in walk(directory.parent / "src", lambda name: name.endswith(".rs")):
+            registered |= registered_partitions(re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8")))
+        for path in sorted(directory.glob("*.sql")):
+            for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
+                if table not in registered:
+                    findings.append(Finding(
+                        path.relative_to(root).as_posix(), 1, "S-PART-3",
+                        f"파티션 부모 `{table}`을 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly(…))`로 적지 않음(E-DB-5)",
+                    ))
+    return findings
+
+
 def header_lines(sql: str) -> list[str]:
     """엔진 이관기(`migrate.rs` `header`)의 머리: 줄마다 앞뒤 공백을 빼고, 앞쪽 빈 줄을 건너뛴 뒤 `--`로 시작하는 줄이 이어지는 동안."""
     lines = [line.strip() for line in sql.replace("\r\n", "\n").split("\n")]
@@ -1065,14 +1125,15 @@ def main(argv: list[str] | None = None) -> int:
     rust_findings += lint_embedded(root)
     rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
     rust_findings += engine_fixed_tests(root, json.loads(args.engine_generated.read_text(encoding="utf-8")))
+    rust_findings += lint_partitioned(root)
     findings += rust_findings
-    failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path))]
+    failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path, f.rule))]
     waived = [f for f in findings if f not in failing]
     # 잠금 위반은 유예하지 않음(출시 뒤 이관 다시 쓰기).
     failing += [Finding(path, 1, "S-MIG-1", message) for path, message in migration_lock.check(root, locks)]
     failing += [Finding(path, 1, "S-MIG-1", message) for path, message in history_findings(root, locks, args.lock_file)]
     for f in waived:
-        item = pending.match(waivers, f.path)
+        item = pending.match(waivers, f.path, f.rule)
         print(f"  유예({item.owner}, {item.until} 까지): {f}" if item else f"  유예: {f}")
     if failing or problems:
         print(f"migration lint failed ({len(failing) + len(problems)}):")
