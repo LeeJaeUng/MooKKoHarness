@@ -32,7 +32,7 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 - 보호: `개인` → `암호`(엔진 `FieldCipher`)·`암호+색인`·`해시`, `민감` → `암호`·`암호+색인`·`토큰화`, `비밀` → `해시`(비밀번호 Argon2id, 토큰 HMAC)·`암호`(되찾아야 하는 것만)·`참조`(KMS). 카드번호는 저장하지 않음(토큰화).
 - 같은 값 찾기·유일이 필요하면 `암호+색인` + `<열>_bidx bytea`(HMAC-SHA-256, 열마다 다른 키, 정규화 뒤). 값 종류가 적은 열엔 blind index 금지.
 - `개인` 이상 값과 SQL 바인딩 값은 로그·추적·지표·오류에 넣지 않는다(S-SEC-5).
-- 읽기 계정 기본은 닫힘: 여는 것은 `reader_all_tables()` 또는 `const READER_TABLES`→`reader_table`. 연 표 중 `개인` 이상 열이 있는 표는 감춘다: 이관기 파일에 `const READER_HIDDEN`(표째) 또는 `const READER_COLUMNS`(`개인` 미만 열만)를 두고 같은 파일에서 `reader_hidden`·`reader_columns`로 넘긴다(S-SEC-9). `_recon`은 아직 쓰지 않는다.
+- 읽기 계정 기본은 닫힘: 여는 것은 `reader_all_tables()` 또는 `const READER_TABLES`→`reader_table`. 연 표 중 `개인` 이상 열이 있는 표는 감춘다: 이관기 파일에 `const READER_HIDDEN`(표째) 또는 `const READER_COLUMNS`(`개인` 미만 열만)를 두고 같은 파일에서 `reader_hidden`·`reader_columns`로 넘긴다(S-SEC-9). 대사 계정(`_recon`, 돈 DB만)은 이관이 만든 보기(`개인` 이상 열을 쓰지 않음)만 읽고, `const RECON_VIEWS`를 `recon_view`로 넘긴다.
 
 ## 쿼리를 쓸 때 (S-Q-*)
 
