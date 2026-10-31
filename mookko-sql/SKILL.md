@@ -19,6 +19,7 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 - 모든 테이블에 기본 키, 새 ID는 UUIDv7(S-MIG-3). 파티션 표의 기본 키·UNIQUE에는 파티션 열을 넣고(S-PART-1), 기본(`DEFAULT`) 파티션은 두지 않는다(S-PART-2). 이관은 부모만 만들고 달 파티션(`PARTITION OF`)은 쓰지 않으며, 부모는 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly("표", 키).keep_days(n))`로 적는다 — 만들기·떼기는 엔진 유지보수 단계(S-PART-3).
 - 형식: `timestamptz`(맨 `timestamp` 금지), `text` + `CHECK`(`varchar` 금지, 통화 `char(3)`만), `jsonb`, enum 금지 → `text` + `CHECK IN`, `serial` 금지 → identity·UUIDv7, 이름 63바이트 이하 snake_case(S-TYPE-*).
 - 돈: `bigint` 최소 단위 + `char(3)` 통화, `numeric`·실수·`money` 금지(S-MONEY-1). `ledger`·`journal`·`audit` 테이블은 같은 파일에 `BEFORE UPDATE OR DELETE`·`BEFORE TRUNCATE` 막기 트리거, 앱 계정엔 `INSERT`·`SELECT`만, 멱등 키는 `UNIQUE`(파티션 표면 파티션 열과 함께), 분할 키(`user_id`·계좌·가맹점)를 처음부터 열로(S-MONEY-2). 사슬·구간 머리(`…_head(s)`, 분할 키당 한 행)는 지금 상태 표라 제외. 돈 판단은 주 DB에서 직렬화 또는 명시 잠금, 두 분할 키에 걸치면 outbox + 멱등(2PC 금지)(S-MONEY-3).
+- 같은 배포 VALIDATE(S-MIG-4 예외): 바로 앞 넓히기가 건 NOT VALID 제약을 VALIDATE만 하는 파일은 머리 `-- mookko:validate-deploy same <이유>|next`(또는 설계서 이관 표 줄). 기한 안에 못 끝나면 다음 배포로.
 - 경계: 자기 스키마·`pg_catalog`만, `dblink`·`fdw` 금지, `CREATE ROLE/EXTENSION/DATABASE`·`ALTER SYSTEM` 금지, `GRANT`는 자기 서비스 계정(`<서비스>_owner`·`_migrate`·`_app`·`_ro`·`_recon`·`_maint`(예약)·`_audit_reader`)에게만(`PUBLIC`·`ALL` 금지), `SECURITY DEFINER`엔 `SET search_path`, 스키마·DB `CREATE` 권한을 주지 않음(S-BND-*). DB 안 암호화(`pgcrypto`) 금지(S-SEC-7).
 
 ## 이름 (S-NAME-1)
