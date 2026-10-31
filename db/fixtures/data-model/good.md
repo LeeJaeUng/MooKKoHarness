@@ -10,6 +10,7 @@
 | `account_id` | `uuid` | PK | 내부 | 평문 | UUIDv7 |
 | `email` | `text` | NOT NULL | 개인 | 암호+색인 | 로그인 이메일(`a|b` 같은 글은 칸을 나누지 않음) |
 | `email_bidx` | `bytea` | UNIQUE | 내부 | 평문 | `email`의 blind index |
+| `email_bidx_kid` | `text` | NOT NULL | 내부 | 평문 | `email_bidx`를 만든 색인 키 ID |
 | `password_hash` | `text` | NOT NULL | 비밀 | 해시 | Argon2id |
 | `token_count` | `integer` | NOT NULL | 내부 | 평문 | 이름 예외: 개수일 뿐 |
 | `bank_account_ref` | `text` | NULL | 민감 | 토큰화 | PG사 토큰 |

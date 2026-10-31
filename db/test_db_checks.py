@@ -335,6 +335,15 @@ class DataClassSamples(unittest.TestCase):
             with self.subTest(path.name):
                 self.assertEqual(got, expected(text, r"<!-- expect: (.*?) -->"))
 
+    def test_blind_index_needs_key_id_and_its_source(self) -> None:
+        """엔진 `BlindIndex::compute`는 `{key_id, digest}`를 내므로 `<열>_bidx_kid`도 있어야 하고, 원래 열이 암호+색인이 아닌 색인 열은 잡는다."""
+        path = FIXTURES / "data-model" / "bad-bidx.md"
+        messages = [p.message for p in data_classes.check_text(path.name, path.read_text(encoding="utf-8"))]
+        self.assertIn("`members.email`이 암호+색인인데 `email_bidx_kid` 열이 없음", messages)
+        self.assertIn("`members.phone_bidx`의 원래 열 `phone`이 이 표에서 암호+색인이 아님", messages)
+        self.assertIn("`members.phone_bidx_kid`의 원래 열 `phone`이 이 표에서 암호+색인이 아님", messages)
+        self.assertEqual(len(messages), 3, messages)
+
 
 class MigrationCoverage(unittest.TestCase):
     """S-SEC-1 이관 대조: 서비스 이관이 만드는 열(ADD COLUMN 포함)마다 그 서비스 설계서에 등급이 있어야 한다."""
@@ -541,6 +550,12 @@ class ApplySamples(unittest.TestCase):
             "S-TYPE `audit_events.amount` 형식 `numeric`",
             "S-MIG-3 `loose_rows`에 기본 키가 없음",
             "S-BND-2 앱 계정이 스키마에 CREATE",
+            "S-SEC-3 `members.email_bidx` 형식 `text`",
+            "S-SEC-3 `members.email_bidx`에 `CHECK (octet_length(email_bidx) = 32)`가 없음",
+            "S-SEC-3 `members.email_bidx`으로 시작하는 색인",
+            "S-SEC-3 `members.email_bidx` 옆에 키 ID 열 `email_bidx_kid text`가 없음",
+            "S-SEC-3 `members.phone_bidx`와 `phone_bidx_kid`의 NOT NULL이 다름",
+            "S-SEC-3 `members.alias_bidx`와 `alias_bidx_kid`가 NULL을 받는데",
         ):
             self.assertIn(needle, out)
 

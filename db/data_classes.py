@@ -4,7 +4,7 @@
 설계 단계에서 막을 수 있다. `crates/**/docs/data-model.md`와 `docs/spec/**/data-model.md`를 읽어 판정한다.
 - 열 표(머리에 `열`·`형식`이 있는 표)에는 `등급`·`보호` 칸이 있어야 하고, 값은 정해진 것만(S-SEC-1).
 - 등급마다 쓸 수 있는 보호만(S-SEC-2), 이름이 비밀값·개인정보처럼 보이면 그 등급 이상(S-SEC-2).
-- `암호+색인` 열은 같은 테이블에 `<열>_bidx`(S-SEC-3).
+- `암호+색인` 열은 같은 테이블에 `<열>_bidx`·`<열>_bidx_kid`, 그 둘은 원래 열이 `암호+색인`일 때만(S-SEC-3).
 - SQL 블록의 `CREATE TABLE` 열은 모두 등급 표에 있어야 함(S-SEC-1), 테이블 절마다 `보관`(S-SEC-6).
 - `열(요약)`처럼 열을 한 칸에 몰아 적은 표는 열마다 등급을 적을 수 없으므로 실패(S-SEC-1).
 pending.json에 기한과 함께 오른 설계서는 기한까지 경고만.
@@ -223,8 +223,15 @@ class DocCheck:
             self.classified.setdefault(table, {})[column] = grade
         for table, columns in seen.items():
             for column, prot in columns.items():
-                if prot == "암호+색인" and f"{column}_bidx" not in self.classified.get(table, {}):
-                    self.add(rows[0][0], "S-SEC-3", f"`{table}.{column}`이 암호+색인인데 `{column}_bidx` 열이 없음")
+                if prot == "암호+색인":
+                    # 엔진 `BlindIndex::compute`가 `{key_id, digest}`를 내므로 값과 키 ID 열을 함께 둠(E-DB-7).
+                    for needed in (f"{column}_bidx", f"{column}_bidx_kid"):
+                        if needed not in columns:
+                            self.add(rows[0][0], "S-SEC-3", f"`{table}.{column}`이 암호+색인인데 `{needed}` 열이 없음")
+                for suffix in ("_bidx", "_bidx_kid"):
+                    base = column[: -len(suffix)]
+                    if column.endswith(suffix) and columns.get(base) != "암호+색인":
+                        self.add(rows[0][0], "S-SEC-3", f"`{table}.{column}`의 원래 열 `{base}`이 이 표에서 암호+색인이 아님")
 
     def check_row(self, line: int, table: str, column: str, grade: str, prot: str, name_exception: bool) -> None:
         where = f"`{table}.{column}`"
@@ -236,7 +243,7 @@ class DocCheck:
             return
         if prot not in ALLOWED[grade]:
             self.add(line, "S-SEC-2", f"{where} 등급 `{grade}`에는 보호 {'·'.join(sorted(ALLOWED[grade]))}만(지금 `{prot}`)")
-        if column == REST or name_exception or column.endswith("_bidx"):
+        if column == REST or name_exception or column.endswith(("_bidx", "_bidx_kid")):
             return
         name = snake(column)
         if SECRET_NAME.search(name) and grade != "비밀":

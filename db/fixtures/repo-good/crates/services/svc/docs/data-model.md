@@ -7,6 +7,7 @@
 | `account_id` | `uuid` | 내부 | 평문 |
 | `email` | `text` | 개인 | 암호+색인 |
 | `email_bidx` | `bytea` | 내부 | 평문 |
+| `email_bidx_kid` | `text` | 내부 | 평문 |
 | `state` | `text` | 내부 | 평문 |
 | `created_at` | `timestamptz` | 내부 | 평문 |
 | `closed_at` | `timestamptz` | 내부 | 평문 |

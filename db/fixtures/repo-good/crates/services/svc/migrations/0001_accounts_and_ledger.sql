@@ -13,6 +13,7 @@ CREATE TABLE __SCHEMA__.accounts (
     account_id uuid NOT NULL,
     email text NOT NULL,
     email_bidx bytea NOT NULL,
+    email_bidx_kid text NOT NULL,
     state text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT accounts_pkey PRIMARY KEY (account_id),
