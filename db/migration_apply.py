@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import data_classes  # noqa: E402
 import pending  # noqa: E402
 import sqltext  # noqa: E402
-from migration_lint import ROOT, default_schema, migration_dirs, outside_transaction  # noqa: E402
+from migration_lint import ROOT, default_schema, is_key_dir, migration_dirs, outside_transaction, owning_service  # noqa: E402
 from pgwire import Connection, PgError, quote_ident, quote_literal  # noqa: E402
 
 APPEND_ONLY = "ledger|journal|audit"
@@ -81,8 +81,8 @@ def targets(root: Path) -> list[Target]:
         rel = directory.relative_to(root)
         if any("clickhouse" in p for p in rel.parts):
             continue
-        service = default_schema(rel)
-        schema = service
+        service = owning_service(rel)
+        schema = default_schema(rel)
         for path in sorted(directory.glob("*.sql")):
             override = sqltext.split(path.read_text(encoding="utf-8")).directives.get("schema")
             if override:
@@ -436,7 +436,9 @@ class EngineApp:
 def engine_app(root: Path, target: Target) -> EngineApp | None:
     """`crates/apps/mookko-<서비스>`에 이관 설정 예시가 있으면 그 실행 파일로 엔진 이관 단계(`migrate`)를 돌린다(QA cd3ba1c 낮음:
     파이썬 grant 흉내는 엔진 grant와 다른 점을 못 잡음). 실행 파일은 `cargo test`가 이미 만든 것을 쓰고, 없으면 그것만 만든다.
-    표본 저장소(실행 파일 없음)는 None — 엔진을 흉내 내는 길로 본다."""
+    표본 저장소(실행 파일 없음)는 None — 엔진을 흉내 내는 길로 본다. 키 DB 폴더도 아직 None(엔진 migrate가 키 DB를 돌리는 것은 E-DB-17)."""
+    if is_key_dir(Path(target.rel)):
+        return None
     name = f"mookko-{target.service}"
     example = root / "crates" / "apps" / name / "config" / f"{name}.migrate.example.json"
     if not example.is_file():
@@ -516,7 +518,9 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
         try:
             app = engine_app(root, target)
             shared = (app.example["migrate"].get("sharedStores") or {}).get("schema") if app else None
-            access = data_classes.reader_access(target.directory.parent, root)
+            # 키 DB(§9.8)에는 읽기·대사 계정이 없음: 서비스 코드의 읽기 설정을 쓰지 않고 닫힌 기본 그대로 본다.
+            key_db = is_key_dir(Path(target.rel))
+            access = data_classes.ReaderAccess() if key_db else data_classes.reader_access(target.directory.parent, root)
             bootstrap(admin, database, target.schema, password)
             with connect(config, config["user"], config["password"], database) as db_admin:
                 bootstrap_schema(db_admin, target.schema, (shared,) if shared else ())

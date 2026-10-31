@@ -477,6 +477,31 @@ class EngineReaderCoverage(unittest.TestCase):
         self.assertIn("엔진 표 `staff_sessions`", found[0])
 
 
+class KeyTables(unittest.TestCase):
+    """S-SEC-10(E-DB-8 키 파기): 감싼 행 키는 백업 보관이 짧은 키 DB(`keys/migrations`)에만, 키 DB에는 키 표만."""
+
+    def test_key_dir_gets_its_own_schema(self) -> None:
+        self.assertEqual(migration_lint.default_schema(Path("crates/services/svc/keys/migrations")), "svc_keys")
+        self.assertEqual(migration_lint.owning_service(Path("crates/services/svc/keys/migrations")), "svc")
+        self.assertEqual(migration_lint.default_schema(Path("crates/services/svc/migrations")), "svc")
+
+    def test_good_key_table_passes(self) -> None:
+        root = FIXTURES / "repo-good"
+        self.assertEqual(migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "keys" / "migrations"), [])
+        self.assertEqual(data_classes.migration_coverage(root), [])
+
+    def test_wrapped_keys_outside_key_db_and_other_tables_inside_are_caught(self) -> None:
+        root = FIXTURES / "repo-keys-bad"
+        service = [f.message for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations") if f.rule == "S-SEC-10"]
+        self.assertEqual(len(service), 2, service)
+        self.assertTrue(any("`profiles.profile_wrapped_key`" in m for m in service), service)
+        self.assertTrue(any("`profiles.wrapped_key`" in m for m in service), service)
+        keys = [f.message for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "keys" / "migrations") if f.rule == "S-SEC-10"]
+        self.assertIn("`row_keys.wrapped_key` 형식 `text` — `bytea`(`WrappedKey::to_bytes`)", keys)
+        self.assertIn("키 DB에는 키 표(`wrapped_key bytea` 열)만 둠 — `notes`은 서비스 DB로", keys)
+        self.assertEqual(len(keys), 2, keys)
+
+
 class PendingList(unittest.TestCase):
     def test_expiry(self) -> None:
         import datetime

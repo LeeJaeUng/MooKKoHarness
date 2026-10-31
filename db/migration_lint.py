@@ -794,11 +794,48 @@ def outside_transaction(sql: str) -> bool:
     return "-- mookko:transaction off" in header_lines(sql)
 
 
-def default_schema(rel_dir: Path) -> str | None:
+def owning_service(rel_dir: Path) -> str | None:
+    """이관 폴더의 서비스(설계서·실행 파일을 찾는 이름)."""
     parts = rel_dir.parts
     if len(parts) >= 4 and parts[0] == "crates" and parts[1] == "services" and parts[-1] == "migrations":
         return parts[2]
     return None
+
+
+def is_key_dir(rel_dir: Path) -> bool:
+    """키 DB 이관 폴더 `crates/services/<서비스>/keys/migrations`(키 파기용 키 표, database.md §9.8)."""
+    parts = rel_dir.parts
+    return len(parts) == 5 and parts[:2] == ("crates", "services") and parts[3:] == ("keys", "migrations")
+
+
+def default_schema(rel_dir: Path) -> str | None:
+    service = owning_service(rel_dir)
+    return f"{service}_keys" if service and is_key_dir(rel_dir) else service
+
+
+WRAPPED_KEY_COLUMN = re.compile(r"(?:^|_)wrapped_key$")
+
+
+def key_table_findings(rel: str, rel_dir: Path, lint: "FileLint") -> list[Finding]:
+    """S-SEC-10: 감싼 행 키(`RowKeys::create`의 `WrappedKey`) 열은 키 DB에만 두고, 키 DB에는 키 표만 둔다.
+    서비스 DB에 두면 그 백업(돈 DB는 월말 전체를 몇 년)에 감싼 키가 남아 KEK로 다시 풀 수 있어 키 파기가 되지 않고,
+    키 DB에 다른 표를 두면 짧은 백업 보관 때문에 그 표가 복구 범위에서 먼저 사라진다."""
+    findings: list[Finding] = []
+    key_dir = is_key_dir(rel_dir)
+    columns = [(t, info.line, c, ctype) for t, info in lint.created.items() for c, ctype in info.columns.items()]
+    columns += [(t, 1, c, None) for t, added in lint.added.items() for c in added]
+    if not key_dir:
+        for table, line, column, _ in columns:
+            if WRAPPED_KEY_COLUMN.search(column):
+                findings.append(Finding(rel, line, "S-SEC-10", f"감싼 행 키 열 `{table}.{column}`은 키 DB 이관(`crates/services/<서비스>/keys/migrations/`)에만 둠 — 서비스 DB 백업에 남으면 키 파기가 되지 않음"))
+        return findings
+    for table, info in lint.created.items():
+        kind = info.columns.get("wrapped_key")
+        if kind is None:
+            findings.append(Finding(rel, info.line, "S-SEC-10", f"키 DB에는 키 표(`wrapped_key bytea` 열)만 둠 — `{table}`은 서비스 DB로"))
+        elif kind != "bytea":
+            findings.append(Finding(rel, info.line, "S-SEC-10", f"`{table}.wrapped_key` 형식 `{kind}` — `bytea`(`WrappedKey::to_bytes`)"))
+    return findings
 
 
 NOT_VALID_ADD = re.compile(rf"\bADD\s+CONSTRAINT\s+({IDENT})\b[^;]*?\bNOT\s+VALID\b", re.I | re.S)
@@ -839,7 +876,7 @@ def validate_deploy_findings(root: Path, directory: Path) -> list[Finding]:
     없으므로(S-MIG-1) 설계서 줄로도 받는다."""
     findings: list[Finding] = []
     files = sorted(p for p in directory.glob("*.sql") if FILE_NAME.match(p.name))
-    doc_lines = service_doc_lines(root, default_schema(directory.relative_to(root)))
+    doc_lines = service_doc_lines(root, owning_service(directory.relative_to(root)))
     for prev, path in zip(files, files[1:]):
         text = path.read_text(encoding="utf-8")
         names = validate_only(text)
@@ -894,7 +931,10 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
         fixed, problem = engine_fixed_status(rel, text, registry)
         if problem:
             findings.append(Finding(rel, 1, "S-MIG-1", problem))
-        findings += lint_text(rel, text, dialect, schema, fixed)
+        lint = FileLint(rel, sqltext.split(text), dialect, schema, outside_transaction(text), fixed)
+        findings += lint.run()
+        if dialect == "postgres":
+            findings += key_table_findings(rel, rel_dir, lint)
     if dialect == "postgres":
         findings += validate_deploy_findings(root, directory)
     for expected, actual in enumerate(sorted(numbers), start=1):

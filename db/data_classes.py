@@ -6,6 +6,7 @@
 - 등급마다 쓸 수 있는 보호만(S-SEC-2), 이름이 비밀값·개인정보처럼 보이면 그 등급 이상(S-SEC-2).
 - `암호+색인` 열은 같은 테이블에 `<열>_bidx`·`<열>_bidx_kid`, 그 둘은 원래 열이 `암호+색인`일 때만(S-SEC-3).
 - SQL 블록의 `CREATE TABLE` 열은 모두 등급 표에 있어야 함(S-SEC-1), 테이블 절마다 `보관`(S-SEC-6).
+- 감싼 행 키 열(`wrapped_key`)은 `비밀`·`암호`(S-SEC-10).
 - `열(요약)`처럼 열을 한 칸에 몰아 적은 표는 열마다 등급을 적을 수 없으므로 실패(S-SEC-1).
 pending.json에 기한과 함께 오른 설계서는 기한까지 경고만.
 """
@@ -243,6 +244,8 @@ class DocCheck:
             return
         if prot not in ALLOWED[grade]:
             self.add(line, "S-SEC-2", f"{where} 등급 `{grade}`에는 보호 {'·'.join(sorted(ALLOWED[grade]))}만(지금 `{prot}`)")
+        if migration_lint.WRAPPED_KEY_COLUMN.search(column) and (grade, prot) != ("비밀", "암호"):
+            self.add(line, "S-SEC-10", f"{where}는 KEK로 감싼 행 키 — 등급 `비밀`, 보호 `암호`(지금 `{grade}`·`{prot}`)")
         if column == REST or name_exception or column.endswith(("_bidx", "_bidx_kid")):
             return
         name = snake(column)
@@ -336,11 +339,11 @@ def service_classification(root: Path, service: str) -> dict[str, dict[str, str]
 
 
 def service_dirs(root: Path) -> list[tuple[Path, str]]:
-    """PostgreSQL 이관 폴더와 그 서비스(스키마) 이름."""
+    """PostgreSQL 이관 폴더와 그 서비스 이름(설계서를 찾는 이름. 키 DB 폴더도 그 서비스 설계서에 적음)."""
     out: list[tuple[Path, str]] = []
     for directory in migration_lint.migration_dirs(root):
         rel_dir = directory.relative_to(root)
-        service = migration_lint.default_schema(rel_dir)
+        service = migration_lint.owning_service(rel_dir)
         if service and not any("clickhouse" in part for part in rel_dir.parts):
             out.append((directory, service))
     return out
@@ -353,7 +356,8 @@ def migration_coverage(root: Path) -> list[Problem]:
         classified = service_classification(root, service)
         for path in sorted(directory.glob("*.sql")):
             rel = path.relative_to(root).as_posix()
-            for table, columns in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service).items():
+            schema = migration_lint.default_schema(directory.relative_to(root))
+            for table, columns in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", schema).items():
                 known = classified.get(table)
                 if known is None:
                     problems.append(Problem(rel, 1, "S-SEC-1", f"이관이 만드는 `{table}`의 열 등급 표가 `{service}` 설계서에 없음"))
