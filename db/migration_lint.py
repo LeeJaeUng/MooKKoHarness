@@ -663,7 +663,7 @@ def engine_fixed_tests(root: Path, registry: dict) -> list[Finding]:
         texts: list[str] = []
         if len(parts) >= 3 and parts[:2] == ["crates", "services"]:
             src = root.joinpath(*parts[:3], "src")
-            texts = [re.sub(r"//[^\n]*", "", p.read_text(encoding="utf-8")) for p in walk(src, lambda name: name.endswith(".rs"))]
+            texts = [strip_rust_comments(p.read_text(encoding="utf-8")) for p in walk(src, lambda name: name.endswith(".rs"))]
         stem = Path(where).stem
         if not any("add_generated(" in t and stem in t for t in texts):
             findings.append(Finding(where, 1, "S-MIG-11", f"고정 파일 `{Path(where).name}`을 서비스 코드가 엔진 `add_generated`로 넣지 않음(E-DB-14)"))
@@ -749,9 +749,16 @@ def lint_partitioned(root: Path) -> list[Finding]:
         if any("clickhouse" in part for part in rel_dir.parts):
             continue
         schema = default_schema(rel_dir)
+        parents: set[str] = set()
+        plain: dict[str, str] = {}
+        for path in sorted(directory.glob("*.sql")):
+            text = path.read_text(encoding="utf-8")
+            parents.update(partitioned_parents(text, schema))
+            for table in created_tables(text, "postgres", schema):
+                plain.setdefault(table, path.relative_to(root).as_posix())
         registered: set[str] = set()
         for path in walk(directory.parent / "src", lambda name: name.endswith(".rs")):
-            registered |= registered_partitions(re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8")))
+            registered |= registered_partitions(strip_rust_comments(path.read_text(encoding="utf-8")))
         for path in sorted(directory.glob("*.sql")):
             for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
                 if table not in registered:
@@ -759,6 +766,11 @@ def lint_partitioned(root: Path) -> list[Finding]:
                         path.relative_to(root).as_posix(), 1, "S-PART-3",
                         f"파티션 부모 `{table}`을 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly(…))`로 적지 않음(E-DB-5)",
                     ))
+        # 엔진은 `<부모>_YYYYMM` 이름만 보고 기한 지난 달을 떼어 지우므로, 그 이름의 다른 표를 두지 않는다(QA f4753d1 낮음).
+        for table, rel in sorted(plain.items()):
+            for parent in sorted(parents | registered):
+                if table != parent and re.fullmatch(rf"{re.escape(parent)}_\d{{6}}", table):
+                    findings.append(Finding(rel, 1, "S-PART-3", f"`{table}`은 엔진 달 파티션 이름(`{parent}_YYYYMM`)과 겹침 — 엔진이 기한 지난 달로 보고 지울 수 있음"))
     return findings
 
 
@@ -823,6 +835,51 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
 
 CHAR_LITERAL = re.compile(r"'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|.)|[^'\\\n])'")
 RAW_START = re.compile(r'b?r(#*)"')
+
+
+def strip_rust_comments(text: str) -> str:
+    """Rust 주석(`// …`, 겹칠 수 있는 `/* … */`)을 공백으로 바꾼다(줄 수는 그대로). 문자열(`"…"`, `r#"…"#`) 안의 `//`는 그대로 둔다.
+    코드 모양을 보는 검사(파티션 등록·읽기 계정·고정 파일)가 주석에 적은 호출을 세지 않게(QA f4753d1 낮음)."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append("".join("\n" if ch == "\n" else " " for ch in text[i:j]))
+            i = j
+        elif c == "r" and re.match(r'r#*"', text[i:i + 8]) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            hashes = len(re.match(r"r(#*)", text[i:]).group(1))
+            end = text.find('"' + "#" * hashes, i + 2 + hashes)
+            j = n if end < 0 else end + 1 + hashes
+            out.append(text[i:j])
+            i = j
+        elif c == "'" and CHAR_LITERAL.match(text, i):
+            m = CHAR_LITERAL.match(text, i)
+            out.append(m.group(0))  # 문자 리터럴(`'"'`)을 문자열 시작으로 읽지 않게
+            i = m.end()
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def rust_strings(text: str) -> list[tuple[int, str]]:

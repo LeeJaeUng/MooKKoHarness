@@ -360,7 +360,21 @@ class PartitionedTables(unittest.TestCase):
 
     def test_unregistered_parent_is_caught(self) -> None:
         found = migration_lint.lint_partitioned(FIXTURES / "repo-partition-bad")
-        self.assertEqual([(f.rule, "`events`" in f.message) for f in found], [("S-PART-3", True)], found)
+        messages = sorted(f.message for f in found)
+        self.assertEqual({f.rule for f in found}, {"S-PART-3"}, found)
+        self.assertEqual(len(found), 2, found)
+        self.assertTrue(any("`events`" in m for m in messages), messages)
+        self.assertTrue(any("`visits_202611`" in m and "visits_YYYYMM" in m for m in messages), messages)
+
+    def test_strip_rust_comments_keeps_strings(self) -> None:
+        text = "let u = \"https://x\"; /* a /* b */ c */ let q = '\"'; // dd\nr#\"// e\"#;"
+        stripped = migration_lint.strip_rust_comments(text)
+        self.assertIn('"https://x"', stripped)
+        self.assertIn("let q = '\"';", stripped)
+        self.assertIn('r#"// e"#', stripped)
+        self.assertNotIn(" a ", stripped)
+        self.assertNotIn("dd", stripped)
+        self.assertEqual(stripped.count("\n"), 1)
 
 
 class ReaderCoverage(unittest.TestCase):

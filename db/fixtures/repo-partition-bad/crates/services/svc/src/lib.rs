@@ -9,3 +9,7 @@ fn partitions(migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
 }
 
 // migrator.partitioned(PartitionedTable::monthly(SqlName::parse("events")?, PartitionKey::TimestampUtc)) — 주석은 세지 않음
+
+/* 블록 주석 안의 등록도 세지 않음(QA f4753d1):
+   migrator.partitioned(PartitionedTable::monthly(SqlName::parse("events")?, PartitionKey::TimestampUtc)) */
+const QUOTE: char = '"';

@@ -390,7 +390,7 @@ def reader_access(crate: Path, root: Path) -> ReaderAccess:
         return access
     for path in sorted(src.rglob("*.rs")):
         rel = path.relative_to(root).as_posix()
-        text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+        text = migration_lint.strip_rust_comments(path.read_text(encoding="utf-8"))
         hidden = READER_HIDDEN.search(text)
         # 넘기지 않은 상수는 엔진이 모르므로 감춘 것으로 세지 않는다.
         if hidden and passed_to(text, hidden, "READER_HIDDEN", "reader_hidden"):
