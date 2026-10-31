@@ -2,15 +2,6 @@
   "_doc": "DB 규약(2026-10-30) 전에 들어온 파일. 기한까지 담당이 고치면 지움. 기한이 지나면 check-db가 실패. 규칙: scripts/ci/db/pending.py",
   "pending": [
     {
-      "path": "crates/services/operations",
-      "rules": [
-        "S-SEC-9"
-      ],
-      "owner": "operations-dev",
-      "until": "2026-11-08",
-      "reason": "S-SEC-9(2026-11-01, 엔진 E-DB-12 d569b5a): audit_reasons.reason(개인)을 읽기 계정 operations_ro에서 감추기 — READER_HIDDEN 또는 READER_COLUMNS를 reader_hidden·reader_columns로 넘김"
-    },
-    {
       "path": "crates/services/links",
       "rules": [
         "S-PART-3"
