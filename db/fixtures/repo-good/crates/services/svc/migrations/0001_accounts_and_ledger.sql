@@ -19,6 +19,7 @@ CREATE TABLE __SCHEMA__.accounts (
     CONSTRAINT accounts_pkey PRIMARY KEY (account_id),
     CONSTRAINT accounts_email_bidx_key UNIQUE (email_bidx),
     CONSTRAINT accounts_email_bidx_len CHECK (octet_length(email_bidx) = 32),
+    CONSTRAINT accounts_email_bidx_kid_shape CHECK (email_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$'),
     CONSTRAINT accounts_state CHECK (state IN ('active', 'closed'))
 );
 

@@ -299,17 +299,23 @@ def probe_row_change(db: Connection, schema: str, table: str, event: str) -> str
     return f"{event}가 막히지 않음(막기 트리거 함수가 거부하지 않음)"
 
 
+# 엔진 키 ID 모양(1~32자, `[A-Za-z0-9_-]`)을 지키는 CHECK. 정의 글에서 공백·`::text`를 뺀 뒤 이 글이 `<열>_bidx_kid` 바로 뒤에 있어야 함.
+KID_CHECK = "~'^[A-Za-z0-9_-]{1,32}$'"
+
+
 def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
     """`<열>_bidx`가 엔진 `BlindIndex::compute`의 `{key_id, digest}` 모양을 담는지 본다(S-SEC-3, E-DB-7): 값은 `bytea` 32바이트
-    CHECK와 그 열로 시작하는 색인(같은 값 찾기·유일), 키 ID는 `<열>_bidx_kid text`이고 두 열이 같이 차거나 같이 빔."""
-    for table, column, kind, not_null, kid_kind, kid_not_null, has_len, has_index, has_pair in rows(
+    CHECK와 그 열로 시작하는 색인(같은 값 찾기·유일), 키 ID는 `<열>_bidx_kid text`(`CHECK (<열>_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$')`)이고 두 열이 같이 차거나 같이 빔."""
+    for table, column, kind, not_null, kid_kind, kid_not_null, has_len, has_index, has_pair, has_kid_shape in rows(
         rf"SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, "
         rf"format_type(k.atttypid, k.atttypmod), k.attnotnull, "
         rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
         rf"AND replace(pg_get_constraintdef(x.oid), ' ', '') ~ ('octet_length\(' || a.attname || '\)=32')), "
         rf"EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indkey[0] = a.attnum), "
         rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
-        rf"AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '\M') AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '_kid\M')) "
+        rf"AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '\M') AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '_kid\M')), "
+        rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
+        rf"AND strpos(replace(replace(pg_get_constraintdef(x.oid), ' ', ''), '::text', ''), a.attname || '_kid' || {quote_literal(KID_CHECK)}) > 0) "
         rf"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         rf"JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attname ~ '_bidx$' "
         rf"LEFT JOIN pg_attribute k ON k.attrelid = c.oid AND k.attname = a.attname || '_kid' AND NOT k.attisdropped "
@@ -327,6 +333,8 @@ def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
             continue
         if kid_kind != "text":
             problems.append(f"{where}: S-SEC-3 `{table}.{column}_kid` 형식 `{kid_kind}` — `text`")
+        if has_kid_shape != "t":
+            problems.append(f"{where}: S-SEC-3 `{table}.{column}_kid`에 `CHECK ({column}_kid ~ '^[A-Za-z0-9_-]{{1,32}}$')`가 없음(엔진 키 ID 모양)")
         if not_null != kid_not_null:
             problems.append(f"{where}: S-SEC-3 {name}와 `{column}_kid`의 NOT NULL이 다름 — 같이 차거나 같이 빔")
         elif not_null != "t" and has_pair != "t":

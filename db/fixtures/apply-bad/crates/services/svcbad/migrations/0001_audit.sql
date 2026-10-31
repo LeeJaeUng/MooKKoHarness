@@ -1,5 +1,5 @@
 -- 적용 시험이 잡아야 할 것(글 검사를 우회한 모양): TRUNCATE 막기 없음, 거부하지 않는 막기 함수, numeric, 기본 키 없음, 앱 계정 스키마 CREATE,
--- blind index 모양(E-DB-7): 형식·32바이트·색인·키 ID 열 없음, NOT NULL 다름, 같이 비게 하는 CHECK 없음
+-- blind index 모양(E-DB-7): 형식·32바이트·색인·키 ID 열 없음, NOT NULL 다름, 같이 비게 하는 CHECK 없음, 키 ID 모양 CHECK가 다름
 -- mookko:phase expand
 CREATE FUNCTION __SCHEMA__.reject_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -21,9 +21,9 @@ CREATE TABLE __SCHEMA__.members (
     member_id uuid PRIMARY KEY,
     email_bidx text NOT NULL,
     phone_bidx bytea CHECK (octet_length(phone_bidx) = 32),
-    phone_bidx_kid text NOT NULL,
+    phone_bidx_kid text NOT NULL CHECK (phone_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$'),
     alias_bidx bytea CHECK (octet_length(alias_bidx) = 32),
-    alias_bidx_kid text
+    alias_bidx_kid text CHECK (alias_bidx_kid ~ '^[a-z]+$')
 );
 CREATE INDEX members_phone_bidx ON __SCHEMA__.members (phone_bidx);
 CREATE INDEX members_alias_bidx ON __SCHEMA__.members (alias_bidx);

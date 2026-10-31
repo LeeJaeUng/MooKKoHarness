@@ -556,8 +556,11 @@ class ApplySamples(unittest.TestCase):
             "S-SEC-3 `members.email_bidx` 옆에 키 ID 열 `email_bidx_kid text`가 없음",
             "S-SEC-3 `members.phone_bidx`와 `phone_bidx_kid`의 NOT NULL이 다름",
             "S-SEC-3 `members.alias_bidx`와 `alias_bidx_kid`가 NULL을 받는데",
+            "S-SEC-3 `members.alias_bidx_kid`에 `CHECK (alias_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$')`가 없음",
         ):
             self.assertIn(needle, out)
+        for needle in ("`members.phone_bidx_kid`에 `CHECK", "`members.email_bidx_kid`에 `CHECK"):
+            self.assertNotIn(needle, out)
 
 
 if __name__ == "__main__":
