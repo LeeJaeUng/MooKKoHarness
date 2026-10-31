@@ -4,6 +4,7 @@
 - fixtures/migrations/single/*.sql: 머리 `-- expect: 규칙, …` 또는 `(없음)`, 이름이 `ch_`면 ClickHouse 규칙
 - fixtures/repo-good, repo-bad: 폴더 단위(이름·번호·Rust 문자열)
 - fixtures/data-model/*.md: `<!-- expect: … -->`
+- fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
 """
 
@@ -342,6 +343,27 @@ class MigrationCoverage(unittest.TestCase):
         self.assertEqual(tables, {"accounts": ["nickname"]})
 
 
+class ReaderCoverage(unittest.TestCase):
+    """S-SEC-9: 등급 `개인` 이상 열이 있는 표는 서비스 코드의 `READER_HIDDEN`·`READER_COLUMNS`로 읽기 계정에서 감춰야 한다(엔진 E-DB-12)."""
+
+    def test_good_repo_hides_personal_columns(self) -> None:
+        self.assertEqual(data_classes.reader_coverage(FIXTURES / "repo-good"), [])
+        access = data_classes.reader_access(FIXTURES / "repo-good" / "crates" / "services" / "svc", FIXTURES / "repo-good")
+        self.assertEqual(access.columns, {"accounts": ["account_id", "state", "created_at", "closed_at", "region"]})
+
+    def test_bad_settings_are_caught(self) -> None:
+        found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-bad")]
+        for needle in (
+            "`READER_COLUMNS`가 `people.email`(등급 `개인` 이상)을 읽기 계정에 엶",
+            "`notes`의 `개인` 이상 열(body)을 읽기 계정에서 감추지 않음",
+            "`visits`의 `개인` 이상 열(ip_hash)을 읽기 계정에서 감추지 않음",
+            "`READER_HIDDEN`을 적었지만 이 파일에서 `reader_hidden`으로 넘기지 않음",
+            "읽기 계정 설정의 `missing_table`을 이관이 만들지 않음",
+        ):
+            self.assertTrue(any(needle in m for m in found), (needle, found))
+        self.assertEqual(len(found), 5, found)
+
+
 class PendingList(unittest.TestCase):
     def test_expiry(self) -> None:
         import datetime
@@ -353,6 +375,10 @@ class PendingList(unittest.TestCase):
         self.assertTrue(pending.is_waived(pending.match([item], "a/b.sql"), datetime.date(2026, 1, 2)))
         self.assertFalse(pending.is_waived(pending.match([item], "a/b.sql"), datetime.date(2026, 1, 3)))
         self.assertIsNone(pending.match([item], "a/bc.sql"))
+        limited = pending.Pending("svc", "x", datetime.date(2026, 1, 2), "r", ("S-SEC-9",))
+        self.assertIs(pending.match([limited], "svc/migrations/0001_a.sql", "S-SEC-9"), limited)
+        self.assertIsNone(pending.match([limited], "svc/migrations/0001_a.sql", "S-SEC-1"))
+        self.assertIsNone(pending.match([limited], "svc/migrations/0001_a.sql"), "규칙을 넘기지 않는 검사(migration_lint)에는 효력 없음")
         for entry in items:
             self.assertLessEqual((entry.until - datetime.date(2026, 10, 30)).days, 60, f"{entry.path}: 유예는 60일 안")
 
@@ -360,12 +386,24 @@ class PendingList(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("MOOKKO_TEST_POSTGRES"), "MOOKKO_TEST_POSTGRES 없음 — 실제 PostgreSQL 적용 시험 건너뜀(통과 아님)")
 class ApplySamples(unittest.TestCase):
     def test_good_repo_applies(self) -> None:
-        code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good")])
+        code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
         self.assertEqual(code, 0, out)
         self.assertIn("이관 5개 적용", out)
 
+    def test_reader_sees_personal_column_without_settings(self) -> None:
+        """서비스 코드에 읽기 계정 설정이 없으면 엔진처럼 표 전체 SELECT가 되고, 적용 시험이 개인 등급 열을 잡는다."""
+        original = data_classes.reader_access
+        data_classes.reader_access = lambda crate, root: data_classes.ReaderAccess()
+        try:
+            code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
+        finally:
+            data_classes.reader_access = original
+        self.assertEqual(code, 1, out)
+        self.assertIn("S-SEC-9 읽기 계정이 `accounts.email`(등급 `개인`)을 읽을 수 있음", out)
+        self.assertNotIn("accounts.state", out)
+
     def test_bad_repo_is_caught(self) -> None:
-        code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "apply-bad")])
+        code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "apply-bad"), "--pending", str(EMPTY_PENDING)])
         self.assertEqual(code, 1, out)
         for needle in (
             "S-MIG-8 적용 실패 42703",

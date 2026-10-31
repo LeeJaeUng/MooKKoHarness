@@ -317,20 +317,33 @@ def service_docs(root: Path, service: str) -> list[Path]:
             or p.relative_to(root).parts[:3] == ("docs", "spec", service)]
 
 
-def migration_coverage(root: Path) -> list[Problem]:
-    """서비스 이관이 만드는 테이블의 열마다 그 서비스 설계서에 등급이 있는지(S-SEC-1). 설계서 표 형식만 보면 놓치는 것을 잡는다."""
-    problems: list[Problem] = []
+def service_classification(root: Path, service: str) -> dict[str, dict[str, str]]:
+    """서비스 설계서들의 테이블 → 열 → 등급."""
+    classified: dict[str, dict[str, str]] = {}
+    for doc in service_docs(root, service):
+        check = DocCheck(doc.relative_to(root).as_posix(), doc.read_text(encoding="utf-8"))
+        check.run()
+        for table, columns in check.classified.items():
+            classified.setdefault(table, {}).update(columns)
+    return classified
+
+
+def service_dirs(root: Path) -> list[tuple[Path, str]]:
+    """PostgreSQL 이관 폴더와 그 서비스(스키마) 이름."""
+    out: list[tuple[Path, str]] = []
     for directory in migration_lint.migration_dirs(root):
         rel_dir = directory.relative_to(root)
         service = migration_lint.default_schema(rel_dir)
-        if not service or any("clickhouse" in part for part in rel_dir.parts):
-            continue
-        classified: dict[str, dict[str, str]] = {}
-        for doc in service_docs(root, service):
-            check = DocCheck(doc.relative_to(root).as_posix(), doc.read_text(encoding="utf-8"))
-            check.run()
-            for table, columns in check.classified.items():
-                classified.setdefault(table, {}).update(columns)
+        if service and not any("clickhouse" in part for part in rel_dir.parts):
+            out.append((directory, service))
+    return out
+
+
+def migration_coverage(root: Path) -> list[Problem]:
+    """서비스 이관이 만드는 테이블의 열마다 그 서비스 설계서에 등급이 있는지(S-SEC-1). 설계서 표 형식만 보면 놓치는 것을 잡는다."""
+    problems: list[Problem] = []
+    for directory, service in service_dirs(root):
+        classified = service_classification(root, service)
         for path in sorted(directory.glob("*.sql")):
             rel = path.relative_to(root).as_posix()
             for table, columns in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service).items():
@@ -343,6 +356,85 @@ def migration_coverage(root: Path) -> list[Problem]:
                 missing = [c for c in columns if c not in known]
                 if missing:
                     problems.append(Problem(rel, 1, "S-SEC-1", f"이관의 `{table}` 열이 설계서 등급 표에 없음: {', '.join(missing)}"))
+    return problems
+
+
+@dataclass
+class ReaderAccess:
+    """서비스 코드가 엔진 이관기에 넘기는 읽기 계정 설정(E-DB-12): 감출 표, 열만 열 표."""
+
+    hidden: set[str] = field(default_factory=set)
+    columns: dict[str, list[str]] = field(default_factory=dict)
+    problems: list[Problem] = field(default_factory=list)
+
+
+READER_HIDDEN = re.compile(r"\bconst\s+READER_HIDDEN\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
+READER_COLUMNS = re.compile(r"\bconst\s+READER_COLUMNS\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
+READER_COLUMN_ITEM = re.compile(r"\(\s*\"([^\"]+)\"\s*,\s*&\[(.*?)\]\s*\)", re.S)
+LITERAL = re.compile(r"\"([^\"]*)\"")
+
+
+def reader_access(crate: Path, root: Path) -> ReaderAccess:
+    """서비스 크레이트 `src/`의 `const READER_HIDDEN: &[&str]`·`const READER_COLUMNS: &[(&str, &[&str])]`를 읽는다(sql.md S-SEC-9).
+    정한 모양으로만 적게 해야 검사가 코드와 같은 것을 본다: 상수를 두고 같은 파일에서 `reader_hidden`·`reader_columns`로 넘긴다."""
+    access = ReaderAccess()
+    src = crate / "src"
+    if not src.is_dir():
+        return access
+    for path in sorted(src.rglob("*.rs")):
+        rel = path.relative_to(root).as_posix()
+        text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+        hidden = READER_HIDDEN.search(text)
+        # 넘기지 않은 상수는 엔진이 모르므로 감춘 것으로 세지 않는다.
+        if hidden and ".reader_hidden(" in text:
+            access.hidden.update(LITERAL.findall(hidden.group(1)))
+        elif hidden:
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_HIDDEN`을 적었지만 이 파일에서 `reader_hidden`으로 넘기지 않음"))
+        columns = READER_COLUMNS.search(text)
+        if columns and ".reader_columns(" in text:
+            for table, listed in READER_COLUMN_ITEM.findall(columns.group(1)):
+                access.columns[table] = LITERAL.findall(listed)
+        elif columns:
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_COLUMNS`를 적었지만 이 파일에서 `reader_columns`로 넘기지 않음"))
+        for call in ("reader_hidden", "reader_columns"):
+            if f".{call}(" in text and not (hidden if call == "reader_hidden" else columns):
+                access.problems.append(Problem(rel, 1, "S-SEC-9", f"`{call}`에 넘기는 표는 `const READER_{call.split('_')[1].upper()}`에 적음(검사가 읽는 자리)"))
+    return access
+
+
+def high_columns(classified: dict[str, dict[str, str]], table: str) -> list[str]:
+    """등급이 `개인` 이상인 열(`(나머지)` 포함)."""
+    return [c for c, g in classified.get(table, {}).items() if RANK.get(g, 0) >= RANK["개인"]]
+
+
+def reader_coverage(root: Path) -> list[Problem]:
+    """S-SEC-9: 등급 `개인` 이상 열이 있는 표는 읽기 계정(`<서비스>_ro`)에서 감추거나(`reader_hidden`), 그 열을 뺀 열만 연다(`reader_columns`)."""
+    problems: list[Problem] = []
+    for directory, service in service_dirs(root):
+        classified = service_classification(root, service)
+        access = reader_access(directory.parent, root)
+        problems += access.problems
+        created: dict[str, str] = {}
+        for path in sorted(directory.glob("*.sql")):
+            for table in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service):
+                created.setdefault(table, path.relative_to(root).as_posix())
+        where = directory.parent.relative_to(root).as_posix()
+        for table in sorted(access.hidden | set(access.columns)):
+            if table not in created:
+                problems.append(Problem(where, 1, "S-SEC-9", f"읽기 계정 설정의 `{table}`을 이관이 만들지 않음(엔진 `grant`도 거부)"))
+        for table, rel in sorted(created.items()):
+            high = high_columns(classified, table)
+            if not high or table in access.hidden:
+                continue
+            if table not in access.columns:
+                problems.append(Problem(rel, 1, "S-SEC-9", f"`{table}`의 `개인` 이상 열({', '.join(high)})을 읽기 계정에서 감추지 않음 — `READER_HIDDEN` 또는 `READER_COLUMNS`"))
+                continue
+            known = classified.get(table, {})
+            for column in access.columns[table]:
+                if column in high or (column not in known and REST in high):
+                    problems.append(Problem(rel, 1, "S-SEC-9", f"`READER_COLUMNS`가 `{table}.{column}`(등급 `개인` 이상)을 읽기 계정에 엶"))
+                elif column not in known:
+                    problems.append(Problem(rel, 1, "S-SEC-9", f"`READER_COLUMNS`의 `{table}.{column}`이 설계서 등급 표에 없음"))
     return problems
 
 
@@ -370,8 +462,8 @@ def main(argv: list[str] | None = None) -> int:
         if not found and item is not None:
             print(f"  알림: {rel}은 이제 통과합니다 — pending.json에서 지워도 됩니다")
         failing += found
-    for problem in migration_coverage(root):
-        item = pending.match(waivers, problem.path)
+    for problem in migration_coverage(root) + reader_coverage(root):
+        item = pending.match(waivers, problem.path, problem.rule)
         if pending.is_waived(item):
             print(f"  유예({item.owner}, {item.until} 까지): {problem}")
         else:

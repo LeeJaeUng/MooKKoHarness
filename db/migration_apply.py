@@ -7,10 +7,12 @@
    스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
 2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 머리(맨 앞 `--` 줄) 안에
    `-- mookko:transaction off`가 있으면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
-3. 엔진 `grant`처럼 권한을 맞춘 뒤(덧붙이기만 표는 이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
+3. 엔진 `grant`처럼 권한을 맞춘 뒤(파티션 자식은 권한 없음, 읽기 계정은 서비스 코드의 `READER_HIDDEN`·`READER_COLUMNS`대로, 덧붙이기만 표는
+   이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
    기본 키, 금지 형식, enum, 기본 파티션, 잘못된 색인, 앱 계정 권한(스키마 CREATE·TRUNCATE·TRIGGER·REFERENCES·덧붙이기만 표의
    UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거(기본 ENABLE만 켜진 것으로 셈)와 그것이 실제로 거부하는지
-   (UPDATE·DELETE는 같은 모양 임시 표에 같은 트리거를 붙여 해 보고, TRUNCATE는 원래 표에 해 봄), 객체 주인.
+   (UPDATE·DELETE는 같은 모양 임시 표에 같은 트리거를 붙여 해 보고, TRUNCATE는 원래 표에 해 봄), 객체 주인,
+   읽기 계정이 설계서 등급 `개인` 이상 열을 읽지 못하는지(S-SEC-9).
 4. DB와 계정을 지운다(시험 컨테이너 안, 파일 아님).
 접속 설정이 없으면 "건너뜀(통과 아님)"을 출력하고, MOOKKO_REQUIRE_TEST_POSTGRES=1이면 실패한다.
 """
@@ -28,6 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import data_classes  # noqa: E402
+import pending  # noqa: E402
 import sqltext  # noqa: E402
 from migration_lint import ROOT, default_schema, migration_dirs, outside_transaction  # noqa: E402
 from pgwire import Connection, PgError, quote_ident, quote_literal  # noqa: E402
@@ -50,6 +54,7 @@ class Target:
     directory: Path
     rel: str
     schema: str
+    service: str
 
 
 def load_config() -> dict | None:
@@ -73,14 +78,15 @@ def targets(root: Path) -> list[Target]:
         rel = directory.relative_to(root)
         if any("clickhouse" in p for p in rel.parts):
             continue
-        schema = default_schema(rel)
+        service = default_schema(rel)
+        schema = service
         for path in sorted(directory.glob("*.sql")):
             override = sqltext.split(path.read_text(encoding="utf-8")).directives.get("schema")
             if override:
                 schema = override[0]
                 break
         if schema:
-            out.append(Target(directory, rel.as_posix(), schema))
+            out.append(Target(directory, rel.as_posix(), schema, service or schema))
     return out
 
 
@@ -131,19 +137,60 @@ def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
     return applied
 
 
-def grant_like_engine(db: Connection, target: Target) -> None:
-    """엔진 `SchemaMigrator::grant`와 같은 권한: 앱 계정은 표마다 DML만, 덧붙이기만 표는 SELECT·INSERT만, 읽기 계정은 SELECT.
-    덧붙이기만 표는 서비스가 `append_only`로 지정한 것이라 SQL에서 알 수 없으므로 이름 규칙(S-MONEY-2)으로 고른다 —
-    서비스가 실제로 지정했는지는 [QA]."""
+def grant_like_engine(db: Connection, target: Target, reader_access: data_classes.ReaderAccess) -> None:
+    """엔진 `SchemaMigrator::grant`(access.rs, E-DB-12)와 같은 권한: 보통 표와 파티션 부모만 받고 파티션 자식은 모두 걷어 냄.
+    앱 계정은 DML만, 덧붙이기만 표는 SELECT·INSERT만. 읽기 계정은 표마다 SELECT, 서비스 코드의 `READER_HIDDEN` 표는 없음,
+    `READER_COLUMNS` 표는 그 열만. 덧붙이기만 표는 서비스가 `append_only`로 지정한 것이라 SQL에서 알 수 없으므로 이름 규칙(S-MONEY-2)으로
+    고른다 — 서비스가 실제로 지정했는지는 [QA]. 표마다 좁히는 `table_privileges`는 덧붙이기만 판정에 영향이 없어 따라 하지 않는다."""
     schema = quote_ident(target.schema)
     app = quote_ident(f"{target.schema}_app")
     reader = quote_ident(f"{target.schema}_ro")
     sql = [f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;", f"GRANT USAGE ON SCHEMA {schema} TO {app}, {reader};"]
-    for (name,) in db.query(f"SELECT tablename FROM pg_tables WHERE schemaname = {quote_literal(target.schema)} ORDER BY 1").rows:
-        table = f"{schema}.{quote_ident(name or '')}"
-        allowed = "SELECT, INSERT" if re.search(APPEND_ONLY, name or "") and not re.search(HEAD, name or "") else "SELECT, INSERT, UPDATE, DELETE"
-        sql += [f"REVOKE ALL ON {table} FROM {app};", f"GRANT {allowed} ON {table} TO {app};", f"GRANT SELECT ON {table} TO {reader};"]
+    tables = db.query(
+        f"SELECT c.relname, c.relispartition::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = {quote_literal(target.schema)} AND c.relkind IN ('r', 'p') ORDER BY 1"
+    ).rows
+    for name, child in tables:
+        name = name or ""
+        table = f"{schema}.{quote_ident(name)}"
+        sql += [f"REVOKE ALL ON {table} FROM {app};", f"REVOKE ALL ON {table} FROM {reader};"]
+        if child == "true":
+            continue
+        allowed = "SELECT, INSERT" if re.search(APPEND_ONLY, name) and not re.search(HEAD, name) else "SELECT, INSERT, UPDATE, DELETE"
+        sql.append(f"GRANT {allowed} ON {table} TO {app};")
+        if name in reader_access.hidden:
+            continue
+        if name in reader_access.columns:
+            columns = ", ".join(quote_ident(c) for c in reader_access.columns[name])
+            sql.append(f"GRANT SELECT ({columns}) ON {table} TO {reader};")
+        else:
+            sql.append(f"GRANT SELECT ON {table} TO {reader};")
     db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
+
+
+def reader_checks(
+    db: Connection, target: Target, classified: dict[str, dict[str, str]], waivers: list[pending.Pending], problems: list[str]
+) -> None:
+    """S-SEC-9: 권한을 맞춘 뒤 읽기 계정(`_ro`)이 설계서 등급 `개인` 이상 열을 읽을 수 없어야 한다(`has_column_privilege`).
+    `(나머지)`가 `개인` 이상이면 등급 표에 따로 적지 않은 열 모두가 대상. pending.json에 S-SEC-9로 기한 안에 오른 서비스는 경고만."""
+    s = quote_literal(target.schema)
+    reader = quote_literal(f"{target.schema}_ro")
+    readable = db.query(
+        f"SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+        f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p') AND NOT c.relispartition "
+        f"AND has_column_privilege({reader}, c.oid, a.attnum, 'SELECT') ORDER BY 1, 2"
+    ).rows
+    for table, column in readable:
+        known = classified.get(table or "", {})
+        grade = known.get(column or "", known.get(data_classes.REST))
+        if grade is not None and data_classes.RANK.get(grade, 0) >= data_classes.RANK["개인"]:
+            message = f"{target.rel}: S-SEC-9 읽기 계정이 `{table}.{column}`(등급 `{grade}`)을 읽을 수 있음"
+            item = pending.match(waivers, target.rel, "S-SEC-9")
+            if pending.is_waived(item):
+                print(f"  유예({item.owner}, {item.until} 까지): {message}")
+            else:
+                problems.append(message)
 
 
 def probe_row_change(db: Connection, schema: str, table: str, event: str) -> str | None:
@@ -262,7 +309,7 @@ def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
         problems.append(f"{where}: S-BND-2 `{name}`({kind})의 주인이 `{actual}` — 주인 역할 `{target.schema}_owner`(SET LOCAL ROLE)로 만듦")
 
 
-def run_target(config: dict, target: Target) -> list[str]:
+def run_target(config: dict, target: Target, root: Path, waivers: list[pending.Pending]) -> list[str]:
     problems: list[str] = []
     run = f"{os.getpid()}_{secrets.token_hex(3)}"
     database = f"mookko_dbcheck_{target.schema}_{run}"[:63]
@@ -275,8 +322,9 @@ def run_target(config: dict, target: Target) -> list[str]:
             with connect(config, f"{target.schema}_migrate", password, database) as migrate:
                 applied = apply_files(migrate, target, problems)
             with connect(config, config["user"], config["password"], database) as db_admin:
-                grant_like_engine(db_admin, target)
+                grant_like_engine(db_admin, target, data_classes.reader_access(target.directory.parent, root))
                 catalog_checks(db_admin, target, problems)
+                reader_checks(db_admin, target, data_classes.service_classification(root, target.service), waivers, problems)
             print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용")
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
@@ -288,6 +336,7 @@ def run_target(config: dict, target: Target) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
+    parser.add_argument("--pending", type=Path, default=pending.LIST, help="기한부 유예 목록(시험용)")
     args = parser.parse_args(argv)
     config = load_config()
     if config is None:
@@ -296,13 +345,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("migration apply 건너뜀(통과 아님): MOOKKO_TEST_POSTGRES가 없음")
         return 0
-    found = targets(args.root.resolve())
+    root = args.root.resolve()
+    found = targets(root)
     problems: list[str] = []
+    waivers = pending.load(problems, args.pending)
     for target in found:
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", target.schema):
             problems.append(f"{target.rel}: S-TYPE-6 스키마 이름 `{target.schema}`")
             continue
-        problems += run_target(config, target)
+        problems += run_target(config, target, root, waivers)
     if problems:
         print(f"migration apply failed ({len(problems)}):")
         for p in problems:
