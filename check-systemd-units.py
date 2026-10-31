@@ -10,7 +10,9 @@ User가 root이거나 없으면 실패한다(이것은 예외로도 넘길 수 �
 from __future__ import annotations
 
 import datetime
+import fnmatch
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -52,7 +54,13 @@ EXEC_PREFIX_CHARS = "@-:+!"
 
 
 def tracked(pattern: str) -> list[Path]:
-    return sorted(p for p in ROOT.rglob(pattern) if not SKIP_PARTS.intersection(p.relative_to(ROOT).parts))
+    """저장소 안 파일(SKIP_PARTS 폴더는 들어가지 않음). rglob은 건너뛸 폴더도 다 훑은 뒤 걸러서, worktree가 많으면
+    /mnt/c 위에서 메모리가 모자랐습니다(2026-11-01 ENOMEM)."""
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_PARTS]
+        found.extend(Path(dirpath) / name for name in filenames if fnmatch.fnmatch(name, pattern))
+    return sorted(found)
 
 
 def units() -> list[Path]:

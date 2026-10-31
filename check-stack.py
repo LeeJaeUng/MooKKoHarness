@@ -12,6 +12,7 @@ cargo metadata로 판정하므로 PATH에 cargo가 있어야 한다.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,11 +41,14 @@ SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 
 
 def walk(base: Path):
-    for path in base.rglob("*"):
-        rel = path.relative_to(ROOT)
-        if any(part in SKIP_DIRS for part in rel.parts):
-            continue
-        yield path, rel
+    """base 아래 폴더·파일(SKIP_DIRS에는 들어가지 않음). rglob은 건너뛸 폴더(.claude/worktrees 등)도 다 훑은 뒤 걸러서
+    /mnt/c 위에서 메모리가 모자랄 수 있습니다(2026-11-01 check-systemd-units ENOMEM과 같은 원인)."""
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        here = Path(dirpath)
+        for name in [*dirnames, *filenames]:
+            path = here / name
+            yield path, path.relative_to(ROOT)
 
 
 def cargo_packages() -> list[dict]:
