@@ -1,5 +1,5 @@
 {
-  "_doc": "엔진이 만든 SQL을 글자 그대로 고정한 이관 파일 등록부(sql.md S-MIG-11). 이미 코드로 적용한 이관(엔진 create_table_sql 등)을 파일로 옮길 때, 체크섬을 지키려고 엔진 출력과 똑같이 둔 파일만. 등록된 파일은 SHA가 같을 때만 phase 머리(S-MIG-4)·큰따옴표 이름(S-TYPE-6)을 건너뛰고, 나머지 규칙은 그대로 봄. 내용이 바뀌면 예외가 없어짐. DB 담당만 고침. 칸: path, sha256(파일 글, 줄 끝 LF), source(어떤 엔진 함수의 출력), test(<.rs 경로>::<시험 함수> — 파일 = 엔진 출력을 글자로 비교, 엔진 E-DB-14 전까지), reason, expires, approvedBy.",
+  "_doc": "엔진이 만든 SQL을 글자 그대로 고정한 이관 파일 등록부(sql.md S-MIG-11). 이미 코드로 적용한 이관(엔진 create_table_sql 등)을 파일로 옮길 때, 체크섬을 지키려고 엔진 출력과 똑같이 둔 파일만. 등록된 파일은 SHA가 같을 때만 phase 머리(S-MIG-4)·큰따옴표 이름(S-TYPE-6)을 건너뛰고, 나머지 규칙은 그대로 봄. 내용이 바뀌면 예외가 없어짐. DB 담당만 고침. 칸: path, sha256(파일 글, 줄 끝 LF), source(어떤 엔진 함수의 출력), test(<.rs 경로>::<시험 함수> — 서비스가 엔진 add_generated(E-DB-14)로 넣으면 필요 없음, 아직 옮기지 않은 서비스의 옛 확인), reason, expires, approvedBy.",
   "files": [
     {
       "path": "crates/services/monitoring/migrations/0003_audit_entries.sql",

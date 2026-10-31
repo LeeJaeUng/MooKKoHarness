@@ -5,8 +5,8 @@
 서비스 `migrations/` 폴더마다:
 1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_ro`·`_recon`·`_maint`.
    스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
-2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 비어 있지 않은 첫 줄이
-   `-- mookko:transaction off`면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
+2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 머리(맨 앞 `--` 줄) 안에
+   `-- mookko:transaction off`가 있으면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
 3. 엔진 `grant`처럼 권한을 맞춘 뒤(덧붙이기만 표는 이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
    기본 키, 금지 형식, enum, 기본 파티션, 잘못된 색인, 앱 계정 권한(스키마 CREATE·TRUNCATE·TRIGGER·REFERENCES·덧붙이기만 표의
    UPDATE·DELETE), PUBLIC 권한, 덧붙이기만 표의 막기 트리거(기본 ENABLE만 켜진 것으로 셈)와 그것이 실제로 거부하는지
@@ -29,13 +29,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import sqltext  # noqa: E402
-from migration_lint import ROOT, default_schema, first_nonempty_line, migration_dirs  # noqa: E402
+from migration_lint import ROOT, default_schema, migration_dirs, outside_transaction  # noqa: E402
 from pgwire import Connection, PgError, quote_ident, quote_literal  # noqa: E402
 
 APPEND_ONLY = "ledger|journal|audit"
 HEAD = "_heads?$"  # 사슬·구간 머리는 지금 상태 표(migration_lint.APPEND_ONLY와 같음)
 ROLE_SUFFIXES = ("owner", "migrate", "app", "ro", "recon", "maint")
-OUTSIDE_TRANSACTION = "-- mookko:transaction off"  # 엔진 migrate.rs와 같은 표시
 LOCK_TIMEOUT_MS = 3000  # 엔진 MigrateSettings 기본값
 TIMEOUT_SECONDS = 30.0
 FORBIDDEN_TYPES = (
@@ -106,7 +105,7 @@ def bootstrap_schema(db_admin: Connection, schema: str) -> None:
 
 
 def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
-    """엔진 `SchemaMigrator`와 같은 길: 비어 있지 않은 첫 줄이 `-- mookko:transaction off`면 트랜잭션 밖 한 문장,
+    """엔진 `SchemaMigrator`와 같은 길: 머리(맨 앞에 이어지는 `--` 줄) 안에 `-- mookko:transaction off`가 있으면 트랜잭션 밖 한 문장,
     아니면 트랜잭션 안에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout` → 문장(migrate.rs, engine.md §저장소)."""
     applied = 0
     owner = quote_ident(f"{target.schema}_owner")
@@ -114,7 +113,7 @@ def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
         text = path.read_text(encoding="utf-8").replace("__SCHEMA__", quote_ident(target.schema))
         rel = f"{target.rel}/{path.name}"
         try:
-            if first_nonempty_line(text) == OUTSIDE_TRANSACTION:
+            if outside_transaction(text):
                 conn.query(text)
             else:
                 conn.query(

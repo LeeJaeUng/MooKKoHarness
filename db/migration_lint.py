@@ -128,12 +128,12 @@ class FileLint:
     """이관 파일 하나의 판정."""
 
     def __init__(
-        self, rel: str, script: sqltext.Script, dialect: str, schema: str | None, first_line: str = "", engine_fixed: bool = False
+        self, rel: str, script: sqltext.Script, dialect: str, schema: str | None, engine_tx_off: bool = False, engine_fixed: bool = False
     ) -> None:
         self.rel = rel
         self.engine_fixed = engine_fixed  # 엔진 생성 SQL 고정 파일(engine-generated.json, SHA 일치): phase 머리·따옴표 이름만 건너뜀
         self.script = script
-        self.first_line = first_line
+        self.engine_tx_off = engine_tx_off  # 엔진 이관기가 이 파일을 트랜잭션 밖에서 돌리는지(머리 규칙)
         self.dialect = dialect
         self.schema = schema
         self.findings: list[Finding] = []
@@ -489,8 +489,8 @@ class FileLint:
                 if re.search(r"\bCONCURRENTLY\b", st.text, re.I):
                     self.add(st.line, "S-MIG-6", "CONCURRENTLY는 트랜잭션 안에서 돌 수 없음 — `-- mookko:transaction off` 파일에 문장 하나로")
             return
-        if self.first_line != "-- mookko:transaction off":
-            self.add(1, "S-MIG-6", "`-- mookko:transaction off`는 파일의 비어 있지 않은 첫 줄(엔진 이관기가 그 줄만 봄 — 아니면 트랜잭션 안에서 돌다 실패)")
+        if not self.engine_tx_off:
+            self.add(1, "S-MIG-6", "`-- mookko:transaction off`는 머리(앞 빈 줄 뒤 맨 앞에 이어지는 `--` 줄, 사이에 빈 줄 없이) 안에 — 엔진 이관기는 머리만 봄, 아니면 트랜잭션 안에서 돌다 실패")
         if len(stmts) != 1:
             self.add(1, "S-MIG-6", f"transaction off 파일에는 문장 하나만(지금 {len(stmts)}개)")
         for st in stmts:
@@ -621,7 +621,7 @@ class FileLint:
 
 def lint_text(rel: str, sql: str, dialect: str, schema: str | None, engine_fixed: bool = False) -> list[Finding]:
     """이관 SQL 글 하나를 판정한다(시험이 직접 부름)."""
-    return FileLint(rel, sqltext.split(sql), dialect, schema, first_nonempty_line(sql), engine_fixed).run()
+    return FileLint(rel, sqltext.split(sql), dialect, schema, outside_transaction(sql), engine_fixed).run()
 
 
 ENGINE_GENERATED = Path(__file__).resolve().parent / "engine-generated.json"
@@ -649,12 +649,19 @@ def engine_fixed_status(rel: str, text: str, registry: dict, today: datetime.dat
 
 
 def engine_fixed_tests(root: Path, registry: dict) -> list[Finding]:
-    """등록된 고정 파일마다 "파일 글 = 엔진 함수 출력(`__SCHEMA__` 바꾼 뒤)"을 비교하는 Rust 시험이 있어야 한다(S-MIG-11).
-    `test` 칸은 `<저장소 기준 .rs 경로>::<시험 함수 이름>`이고, 그 파일에 함수와 고정 파일 이름이 있어야 한다.
-    엔진 도우미(E-DB-14: 이관기가 직접 비교)가 들어오면 그것으로 바꾼다."""
+    """등록된 고정 파일마다 "파일 글 = 엔진 함수 출력(`__SCHEMA__` 바꾼 뒤)"을 기계가 확인해야 한다(S-MIG-11).
+    기본은 엔진 `SchemaMigrator::add_generated`(E-DB-14, 이관기가 머리를 뗀 본문을 엔진 출력과 글자로 비교해 다르면 거부):
+    그 서비스 코드에 `add_generated(` 호출과 고정 파일 이름이 있으면 통과. 아직 옮기지 않은 서비스는 옛 방식
+    `test` 칸(`<저장소 기준 .rs 경로>::<시험 함수 이름>`, 그 파일에 함수와 고정 파일 이름)으로도 받는다."""
     findings: list[Finding] = []
     for entry in registry.get("files", []):
         where = entry.get("path", "scripts/ci/db/engine-generated.json")
+        parts = where.split("/")
+        if len(parts) >= 3 and parts[:2] == ["crates", "services"]:
+            src = root.joinpath(*parts[:3], "src")
+            texts = [p.read_text(encoding="utf-8") for p in walk(src, lambda name: name.endswith(".rs"))]
+            if any("add_generated(" in t and Path(where).name in t for t in texts):
+                continue  # 엔진 이관기가 직접 비교(E-DB-14)
         test = entry.get("test", "")
         if "::" not in test:
             findings.append(Finding(where, 1, "S-MIG-11", "engine-generated.json 항목에 `test`(<파일>::<시험 함수>) 칸이 없음 — 파일 = 엔진 출력 비교 시험"))
@@ -695,7 +702,7 @@ def code_id_to_file_findings(root: Path, since: str) -> list[tuple[str, str]] | 
 
 def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list[str]]:
     """이관 글이 만드는 테이블과 열(파티션 자식은 부모 열을 받으므로 뺌). 설계서 대조(data_classes.py)가 씀."""
-    lint = FileLint("", sqltext.split(sql), dialect, schema, first_nonempty_line(sql))
+    lint = FileLint("", sqltext.split(sql), dialect, schema, outside_transaction(sql))
     lint.run()
     tables = {name: list(info.columns) for name, info in lint.created.items() if not info.is_partition}
     for name, columns in lint.added.items():
@@ -703,9 +710,24 @@ def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list
     return tables
 
 
-def first_nonempty_line(sql: str) -> str:
-    """엔진 이관기(`migrate.rs` `outside_transaction`)가 보는 줄: 비어 있지 않은 첫 줄, 앞뒤 공백 뺌."""
-    return next((line.strip() for line in sql.replace("\r\n", "\n").split("\n") if line.strip()), "")
+def header_lines(sql: str) -> list[str]:
+    """엔진 이관기(`migrate.rs` `header`)의 머리: 줄마다 앞뒤 공백을 빼고, 앞쪽 빈 줄을 건너뛴 뒤 `--`로 시작하는 줄이 이어지는 동안."""
+    lines = [line.strip() for line in sql.replace("\r\n", "\n").split("\n")]
+    out: list[str] = []
+    started = False
+    for line in lines:
+        if not started and not line:
+            continue
+        started = True
+        if not line.startswith("--"):
+            break
+        out.append(line)
+    return out
+
+
+def outside_transaction(sql: str) -> bool:
+    """엔진 `outside_transaction`과 같은 판정: 머리 안 어디든 `-- mookko:transaction off`."""
+    return "-- mookko:transaction off" in header_lines(sql)
 
 
 def default_schema(rel_dir: Path) -> str | None:
@@ -840,11 +862,12 @@ def lint_embedded(root: Path, registry: dict | None = None) -> list[Finding]:
                 path, line, _ = embedded[name]
                 findings.append(Finding(path.relative_to(root).as_posix(), line, "S-MIG-10", f"`migrations/{name}` 파일이 없음"))
             # 넣은 글을 판정해 `add_concurrent_index`로 보내는 서비스는 transaction off 파일을 넣어도 됨(그 분기 자체는 [QA]).
-            routes_concurrent = "add_concurrent_index" in all_text
+            # 엔진 도우미가 머리를 보고 트랜잭션 밖으로 보냄: add_embedded·add_generated(E-DB-13·14), 손으로 고르면 add_concurrent_index.
+            routes_concurrent = any(f"{name}(" in all_text for name in ("add_concurrent_index", "add_embedded", "add_generated"))
             for name in sorted(set(embedded) & set(files)):
                 if routes_concurrent:
                     break
-                if first_nonempty_line(files[name].read_text(encoding="utf-8")) == "-- mookko:transaction off":
+                if outside_transaction(files[name].read_text(encoding="utf-8")):
                     path, line, _ = embedded[name]
                     findings.append(
                         Finding(

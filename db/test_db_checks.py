@@ -183,6 +183,35 @@ class EngineFixedEvidence(unittest.TestCase):
         self.assertTrue(any(p.endswith("0003_audit_entries.sql") and "6a749ed" in m for p, m in old), old)
 
 
+class EngineHeaderRule(unittest.TestCase):
+    """S-MIG-6: 엔진 이관기(migrate.rs header·outside_transaction)와 같은 머리 판정 — 앞 빈 줄 뒤 이어지는 `--` 줄 안 어디든."""
+
+    def test_header_matches_engine(self) -> None:
+        on = "-- mookko:transaction off"
+        index = "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON s.t (x)"
+        nl = chr(10)
+        cases = [
+            (nl.join([on, index]), True),
+            (nl.join(["", "", "  -- mookko:phase expand", on, index]), True),
+            (nl.join(["-- mookko:phase expand", "", on, index]), False),
+            (nl.join(["CREATE TABLE t (id int);", on]), False),
+            (nl.join(["-- mookko:phase expand", "CREATE TABLE t (id int);"]), False),
+        ]
+        for sql, expected in cases:
+            with self.subTest(sql):
+                self.assertEqual(migration_lint.outside_transaction(sql), expected)
+
+    def test_engine_helpers_route_transaction_off(self) -> None:
+        # include_str로 넣은 transaction off 파일은 add_concurrent_index·add_embedded·add_generated 중 하나가 있으면 통과.
+        found = migration_lint.lint_embedded(FIXTURES / "repo-embedded")
+        self.assertTrue(any(f.rule == "S-MIG-10" and "transaction off" in f.message for f in found))
+
+    def test_add_generated_replaces_test_field(self) -> None:
+        registry = {"files": [{"path": "crates/services/svc/migrations/0001_accounts_and_ledger.sql", "test": ""}]}
+        self.assertEqual(migration_lint.engine_fixed_tests(FIXTURES / "repo-good", registry), [])
+        self.assertTrue(migration_lint.engine_fixed_tests(FIXTURES / "repo-bad", {"files": [dict(registry["files"][0])]}))
+
+
 class EmbeddedMigrations(unittest.TestCase):
     """S-MIG-10·S-MONEY-2: 이관을 실행 파일에 넣어 쓰는 서비스의 ID·파일 대조, transaction off, append_only 지정."""
 
