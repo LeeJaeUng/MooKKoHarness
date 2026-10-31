@@ -18,6 +18,15 @@
       "owner": "operations-dev",
       "until": "2026-11-30",
       "reason": "S-PART-3(2026-11-01, 엔진 E-DB-5 af8c252·통합 d0274dd): 파티션 부모 audit_events·audit_reasons를 서비스 코드에서 SchemaMigrator::partitioned(PartitionedTable::monthly(…).keep_days(n))로 엔진에 넘기고, 서비스 코드의 파티션 DDL(exceptions.json S-BND-7, 같은 기한)을 지움"
+    },
+    {
+      "path": "docs/architecture/engine-data-model.md",
+      "rules": [
+        "S-SEC-9"
+      ],
+      "owner": "engine-dev",
+      "until": "2026-11-08",
+      "reason": "S-SEC-9 엔진 몫(QA 795bf8c 보통): 엔진 공유 스키마 staff_sessions·login_pending(비밀)을 읽기 계정에서 감추기 — mookko-runtime shared_migrator에 const READER_HIDDEN을 두고 reader_hidden으로 넘김"
     }
   ]
 }

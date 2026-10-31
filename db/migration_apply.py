@@ -169,7 +169,12 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
 
 
 def reader_checks(
-    db: Connection, target: Target, classified: dict[str, dict[str, str]], waivers: list[pending.Pending], problems: list[str]
+    db: Connection,
+    target: Target,
+    classified: dict[str, dict[str, str]],
+    reader_access: data_classes.ReaderAccess,
+    waivers: list[pending.Pending],
+    problems: list[str],
 ) -> None:
     """S-SEC-9: 권한을 맞춘 뒤 읽기 계정(`_ro`)이 설계서 등급 `개인` 이상 열을 읽을 수 없어야 한다(`has_column_privilege`).
     `(나머지)`가 `개인` 이상이면 등급 표에 따로 적지 않은 열 모두가 대상. pending.json에 S-SEC-9로 기한 안에 오른 서비스는 경고만."""
@@ -181,6 +186,18 @@ def reader_checks(
         f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p') AND NOT c.relispartition "
         f"AND has_column_privilege({reader}, c.oid, a.attnum, 'SELECT') ORDER BY 1, 2"
     ).rows
+    by_table: dict[str, set[str]] = {}
+    for table, column in readable:
+        by_table.setdefault(table or "", set()).add(column or "")
+    # 코드 설정과 실제 권한이 같은지(QA 795bf8c 낮음: 글자 확인만이 아니라 grant 뒤 권한을 본다).
+    for table in sorted(reader_access.hidden):
+        if by_table.get(table):
+            problems.append(f"{target.rel}: S-SEC-9 감춘 표 `{table}`을 읽기 계정이 읽을 수 있음: {', '.join(sorted(by_table[table]))}")
+        if db.query(f"SELECT 1 WHERE has_table_privilege({reader}, {quote_literal(target.schema + '.' + table)}, 'SELECT')").rows:
+            problems.append(f"{target.rel}: S-SEC-9 감춘 표 `{table}`에 읽기 계정의 표 SELECT 권한이 있음")
+    for table, columns in sorted(reader_access.columns.items()):
+        if by_table.get(table, set()) != set(columns):
+            problems.append(f"{target.rel}: S-SEC-9 `{table}` 읽기 계정 열이 설정과 다름: 설정 {sorted(columns)}, 실제 {sorted(by_table.get(table, set()))}")
     for table, column in readable:
         known = classified.get(table or "", {})
         grade = known.get(column or "", known.get(data_classes.REST))
@@ -322,9 +339,10 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
             with connect(config, f"{target.schema}_migrate", password, database) as migrate:
                 applied = apply_files(migrate, target, problems)
             with connect(config, config["user"], config["password"], database) as db_admin:
-                grant_like_engine(db_admin, target, data_classes.reader_access(target.directory.parent, root))
+                access = data_classes.reader_access(target.directory.parent, root)
+                grant_like_engine(db_admin, target, access)
                 catalog_checks(db_admin, target, problems)
-                reader_checks(db_admin, target, data_classes.service_classification(root, target.service), waivers, problems)
+                reader_checks(db_admin, target, data_classes.service_classification(root, target.service), access, waivers, problems)
             print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용")
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")

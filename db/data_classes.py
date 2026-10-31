@@ -374,6 +374,13 @@ READER_COLUMN_ITEM = re.compile(r"\(\s*\"([^\"]+)\"\s*,\s*&\[(.*?)\]\s*\)", re.S
 LITERAL = re.compile(r"\"([^\"]*)\"")
 
 
+def passed_to(text: str, declaration: re.Match, const: str, call: str) -> bool:
+    """상수를 실제로 엔진 호출에 넘기는지: 선언을 뺀 글에서 상수 이름을 쓴 자리 바로 뒤(400자 안)에 `.<call>(`이 있어야 한다
+    (QA 795bf8c: 호출 글자만 따로 있어도 통과하던 것)."""
+    rest = text[: declaration.start()] + text[declaration.end():]
+    return re.search(rf"\b{const}\b[\s\S]{{0,400}}?\.{call}\(", rest) is not None
+
+
 def reader_access(crate: Path, root: Path) -> ReaderAccess:
     """서비스 크레이트 `src/`의 `const READER_HIDDEN: &[&str]`·`const READER_COLUMNS: &[(&str, &[&str])]`를 읽는다(sql.md S-SEC-9).
     정한 모양으로만 적게 해야 검사가 코드와 같은 것을 본다: 상수를 두고 같은 파일에서 `reader_hidden`·`reader_columns`로 넘긴다."""
@@ -386,16 +393,16 @@ def reader_access(crate: Path, root: Path) -> ReaderAccess:
         text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
         hidden = READER_HIDDEN.search(text)
         # 넘기지 않은 상수는 엔진이 모르므로 감춘 것으로 세지 않는다.
-        if hidden and ".reader_hidden(" in text:
+        if hidden and passed_to(text, hidden, "READER_HIDDEN", "reader_hidden"):
             access.hidden.update(LITERAL.findall(hidden.group(1)))
         elif hidden:
-            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_HIDDEN`을 적었지만 이 파일에서 `reader_hidden`으로 넘기지 않음"))
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_HIDDEN`을 적었지만 이 파일에서 그 상수를 `reader_hidden`으로 넘기지 않음"))
         columns = READER_COLUMNS.search(text)
-        if columns and ".reader_columns(" in text:
+        if columns and passed_to(text, columns, "READER_COLUMNS", "reader_columns"):
             for table, listed in READER_COLUMN_ITEM.findall(columns.group(1)):
                 access.columns[table] = LITERAL.findall(listed)
         elif columns:
-            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_COLUMNS`를 적었지만 이 파일에서 `reader_columns`로 넘기지 않음"))
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_COLUMNS`를 적었지만 이 파일에서 그 상수를 `reader_columns`로 넘기지 않음"))
         for call in ("reader_hidden", "reader_columns"):
             if f".{call}(" in text and not (hidden if call == "reader_hidden" else columns):
                 access.problems.append(Problem(rel, 1, "S-SEC-9", f"`{call}`에 넘기는 표는 `const READER_{call.split('_')[1].upper()}`에 적음(검사가 읽는 자리)"))
@@ -438,6 +445,42 @@ def reader_coverage(root: Path) -> list[Problem]:
     return problems
 
 
+ENGINE_CODE = (("crates", "engine"), ("crates", "apps", "mookko-runtime"))
+
+
+def engine_reader_coverage(root: Path) -> list[Problem]:
+    """S-SEC-9 엔진 몫(QA 795bf8c): 엔진 표 설계서(`docs/architecture/engine*data-model.md`, `crates/engine/**/data-model.md`)에서
+    이름이 정해진 표(`<원장>`처럼 서비스가 이름을 정하는 표 말고)에 `개인` 이상 열이 있으면, 엔진 코드(`crates/engine/*`,
+    `crates/apps/mookko-runtime`)의 `READER_HIDDEN`·`READER_COLUMNS`가 그 표를 읽기 계정에서 감춰야 한다."""
+    docs = [p for p in design_docs(root)
+            if p.relative_to(root).parts[:2] == ("crates", "engine")
+            or (p.relative_to(root).parts[:2] == ("docs", "architecture") and p.name.startswith("engine"))]
+    access = ReaderAccess()
+    for parts in ENGINE_CODE:
+        base = root.joinpath(*parts)
+        crates = [base] if (base / "src").is_dir() else sorted(d for d in base.glob("*") if (d / "src").is_dir()) if base.is_dir() else []
+        for crate in crates:
+            found = reader_access(crate, root)
+            access.hidden |= found.hidden
+            access.columns.update(found.columns)
+            # 엔진 시험(적합성)은 표를 직접 넘기므로 모양 지적은 서비스에만 한다.
+    problems: list[Problem] = []
+    for doc in docs:
+        rel = doc.relative_to(root).as_posix()
+        check = DocCheck(rel, doc.read_text(encoding="utf-8"))
+        check.run()
+        for table in sorted(check.classified):
+            high = high_columns(check.classified, table)
+            if "<" in table or not high or table in access.hidden:
+                continue
+            opened = [c for c in access.columns.get(table, []) if c in high]
+            if table not in access.columns:
+                problems.append(Problem(rel, 1, "S-SEC-9", f"엔진 표 `{table}`의 `개인` 이상 열({', '.join(high)})을 엔진 코드가 읽기 계정에서 감추지 않음 — `READER_HIDDEN`·`READER_COLUMNS`"))
+            elif opened:
+                problems.append(Problem(rel, 1, "S-SEC-9", f"엔진 `READER_COLUMNS`가 `{table}`의 `개인` 이상 열({', '.join(opened)})을 엶"))
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
@@ -462,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         if not found and item is not None:
             print(f"  알림: {rel}은 이제 통과합니다 — pending.json에서 지워도 됩니다")
         failing += found
-    for problem in migration_coverage(root) + reader_coverage(root):
+    for problem in migration_coverage(root) + reader_coverage(root) + engine_reader_coverage(root):
         item = pending.match(waivers, problem.path, problem.rule)
         if pending.is_waived(item):
             print(f"  유예({item.owner}, {item.until} 까지): {problem}")

@@ -6,6 +6,7 @@
 - fixtures/data-model/*.md: `<!-- expect: … -->`
 - fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9)
 - fixtures/repo-partition-bad: 파티션 부모를 엔진에 적기(S-PART-3)
+- fixtures/repo-engine-good, repo-engine-bad: 엔진 표 읽기 계정 감추기(S-SEC-9 엔진 몫)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
 """
 
@@ -377,11 +378,23 @@ class ReaderCoverage(unittest.TestCase):
             "`READER_COLUMNS`가 `people.email`(등급 `개인` 이상)을 읽기 계정에 엶",
             "`notes`의 `개인` 이상 열(body)을 읽기 계정에서 감추지 않음",
             "`visits`의 `개인` 이상 열(ip_hash)을 읽기 계정에서 감추지 않음",
-            "`READER_HIDDEN`을 적었지만 이 파일에서 `reader_hidden`으로 넘기지 않음",
+            "`READER_HIDDEN`을 적었지만 이 파일에서 그 상수를 `reader_hidden`으로 넘기지 않음",
             "읽기 계정 설정의 `missing_table`을 이관이 만들지 않음",
         ):
             self.assertTrue(any(needle in m for m in found), (needle, found))
         self.assertEqual(len(found), 5, found)
+
+
+class EngineReaderCoverage(unittest.TestCase):
+    """S-SEC-9 엔진 몫(QA 795bf8c): 엔진 표 설계서의 `개인` 이상 표는 엔진 코드의 `READER_HIDDEN`·`READER_COLUMNS`로 감춘다."""
+
+    def test_hidden_engine_table_passes(self) -> None:
+        self.assertEqual(data_classes.engine_reader_coverage(FIXTURES / "repo-engine-good"), [])
+
+    def test_unhidden_engine_table_is_caught(self) -> None:
+        found = [p.message for p in data_classes.engine_reader_coverage(FIXTURES / "repo-engine-bad")]
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("엔진 표 `staff_sessions`", found[0])
 
 
 class PendingList(unittest.TestCase):
@@ -421,6 +434,17 @@ class ApplySamples(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("S-SEC-9 읽기 계정이 `accounts.email`(등급 `개인`)을 읽을 수 있음", out)
         self.assertNotIn("accounts.state", out)
+
+    def test_hidden_table_has_no_reader_privilege(self) -> None:
+        """감춘 표는 grant 뒤 읽기 계정에 표·열 SELECT가 하나도 없어야 한다(has_table_privilege·has_column_privilege로 확인)."""
+        original = data_classes.reader_access
+        data_classes.reader_access = lambda crate, root: data_classes.ReaderAccess(hidden={"accounts"})
+        try:
+            code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
+        finally:
+            data_classes.reader_access = original
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("S-SEC-9", out)
 
     def test_bad_repo_is_caught(self) -> None:
         code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "apply-bad"), "--pending", str(EMPTY_PENDING)])
