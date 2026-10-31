@@ -74,7 +74,7 @@
 
 - S-SEC-1 설계서의 **모든 테이블의 모든 열**에 등급(`공개`·`내부`·`개인`·`민감`·`비밀`)과 보호(`평문`·`암호`·`암호+색인`·`해시`·`토큰화`·`참조`)를 적는다(형식은 §11). 애매하면 높은 등급. **[검사]** `data_classes.py`
 - S-SEC-2 등급마다 쓸 수 있는 보호(database.md §9.2): `공개`·`내부` → `평문` 등 무엇이든, `개인` → `암호`·`암호+색인`·`해시`, `민감` → `암호`·`암호+색인`·`토큰화`, `비밀` → `해시`·`암호`·`참조`. 이름이 비밀값처럼 보이는 열(`password`·`secret`·`token`·`api_key`·`private_key`·`totp`·`recovery`)은 `비밀`, 개인정보처럼 보이는 열(`email`·`phone`·`birth`·`ip`·`address_line`·`real_name`·`passport`·`card`·`bank_account`·`rrn`)은 `개인` 이상. **[검사]** `data_classes.py`
-- S-SEC-3 `암호+색인` 열은 `<열>_bidx bytea`(HMAC-SHA-256 32바이트, 열마다 다른 키, 정규화 후)를 같은 테이블에 둔다. 값 종류가 적은 열에는 blind index 금지. **[검사]** `data_classes.py`(`_bidx` 열 있음) **[QA]**
+- S-SEC-3 `암호+색인` 열은 엔진 `BlindIndex::compute`(E-DB-7, 정규화는 `Normalized`)가 낸 값을 같은 테이블의 `<열>_bidx bytea`(`CHECK (octet_length(…) = 32)`, 이 열로 시작하는 `UNIQUE` 또는 색인)와 `<열>_bidx_kid text`(키 ID, 두 열은 같이 차거나 같이 빔)에 둔다. 서비스가 HMAC·정규화를 따로 짜지 않는다. 값 종류가 적은 열에는 blind index 금지. 키를 바꾸는 동안의 찾기·유일 확인은 database.md §9.3. **[검사]** `data_classes.py`(설계서의 두 열과 원래 열) `migration_apply.py`(실제 DB의 형식·CHECK·색인·같이 빔) **[QA]**
 - S-SEC-4 비밀번호는 Argon2id(RFC 9106 두 번째 권장: 메모리 64MiB·반복 3·병렬 1~4, 최소 OWASP 19MiB·2·1), 동시 계산 상한(세마포어). 길고 무작위인 토큰은 HMAC-SHA-256(키는 KMS)만 저장. 카드번호는 저장 금지(토큰화), CVC는 어떤 형태로도 저장 금지. **[QA]**
 - S-SEC-5 `개인` 이상 값과 SQL 바인딩 값은 로그·추적·지표 라벨·오류·감사 `detail`에 넣지 않는다(서버 `log_parameter_max_length = 0`, `log_error_verbosity = terse`). **[QA]** (R-OBS-1·2)
 - S-SEC-6 설계서의 테이블마다 보관 기한과 파기 방법(파티션 떼기·지우기·가명화·키 파기)을 적는다. 법정 기간은 "법무 확인" 표시. **[검사]** `data_classes.py`(테이블 절에 `보관`) **[QA]**
@@ -97,7 +97,7 @@
 
 ## 9. 이름·서식
 
-- S-NAME-1 테이블·열은 `snake_case`, 테이블은 복수형, 외래 키는 `<대상>_id`, 시각은 `timestamptz` + `_at`, 불리언은 `is_`·`has_`, blind index는 `<열>_bidx`. **[QA]**
+- S-NAME-1 테이블·열은 `snake_case`, 테이블은 복수형, 외래 키는 `<대상>_id`, 시각은 `timestamptz` + `_at`, 불리언은 `is_`·`has_`, blind index는 `<열>_bidx`·`<열>_bidx_kid`. **[QA]**
 - S-FMT-1 키워드 대문자, 한 줄에 절 하나. **[QA]**
 
 ## 10. ClickHouse (로그·추적·지표만)
@@ -146,6 +146,7 @@
 | `account_id` | `uuid` | PK | 내부 | 평문 | UUIDv7 |
 | `email` | `text` | NOT NULL | 개인 | 암호+색인 | 로그인 이메일 |
 | `email_bidx` | `bytea` | UNIQUE, 32바이트 | 내부 | 평문 | `email`의 blind index |
+| `email_bidx_kid` | `text` | NOT NULL | 내부 | 평문 | `email_bidx`를 만든 색인 키 ID |
 
 보관: 탈퇴 즉시 `email`을 지우고 행은 가명으로 남김.
 ```
