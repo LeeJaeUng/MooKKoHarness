@@ -13,7 +13,7 @@
 ## 1. 경계·권한
 
 - S-BND-1 서비스마다 자기 DB·같은 이름 스키마·자기 계정. 다른 서비스 테이블을 읽거나 쓰지 않는다(연결은 gRPC). 이관 SQL의 스키마 이름은 자기 스키마·`pg_catalog`만. **[lint]** **[QA]**
-- S-BND-2 계정은 `<서비스>_owner`(로그인 없음, 스키마·객체 주인)·`_migrate`(주인의 구성원, 이관 때만 — 엔진 이관기가 `SET LOCAL ROLE <서비스>_owner`로 만듦)·`_app`(테이블마다 DML만)·`_ro`(읽기만)·`_recon`(대사 보기만)·`_maint`(파티션 함수만)·`_audit_reader`(감사 읽기만, 운영툴). 이 밖의 계정은 이 목록에 먼저 더함(규약 변경 — 넓히기는 사용자 결정). 이관은 이관 단계(`mookko-app migrate`)에서만, 실행 파일은 `verify`만. 앱 계정에 DDL(스키마·DB `CREATE`)·`TRUNCATE`·`TRIGGER`·`REFERENCES` 없음, 덧붙이기만 하는 테이블에 `UPDATE`·`DELETE` 없음 — 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다. 설계서에 계정 표를 둔다. **[lint]**(스키마 CREATE 주기) **[검사]** `migration_apply.py`(주인·앱 계정 권한) **[QA]**(`append_only` 지정)
+- S-BND-2 계정은 `<서비스>_owner`(로그인 없음, 스키마·객체 주인)·`_migrate`(주인의 구성원, 이관 때만 — 엔진 이관기가 `SET LOCAL ROLE <서비스>_owner`로 만듦)·`_app`(테이블마다 DML만)·`_ro`(읽기만)·`_recon`(대사 보기만)·`_maint`(예약, 지금 쓰지 않음 — 파티션은 엔진 유지보수 단계가 이관 계정으로)·`_audit_reader`(감사 읽기만, 운영툴). 이 밖의 계정은 이 목록에 먼저 더함(규약 변경 — 넓히기는 사용자 결정). 이관은 이관 단계(`mookko-app migrate`)에서만, 실행 파일은 `verify`만. 앱 계정에 DDL(스키마·DB `CREATE`)·`TRUNCATE`·`TRIGGER`·`REFERENCES` 없음, 덧붙이기만 하는 테이블에 `UPDATE`·`DELETE` 없음 — 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다. 설계서에 계정 표를 둔다. **[lint]**(스키마 CREATE 주기) **[검사]** `migration_apply.py`(주인·앱 계정 권한) **[QA]**(`append_only` 지정)
 - S-BND-3 `dblink`·`postgres_fdw`·`CREATE SERVER`·`COPY … PROGRAM`·서버 파일 `COPY` 금지. **[lint]**
 - S-BND-4 서비스 이관에 `CREATE ROLE`·`ALTER ROLE`·`DROP ROLE`·`CREATE DATABASE`·`CREATE EXTENSION`·`ALTER SYSTEM` 금지(DB 준비 스크립트의 일). **[lint]**
 - S-BND-5 `GRANT`는 자기 서비스 계정에게만: `<스키마>_` + S-BND-2의 접미어(`owner`·`migrate`·`app`·`ro`·`recon`·`maint`·`audit_reader`). `TO PUBLIC`·`GRANT ALL`·`WITH GRANT OPTION` 금지. **[lint]**
@@ -66,8 +66,8 @@
 ## 5. 분할
 
 - S-PART-1 시간으로 쌓이고 떼어 낼 표(원장 항목·감사·이벤트)는 월별 범위 파티션, 기본 키와 모든 UNIQUE에 파티션 열(예: `seq` 하나만 기본 키인 파티션 표는 PostgreSQL이 거부 — 멱등 키 UNIQUE도 파티션 열을 함께). **[lint]**(기본 키·UNIQUE) **[QA]**(파티션할 표 고르기)
-- S-PART-2 기본(`DEFAULT`) 파티션 금지(새 파티션 붙일 때 기본 파티션을 훑으며 잠그고, 기본 파티션이 있으면 `DETACH … CONCURRENTLY`를 쓸 수 없음). 유지보수 작업이 3달 앞까지 미리 만든다(만드는 주체는 엔진 파티션 작업 E-DB-5, 설계서에 적음). **[lint]** **[검사]** `migration_apply.py`
-- S-PART-3 파티션 만들기·떼기는 `<서비스>_maint`의 정해진 함수만, 지우기는 `DETACH … CONCURRENTLY` 뒤 `DROP`(`DELETE`로 지우지 않음). **[QA]**
+- S-PART-2 기본(`DEFAULT`) 파티션 금지(새 파티션 붙일 때 기본 파티션을 훑으며 잠그고, 기본 파티션이 있으면 `DETACH … CONCURRENTLY`를 쓸 수 없음). 엔진 유지보수(E-DB-5)가 3달 앞까지 미리 만든다(S-PART-3). **[lint]** **[검사]** `migration_apply.py`
+- S-PART-3 파티션은 엔진이 관리한다(E-DB-5, database.md §4.2). 서비스 이관은 부모 표(`PARTITION BY`)만 만들고 달 파티션(`PARTITION OF`)은 쓰지 않는다(엔진의 `<표>_YYYYMM`과 겹침). 서비스 이관이 만든 파티션 부모는 모두 서비스 코드가 이관기에 `partitioned(PartitionedTable::monthly(표, 키).keep_days(n))`로 적는다 — 표 이름은 그 호출 안에 글자(`"표"`)나 `&str` 상수로, 반복문으로 넘기면 `const PARTITIONED: &[…]`에. 만들기·떼기는 이관·유지보수 단계(`<실행 파일> maintain`, 이관 계정)만, 지우기는 `DETACH … CONCURRENTLY` 뒤 `DROP`(`DELETE`로 지우지 않음). 서비스 코드의 파티션 DDL은 S-BND-7. 법정 보관 때문에 내보내야 하는 표는 `archive_before_drop`. **[lint]**(`PARTITION OF`, 부모 등록) **[QA]**(`keep_days`가 설계서 보관과 같은지, 내보내기)
 - S-PART-4 돈 테이블은 분할 키 열을 모든 행에, 논리 버킷은 `FNV-1a(키) mod 1024`(엔진 `PartitionLeases`). 뜨거운 키는 database.md §4.3대로. **[QA]**
 
 ## 6. 데이터 보호
