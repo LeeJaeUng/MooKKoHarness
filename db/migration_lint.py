@@ -653,28 +653,20 @@ def engine_fixed_status(rel: str, text: str, registry: dict, today: datetime.dat
 
 
 def engine_fixed_tests(root: Path, registry: dict) -> list[Finding]:
-    """등록된 고정 파일마다 "파일 글 = 엔진 함수 출력(`__SCHEMA__` 바꾼 뒤)"을 기계가 확인해야 한다(S-MIG-11).
-    기본은 엔진 `SchemaMigrator::add_generated`(E-DB-14, 이관기가 머리를 뗀 본문을 엔진 출력과 글자로 비교해 다르면 거부):
-    그 서비스 코드에 `add_generated(` 호출과 고정 파일 이름이 있으면 통과. 아직 옮기지 않은 서비스는 옛 방식
-    `test` 칸(`<저장소 기준 .rs 경로>::<시험 함수 이름>`, 그 파일에 함수와 고정 파일 이름)으로도 받는다."""
+    """등록된 고정 파일마다 "파일 글 = 엔진 함수 출력(`__SCHEMA__` 바꾼 뒤)"을 엔진 이관기가 확인해야 한다(S-MIG-11):
+    그 서비스 코드(주석 뺀 글)에 `SchemaMigrator::add_generated(` 호출과 고정 파일 이름이 함께 있어야 한다(E-DB-14, 이관기가 머리를 뗀
+    본문을 엔진 출력과 글자로 비교해 다르면 거부). 옛 `test` 칸(비교 Rust 시험)은 모니터링이 옮긴 뒤(a55c6d9, 통합 b5e9618) 받지 않는다."""
     findings: list[Finding] = []
     for entry in registry.get("files", []):
         where = entry.get("path", "scripts/ci/db/engine-generated.json")
         parts = where.split("/")
+        texts: list[str] = []
         if len(parts) >= 3 and parts[:2] == ["crates", "services"]:
             src = root.joinpath(*parts[:3], "src")
-            texts = [p.read_text(encoding="utf-8") for p in walk(src, lambda name: name.endswith(".rs"))]
-            if any("add_generated(" in t and Path(where).name in t for t in texts):
-                continue  # 엔진 이관기가 직접 비교(E-DB-14)
-        test = entry.get("test", "")
-        if "::" not in test:
-            findings.append(Finding(where, 1, "S-MIG-11", "engine-generated.json 항목에 `test`(<파일>::<시험 함수>) 칸이 없음 — 파일 = 엔진 출력 비교 시험"))
-            continue
-        file, name = test.rsplit("::", 1)
-        source = root / file
-        text = source.read_text(encoding="utf-8") if source.is_file() else ""
-        if not re.search(rf"\bfn\s+{re.escape(name)}\s*\(", text) or Path(where).name not in text:
-            findings.append(Finding(where, 1, "S-MIG-11", f"비교 시험 `{test}`이 없거나 고정 파일 `{Path(where).name}`을 읽지 않음"))
+            texts = [re.sub(r"//[^\n]*", "", p.read_text(encoding="utf-8")) for p in walk(src, lambda name: name.endswith(".rs"))]
+        stem = Path(where).stem
+        if not any("add_generated(" in t and stem in t for t in texts):
+            findings.append(Finding(where, 1, "S-MIG-11", f"고정 파일 `{Path(where).name}`을 서비스 코드가 엔진 `add_generated`로 넣지 않음(E-DB-14)"))
     return findings
 
 

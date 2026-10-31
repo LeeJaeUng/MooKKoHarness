@@ -26,4 +26,9 @@ fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
 const ACTIONS: &[&str] = &["handle.revoke", "revoke_handle", "grant", "truncate", "drop", "staff.grant_role"];
 const MESSAGE: &str = "cannot revoke the last admin; ask another admin to grant access";
 
-// 고정 파일을 엔진 도우미로 넣는 모양(시험용 글): migrator.add_generated("0001_accounts_and_ledger", &engine_sql, include_str!("../migrations/0001_accounts_and_ledger.sql"))
+/// 엔진 생성 SQL을 고정한 파일(S-MIG-11)을 엔진 도우미로 넣는 모양. 이 파일 이름(`0001_accounts_and_ledger`)과 호출이 함께 있어야 함.
+const GENERATED_ID: &str = "0001_accounts_and_ledger";
+
+fn generated(migrator: SchemaMigrator, engine_sql: &str, file_text: &str) -> Result<SchemaMigrator, DataError> {
+    migrator.add_generated(GENERATED_ID, engine_sql, file_text)
+}

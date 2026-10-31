@@ -168,17 +168,16 @@ class EngineFixedEvidence(unittest.TestCase):
 
     REPO = HERE.parents[2]
 
-    def test_repository_registry_has_comparison_tests(self) -> None:
+    def test_repository_registry_uses_add_generated(self) -> None:
         registry = json.loads(migration_lint.ENGINE_GENERATED.read_text(encoding="utf-8"))
         self.assertEqual(migration_lint.engine_fixed_tests(self.REPO, registry), [])
-        # 깨진 항목은 add_generated를 쓰지 않는 가짜 서비스로(실제 서비스가 add_generated로 옮겨도 시험이 그대로 서게).
-        fake = dict(registry["files"][0], path="crates/services/nosuch/migrations/0001_x.sql")
-        broken = {"files": [dict(fake, test=registry["files"][0].get("test", "a.rs::f") + "_missing")]}
-        self.assertTrue(migration_lint.engine_fixed_tests(self.REPO, broken))
-        self.assertTrue(migration_lint.engine_fixed_tests(self.REPO, {"files": [dict(fake, test="")]}))
+        self.assertTrue(all("test" not in e for e in registry["files"]), "옛 test 칸은 받지 않음")
+        # add_generated를 쓰지 않는 가짜 서비스는 걸림(옛 test 칸을 줘도).
+        fake = dict(registry["files"][0], path="crates/services/nosuch/migrations/0001_x.sql", test="crates/x.rs::f")
+        self.assertTrue(migration_lint.engine_fixed_tests(self.REPO, {"files": [fake]}))
 
-    def test_add_generated_needs_no_test_field(self) -> None:
-        entry = {"path": "crates/services/svc/migrations/0001_accounts_and_ledger.sql", "test": ""}
+    def test_add_generated_in_code_passes(self) -> None:
+        entry = {"path": "crates/services/svc/migrations/0001_accounts_and_ledger.sql"}
         self.assertEqual(migration_lint.engine_fixed_tests(FIXTURES / "repo-good", {"files": [entry]}), [])
         other = dict(entry, path="crates/services/svc/migrations/0002_accounts_add_region.sql")
         self.assertTrue(migration_lint.engine_fixed_tests(FIXTURES / "repo-good", {"files": [other]}), "add_generated에 그 파일 이름이 없으면 통과 아님")
@@ -218,7 +217,7 @@ class EngineHeaderRule(unittest.TestCase):
         self.assertTrue(any(f.rule == "S-MIG-10" and "transaction off" in f.message for f in found))
 
     def test_add_generated_replaces_test_field(self) -> None:
-        registry = {"files": [{"path": "crates/services/svc/migrations/0001_accounts_and_ledger.sql", "test": ""}]}
+        registry = {"files": [{"path": "crates/services/svc/migrations/0001_accounts_and_ledger.sql"}]}
         self.assertEqual(migration_lint.engine_fixed_tests(FIXTURES / "repo-good", registry), [])
         self.assertTrue(migration_lint.engine_fixed_tests(FIXTURES / "repo-bad", {"files": [dict(registry["files"][0])]}))
 
