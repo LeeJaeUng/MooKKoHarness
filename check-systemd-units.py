@@ -1,7 +1,9 @@
 """운영 systemd unit 격리 검사(docs/architecture/host-security.md §3, 관문 HOST-01).
 
 저장소 안의 모든 *.service 파일이 서비스 잠그기 지시어를 다 가지고 있는지 본다. 하나라도 빠지거나 값이 다르면 실패한다.
-User가 root이거나 없으면 실패한다. 기한 있는 예외는 docs/policy/waivers.json(rule에 HOST-01, paths에 그 unit)에 있어야 한다.
+User가 root이거나 없으면 실패한다(이것은 예외로도 넘길 수 없다). 같은 지시어를 여러 줄 쓰면 systemd가 합치므로 실패로 본다
+(SystemCallFilter만 허용·거부 줄을 따로 쓴다). drop-in(<unit>.service.d/*.conf)도 합쳐서 본다. .socket unit은 기준이 없어 통합 담당
+확인 전까지 실패로 본다. 기한 있는 예외는 docs/policy/waivers.json(rule에 HOST-01, paths에 그 unit)에 있어야 한다.
 """
 
 from __future__ import annotations
@@ -45,11 +47,24 @@ SYSCALL_ALLOW = "@system-service"
 SYSCALL_DENY = {"@privileged", "@resources", "@mount", "@swap", "@reboot", "@raw-io", "@module", "@obsolete", "@cpu-emulation", "@debug"}
 
 
+def tracked(pattern: str) -> list[Path]:
+    return sorted(p for p in ROOT.rglob(pattern) if not SKIP_PARTS.intersection(p.relative_to(ROOT).parts))
+
+
 def units() -> list[Path]:
-    return sorted(p for p in ROOT.rglob("*.service") if not SKIP_PARTS.intersection(p.relative_to(ROOT).parts))
+    return tracked("*.service")
 
 
 def service_section(path: Path) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = {}
+    dropins = sorted((path.parent / f"{path.name}.d").glob("*.conf"))
+    for file in [path, *dropins]:
+        for key, vals in read_service(file).items():
+            values.setdefault(key, []).extend(vals)
+    return values
+
+
+def read_service(path: Path) -> dict[str, list[str]]:
     section = ""
     values: dict[str, list[str]] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -79,22 +94,30 @@ def waived(rel: str, today: datetime.date) -> bool:
     return False
 
 
+def user_problem(path: Path) -> str | None:
+    """예외로 넘길 수 없는 문제: root 실행."""
+    users = service_section(path).get("User") or [""]
+    if not users[-1] or any(u in {"root", "0"} for u in users):
+        return f"{path.relative_to(ROOT).as_posix()}: User가 없거나 root입니다(예외 불가)"
+    return None
+
+
 def check_unit(path: Path) -> list[str]:
     rel = path.relative_to(ROOT).as_posix()
     values = service_section(path)
     problems: list[str] = []
-    user = (values.get("User") or [""])[-1]
-    if not user or user in {"root", "0"}:
-        problems.append(f"{rel}: User가 없거나 root입니다")
     for key, want in REQUIRED.items():
         got = values.get(key)
         if got is None:
             problems.append(f"{rel}: {key}가 없습니다")
-        elif want is not None and got[-1] != want:
-            problems.append(f"{rel}: {key}={got[-1]} (기준 {want!r})")
+        elif len(got) > 1:
+            problems.append(f"{rel}: {key}를 여러 줄(drop-in 포함) 썼습니다 — systemd가 합치므로 한 줄로")
+        elif want is not None and got[0] != want:
+            problems.append(f"{rel}: {key}={got[0]} (기준 {want!r})")
     filters = values.get("SystemCallFilter", [])
-    if SYSCALL_ALLOW not in filters:
-        problems.append(f"{rel}: SystemCallFilter={SYSCALL_ALLOW}가 없습니다")
+    allows = [f for f in filters if not f.startswith("~")]
+    if allows != [SYSCALL_ALLOW]:
+        problems.append(f"{rel}: 허용 SystemCallFilter는 {SYSCALL_ALLOW} 한 줄만이어야 합니다(지금 {allows})")
     denied = {group for f in filters if f.startswith("~") for group in f[1:].split()}
     missing = sorted(SYSCALL_DENY - denied)
     if missing:
@@ -107,7 +130,12 @@ def main() -> int:
     problems: list[str] = []
     files = units()
     waived_count = 0
+    for sock in tracked("*.socket"):
+        problems.append(f"{sock.relative_to(ROOT).as_posix()}: .socket unit은 기준이 없습니다 — 통합 담당이 host-security.md에 기준을 넣을 때까지 금지")
     for path in files:
+        root_problem = user_problem(path)
+        if root_problem:
+            problems.append(root_problem)
         found = check_unit(path)
         if found and waived(path.relative_to(ROOT).as_posix(), today):
             waived_count += 1
