@@ -5,7 +5,9 @@
 서비스 `migrations/` 폴더마다:
 1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_ro`·`_recon`·`_maint`.
    스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
-2. 이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 머리(맨 앞 `--` 줄) 안에
+2. `crates/apps/mookko-<서비스>`에 이관 설정 예시가 있으면 그 실행 파일의 **엔진 이관 단계**(`migrate`)를 실제로 돌린다(이관 적용·
+   grant·grant_recon·파티션 만들기를 엔진이 함, 3의 흉내는 건너뜀). 실행 파일이 없는 표본만 아래처럼 흉내 낸다.
+   이관 계정으로 파일을 차례대로 적용한다(엔진 `SchemaMigrator`와 같게): `__SCHEMA__`는 스키마 이름으로, 머리(맨 앞 `--` 줄) 안에
    `-- mookko:transaction off`가 있으면 트랜잭션 밖 한 문장, 아니면 한 트랜잭션에서 `SET LOCAL ROLE <주인>` → `search_path` → `lock_timeout`.
 3. 엔진 `grant`처럼 권한을 맞춘 뒤(파티션 자식은 권한 없음, 읽기 계정은 서비스 코드의 `READER_HIDDEN`·`READER_COLUMNS`대로, 덧붙이기만 표는
    이름 규칙으로 고름 — 서비스가 `append_only`로 지정했는지는 [QA]) 목록(catalog)으로 본다:
@@ -24,6 +26,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,11 +106,11 @@ def bootstrap(admin: Connection, database: str, schema: str, password: str) -> N
     admin.query(f"GRANT CONNECT ON DATABASE {quote_ident(database)} TO {roles}")
 
 
-def bootstrap_schema(db_admin: Connection, schema: str) -> None:
-    db_admin.query(
-        f"REVOKE ALL ON SCHEMA public FROM PUBLIC;\n"
-        f"CREATE SCHEMA {quote_ident(schema)} AUTHORIZATION {quote_ident(schema + '_owner')};"
-    )
+def bootstrap_schema(db_admin: Connection, schema: str, extra: tuple[str, ...] = ()) -> None:
+    """서비스 스키마(와 엔진 공유 스키마 `sharedStores.schema`)를 주인 역할 소유로 만든다(DB 준비 단계가 하는 일)."""
+    owner = quote_ident(schema + '_owner')
+    sql = ["REVOKE ALL ON SCHEMA public FROM PUBLIC;"] + [f"CREATE SCHEMA {quote_ident(n)} AUTHORIZATION {owner};" for n in (schema, *extra)]
+    db_admin.query("\n".join(sql))
 
 
 def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
@@ -376,6 +379,91 @@ def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
         problems.append(f"{where}: S-BND-2 `{name}`({kind})의 주인이 `{actual}` — 주인 역할 `{target.schema}_owner`(SET LOCAL ROLE)로 만듦")
 
 
+ENGINE_TIMEOUT_SECONDS = 600
+
+
+@dataclass(frozen=True)
+class EngineApp:
+    """서비스 실행 파일과 그 이관 설정 예시(엔진 이관 단계를 실제로 돌릴 때)."""
+
+    exe: Path
+    example: dict
+
+
+def engine_app(root: Path, target: Target) -> EngineApp | None:
+    """`crates/apps/mookko-<서비스>`에 이관 설정 예시가 있으면 그 실행 파일로 엔진 이관 단계(`migrate`)를 돌린다(QA cd3ba1c 낮음:
+    파이썬 grant 흉내는 엔진 grant와 다른 점을 못 잡음). 실행 파일은 `cargo test`가 이미 만든 것을 쓰고, 없으면 그것만 만든다.
+    표본 저장소(실행 파일 없음)는 None — 엔진을 흉내 내는 길로 본다."""
+    name = f"mookko-{target.service}"
+    example = root / "crates" / "apps" / name / "config" / f"{name}.migrate.example.json"
+    if not example.is_file():
+        return None
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or root / "target")
+    exe = target_dir / "debug" / name
+    if not exe.is_file():
+        subprocess.run(["cargo", "build", "--locked", "-p", name, "--bin", name], cwd=root, check=True, timeout=ENGINE_TIMEOUT_SECONDS)
+    return EngineApp(exe, json.loads(example.read_text(encoding="utf-8")))
+
+
+def engine_migrate(
+    config: dict, target: Target, app: EngineApp, database: str, password: str, access: data_classes.ReaderAccess, problems: list[str]
+) -> bool:
+    """이관 설정 예시의 접속만 시험 DB로 바꿔 `<실행 파일> migrate --config`를 돌린다. 임시 설정·암호 파일은 시험 DB 감싸기
+    (`scripts/dev/with-test-postgres.sh`)의 실행 폴더 안에 두어, 감싸기가 끝날 때 함께 치운다."""
+    work = Path(os.environ["MOOKKO_TEST_POSTGRES"]).resolve().parent / f"dbcheck-{database}"
+    work.mkdir(mode=0o700)
+    secret = work / "migrate-password.txt"
+    secret.write_text(password, encoding="utf-8")
+    secret.chmod(0o600)
+    settings = json.loads(json.dumps(app.example))
+    settings["migrate"]["telemetry"] = {"filter": "warn", "format": "json"}
+    for name, db in settings["migrate"]["databases"].items():
+        db["connection"].update({
+            "host": config["host"], "port": int(config["port"]), "database": database,
+            "user": f"{name}_migrate", "passwordFile": str(secret), "tls": {"mode": "disable"},
+        })
+        if access.recon_views:
+            db["reconRole"] = f"{name}_recon"
+    path = work / "migrate.json"
+    path.write_text(json.dumps(settings, ensure_ascii=False), encoding="utf-8")
+    done = subprocess.run([str(app.exe), "migrate", "--config", str(path)], capture_output=True, text=True, timeout=ENGINE_TIMEOUT_SECONDS)
+    if done.returncode != 0:
+        tail = " | ".join((done.stderr or done.stdout).strip().splitlines()[-5:])
+        problems.append(f"{target.rel}: S-MIG-8 엔진 이관 단계 실패(exit {done.returncode}): {tail}")
+        return False
+    return True
+
+
+def partition_checks(db: Connection, target: Target, problems: list[str]) -> None:
+    """엔진 이관 단계가 끝난 뒤 파티션 부모마다 달 파티션이 실제로 있어야 한다(S-PART-3 — 서비스 코드가 `partitioned`로 적지
+    않았으면 아무도 만들지 않음). 정적 검사(lint `lint_partitioned`)가 글 모양을 놓쳐도 여기서 잡는다."""
+    for (name,) in db.query(
+        f"SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = {quote_literal(target.schema)} "
+        f"AND c.relkind = 'p' AND NOT c.relispartition AND NOT EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhparent = c.oid) ORDER BY 1"
+    ).rows:
+        problems.append(f"{target.rel}: S-PART-3 엔진 이관 단계 뒤 `{name}`에 달 파티션이 없음 — 서비스 코드가 엔진 `partitioned`로 적지 않음")
+
+
+def shared_reader_checks(db: Connection, target: Target, schema: str, root: Path, problems: list[str]) -> None:
+    """엔진 공유 스키마(`sharedStores.schema`)에서 엔진 표 설계서 등급 `개인` 이상 열을 읽기 계정이 못 읽어야 한다(S-SEC-9 엔진 몫)."""
+    classified: dict[str, dict[str, str]] = {}
+    for doc in data_classes.design_docs(root):
+        if doc.name.startswith("engine") or doc.relative_to(root).parts[:2] == ("crates", "engine"):
+            check = data_classes.DocCheck(doc.relative_to(root).as_posix(), doc.read_text(encoding="utf-8"))
+            check.run()
+            for table, columns in check.classified.items():
+                classified.setdefault(table, {}).update(columns)
+    reader = quote_literal(f"{target.schema}_ro")
+    for table, column in db.query(
+        f"SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+        f"WHERE n.nspname = {quote_literal(schema)} AND c.relkind IN ('r', 'p') AND has_column_privilege({reader}, c.oid, a.attnum, 'SELECT') ORDER BY 1, 2"
+    ).rows:
+        grade = classified.get(table or "", {}).get(column or "")
+        if grade is not None and data_classes.RANK.get(grade, 0) >= data_classes.RANK["개인"]:
+            problems.append(f"{target.rel}: S-SEC-9 엔진 공유 스키마 `{schema}.{table}.{column}`(등급 `{grade}`)을 읽기 계정이 읽을 수 있음")
+
+
 def run_target(config: dict, target: Target, root: Path, waivers: list[pending.Pending]) -> list[str]:
     problems: list[str] = []
     run = f"{os.getpid()}_{secrets.token_hex(3)}"
@@ -383,20 +471,34 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
     password = secrets.token_hex(16)
     with connect(config, config["user"], config["password"], config["database"]) as admin:
         try:
+            app = engine_app(root, target)
+            shared = (app.example["migrate"].get("sharedStores") or {}).get("schema") if app else None
+            access = data_classes.reader_access(target.directory.parent, root)
             bootstrap(admin, database, target.schema, password)
             with connect(config, config["user"], config["password"], database) as db_admin:
-                bootstrap_schema(db_admin, target.schema)
-            with connect(config, f"{target.schema}_migrate", password, database) as migrate:
-                applied = apply_files(migrate, target, problems)
+                bootstrap_schema(db_admin, target.schema, (shared,) if shared else ())
+            if app is not None:
+                # 실제 엔진 이관 단계: 이관 적용·grant·grant_recon·파티션 만들기를 엔진이 한 뒤 목록으로 본다.
+                ok = engine_migrate(config, target, app, database, password, access, problems)
+                with connect(config, config["user"], config["password"], database) as db_admin:
+                    applied = int(db_admin.query(f"SELECT count(*) FROM {quote_ident(target.schema)}.schema_migrations").rows[0][0] or 0) if ok else 0
+            else:
+                with connect(config, f"{target.schema}_migrate", password, database) as migrate:
+                    applied = apply_files(migrate, target, problems)
             with connect(config, config["user"], config["password"], database) as db_admin:
-                access = data_classes.reader_access(target.directory.parent, root)
-                grant_like_engine(db_admin, target, access)
+                if app is None:
+                    grant_like_engine(db_admin, target, access)
+                    grant_recon_like_engine(db_admin, target, access)
                 catalog_checks(db_admin, target, problems)
                 classified = data_classes.service_classification(root, target.service)
                 reader_checks(db_admin, target, classified, access, waivers, problems)
-                grant_recon_like_engine(db_admin, target, access)
                 recon_checks(db_admin, target, classified, access, problems)
-            print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용")
+                if app is not None:
+                    partition_checks(db_admin, target, problems)
+                    if shared:
+                        shared_reader_checks(db_admin, target, shared, root, problems)
+            how = "엔진 이관 단계" if app is not None else "엔진 흉내(표본)"
+            print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용({how})")
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
             for suffix in ROLE_SUFFIXES:
