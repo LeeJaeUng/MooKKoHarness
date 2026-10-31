@@ -148,7 +148,8 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
     schema = quote_ident(target.schema)
     app = quote_ident(f"{target.schema}_app")
     reader = quote_ident(f"{target.schema}_ro")
-    sql = [f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;", f"GRANT USAGE ON SCHEMA {schema} TO {app}, {reader};"]
+    key_db = is_key_dir(Path(target.rel))
+    sql = [f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;", f"GRANT USAGE ON SCHEMA {schema} TO {app}" + ("" if key_db else f", {reader}") + ";"]
     tables = db.query(
         f"SELECT c.relname, c.relispartition::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         f"WHERE n.nspname = {quote_literal(target.schema)} AND c.relkind IN ('r', 'p') ORDER BY 1"
@@ -158,6 +159,9 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
         table = f"{schema}.{quote_ident(name)}"
         sql += [f"REVOKE ALL ON {table} FROM {app};", f"REVOKE ALL ON {table} FROM {reader};"]
         if child == "true":
+            continue
+        if key_db:
+            sql.append(f"GRANT SELECT, INSERT, DELETE ON {table} TO {app};")  # 키는 바꾸지 않음(§9.8)
             continue
         allowed = "SELECT, INSERT" if re.search(APPEND_ONLY, name) and not re.search(HEAD, name) else "SELECT, INSERT, UPDATE, DELETE"
         sql.append(f"GRANT {allowed} ON {table} TO {app};")
@@ -174,7 +178,9 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
 
 def grant_recon_like_engine(db: Connection, target: Target, reader_access: data_classes.ReaderAccess) -> None:
     """엔진 `SchemaMigrator::grant_recon`(recon.rs, E-DB-15)과 같은 권한: 대사 계정(`_recon`)은 스키마 `USAGE`와 서비스 코드
-    `RECON_VIEWS` 보기의 `SELECT`만. 표·다른 보기·시퀀스 권한은 모두 걷어 냄."""
+    `RECON_VIEWS` 보기의 `SELECT`만. 표·다른 보기·시퀀스 권한은 모두 걷어 냄. 키 DB(§9.8)에는 대사 계정이 없음."""
+    if is_key_dir(Path(target.rel)):
+        return
     schema = quote_ident(target.schema)
     recon = quote_ident(f"{target.schema}_recon")
     sql = [f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {recon};", f"GRANT USAGE ON SCHEMA {schema} TO {recon};"]
@@ -299,8 +305,10 @@ def probe_row_change(db: Connection, schema: str, table: str, event: str) -> str
     return f"{event}가 막히지 않음(막기 트리거 함수가 거부하지 않음)"
 
 
-# 엔진 키 ID 모양(1~32자, `[A-Za-z0-9_-]`)을 지키는 CHECK. 정의 글에서 공백·`::text`를 뺀 뒤 이 글이 `<열>_bidx_kid` 바로 뒤에 있어야 함.
+# 엔진 키 ID 모양(1~32자, `[A-Za-z0-9_-]`)을 지키는 CHECK. 정의 글에서 공백·괄호·`::text`를 뺀 것이 `CHECK<열>_bidx_kid` + 이 글과 같아야 함.
 KID_CHECK = "~'^[A-Za-z0-9_-]{1,32}$'"
+# CHECK 정의를 맞춰 보기 좋게 고친 글: 공백·괄호·`::text`를 뺌(PostgreSQL이 괄호를 더 붙여 돌려주므로). 정의 전체를 같음(=)으로 봄.
+CHECK_TEXT = r"regexp_replace(replace(pg_get_constraintdef(x.oid), '::text', ''), '[\s()]', '', 'g')"
 
 
 def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
@@ -310,12 +318,12 @@ def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
         rf"SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, "
         rf"format_type(k.atttypid, k.atttypmod), k.attnotnull, "
         rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
-        rf"AND replace(pg_get_constraintdef(x.oid), ' ', '') ~ ('octet_length\(' || a.attname || '\)=32')), "
+        rf"AND {CHECK_TEXT} = 'CHECKoctet_length' || a.attname || '=32'), "
         rf"EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indkey[0] = a.attnum), "
         rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
-        rf"AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '\M') AND pg_get_constraintdef(x.oid) ~ ('\m' || a.attname || '_kid\M')), "
+        rf"AND {CHECK_TEXT} = 'CHECK' || a.attname || 'ISNULL=' || a.attname || '_kidISNULL'), "
         rf"EXISTS (SELECT 1 FROM pg_constraint x WHERE x.conrelid = c.oid AND x.contype = 'c' "
-        rf"AND strpos(replace(replace(pg_get_constraintdef(x.oid), ' ', ''), '::text', ''), a.attname || '_kid' || {quote_literal(KID_CHECK)}) > 0) "
+        rf"AND {CHECK_TEXT} = 'CHECK' || a.attname || '_kid' || {quote_literal(KID_CHECK)}) "
         rf"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         rf"JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attname ~ '_bidx$' "
         rf"LEFT JOIN pg_attribute k ON k.attrelid = c.oid AND k.attname = a.attname || '_kid' AND NOT k.attisdropped "
@@ -325,7 +333,7 @@ def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
         if kind != "bytea":
             problems.append(f"{where}: S-SEC-3 {name} 형식 `{kind}` — blind index는 `bytea`")
         if has_len != "t":
-            problems.append(f"{where}: S-SEC-3 {name}에 `CHECK (octet_length({column}) = 32)`가 없음")
+            problems.append(f"{where}: S-SEC-3 {name}에 `CHECK (octet_length({column}) = 32)`(이 글 그대로 따로 된 CHECK)가 없음")
         if has_index != "t":
             problems.append(f"{where}: S-SEC-3 {name}으로 시작하는 색인(UNIQUE 또는 찾기용)이 없음")
         if kid_kind is None:
@@ -339,6 +347,37 @@ def blind_index_checks(rows, s: str, where: str, problems: list[str]) -> None:
             problems.append(f"{where}: S-SEC-3 {name}와 `{column}_kid`의 NOT NULL이 다름 — 같이 차거나 같이 빔")
         elif not_null != "t" and has_pair != "t":
             problems.append(f"{where}: S-SEC-3 {name}와 `{column}_kid`가 NULL을 받는데 같이 비게 하는 CHECK가 없음")
+
+
+def key_db_checks(db: Connection, target: Target, problems: list[str]) -> None:
+    """키 DB(§9.8, S-SEC-10)를 실제 DB에서 본다: 앱 계정은 키 표에 SELECT·INSERT·DELETE만(UPDATE·TRUNCATE·TRIGGER·REFERENCES 없음),
+    읽기·대사 계정은 스키마도 못 봄, 키 표의 기본 키는 `(subject_id, purpose)`, 표·색인·시퀀스 말고 다른 것(보기·함수 등)은 없음."""
+    s = quote_literal(target.schema)
+    app = quote_literal(f"{target.schema}_app")
+    where = target.rel
+    for name, privilege in db.query(
+        f"SELECT c.relname, p.privilege FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, "
+        f"unnest(ARRAY['UPDATE', 'TRUNCATE', 'TRIGGER', 'REFERENCES']) AS p(privilege) "
+        f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p') AND has_table_privilege({app}, c.oid, p.privilege) ORDER BY 1, 2"
+    ).rows:
+        problems.append(f"{where}: S-SEC-10 키 DB 앱 계정이 `{name}`에 {privilege} 권한을 가짐(SELECT·INSERT·DELETE만)")
+    for suffix in ("ro", "recon", "maint"):
+        role = f"{target.schema}_{suffix}"
+        if db.query(f"SELECT 1 FROM pg_roles WHERE rolname = {quote_literal(role)} AND has_schema_privilege(rolname, {s}, 'USAGE')").rows:
+            problems.append(f"{where}: S-SEC-10 키 DB에 `{role}`이 스키마 USAGE를 가짐 — 키 DB에는 읽기·대사·유지보수 계정이 없음")
+    for name, columns in db.query(
+        f"SELECT c.relname, (SELECT string_agg(a.attname, ',' ORDER BY a.attname) FROM pg_constraint k "
+        f"JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(k.conkey) WHERE k.conrelid = c.oid AND k.contype = 'p') "
+        f"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = {s} AND c.relkind IN ('r', 'p') AND NOT c.relispartition AND c.relname <> 'schema_migrations' ORDER BY 1"
+    ).rows:
+        if columns != "purpose,subject_id":
+            problems.append(f"{where}: S-SEC-10 키 표 `{name}`의 기본 키가 `(subject_id, purpose)`가 아님(지금 `{columns or '없음'}`)")
+    for name, kind in db.query(
+        f"SELECT c.relname, c.relkind::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = {s} AND c.relkind NOT IN ('r', 'p', 'i', 'I', 'S') AND c.relname <> 'schema_migrations' "
+        f"UNION ALL SELECT p.proname, 'function' FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = {s} ORDER BY 1"
+    ).rows:
+        problems.append(f"{where}: S-SEC-10 키 DB에 표가 아닌 `{name}`({kind}) — 키 DB에는 키 표만")
 
 
 def catalog_checks(db: Connection, target: Target, problems: list[str]) -> None:
@@ -537,6 +576,8 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
                     grant_like_engine(db_admin, target, access)
                     grant_recon_like_engine(db_admin, target, access)
                 catalog_checks(db_admin, target, problems)
+                if key_db:
+                    key_db_checks(db_admin, target, problems)
                 classified = data_classes.service_classification(root, target.service)
                 reader_checks(db_admin, target, classified, access, waivers, problems)
                 recon_checks(db_admin, target, classified, access, problems)

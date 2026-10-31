@@ -7,5 +7,7 @@
 |---|---|---|---|
 | `subject_id` | `uuid` | 내부 | 평문 |
 | `wrapped_key` | `bytea` | 비밀 | 해시 |
+| `wrapped_dek` | `bytea` | 내부 | 평문 |
+| `key_id` | `text` | 내부 | 평문 |
 
 보관: 파기할 때 지움, 키 DB 백업 4일.

@@ -141,6 +141,9 @@ class FileLint:
         self.created: dict[str, TableInfo] = {}
         self.triggers: dict[str, set[str]] = {}
         self.added: dict[str, list[str]] = {}  # ALTER TABLE … ADD COLUMN으로 더한 열(설계서 대조용)
+        self.added_columns: list[tuple[str, int, str, str]] = []  # (표, 줄, 열, 형식) — S-SEC-10
+        self.renamed_columns: list[tuple[str, int, str]] = []  # (표, 줄, 새 이름) — S-SEC-10(이름 바꾸기로 키 재료 이름을 만드는 것)
+        self.key_db = False  # 키 DB 이관(`keys/migrations`, §9.8): lint_dir이 정함
         self.validated = False
         self.lock_timeout_set = False
         phase = script.directives.get("phase")
@@ -241,13 +244,15 @@ class FileLint:
         grantees = [parse_qname(g)[1] for g in to.group(1).split(",")] if to else []
         for grantee in grantees:
             # 자기 서비스 계정만: `<스키마>_` + S-BND-2 접미어 목록(넓히기는 규약 변경 — 사용자 결정).
-            allowed = {f"{self.schema}_{suffix}" for suffix in ROLE_SUFFIXES}
+            allowed = {f"{self.schema}_{suffix}" for suffix in (KEY_DB_ROLE_SUFFIXES if self.key_db else ROLE_SUFFIXES)}
             if grantee != "public" and grantee not in allowed:
                 self.add(st.line, "S-BND-5", f"`{grantee}`에게 GRANT: 자기 서비스 계정({', '.join(sorted(allowed))})만")
         if re.match(r"^GRANT\s+(?:[A-Z ,]*\b)?(CREATE|TEMPORARY|TEMP)\b[^;]*\bON\s+(SCHEMA|DATABASE)\b", t, re.I):
             self.add(st.line, "S-BND-2", "스키마·DB에 CREATE 권한을 주지 않음(DDL은 주인 역할만)")
         privs = re.match(r"^GRANT\s+(.+?)\s+ON\b", t, re.I)
         on = re.search(r"\bON\s+(?:TABLE\s+)?(.+?)\s+TO\b", t, re.I)
+        if self.key_db and privs and re.search(r"\b(UPDATE|TRUNCATE|TRIGGER|REFERENCES)\b", privs.group(1), re.I):
+            self.add(st.line, "S-SEC-10", "키 DB 표에는 UPDATE·TRUNCATE·TRIGGER·REFERENCES 권한을 주지 않음(앱은 SELECT·INSERT·DELETE만, §9.8)")
         if privs and on and re.search(r"\b(UPDATE|DELETE|TRUNCATE)\b", privs.group(1), re.I):
             for obj in on.group(1).split(","):
                 if APPEND_ONLY.search(parse_qname(obj)[1]):
@@ -369,6 +374,9 @@ class FileLint:
     def check_alter_action(self, st: sqltext.Statement, table: str, existing: bool, a: str) -> None:
         line = st.line
         if re.match(r"^(RENAME|SET\s+SCHEMA)\b", a, re.I):
+            renamed = re.match(rf"^RENAME\s+(?:COLUMN\s+)?(?!TO\b|CONSTRAINT\b)({IDENT})\s+TO\s+({IDENT})", a, re.I)
+            if renamed:
+                self.renamed_columns.append((table, line, parse_qname(renamed.group(2))[1]))
             if existing:
                 self.add(line, "S-MIG-4", f"`{table}` 이름 바꾸기 금지 — 새 열·테이블로 넓히기→옮기기→좁히기")
             return
@@ -387,6 +395,7 @@ class FileLint:
             self.check_name(line, add_col.group(1), "열")
             self.check_column_type(line, table, cname, ctype)
             self.added.setdefault(table, []).append(cname)
+            self.added_columns.append((table, line, cname, ctype))
             if self.phase == "contract":
                 self.add(line, "S-MIG-4", "contract 파일에 ADD COLUMN(넓히기)을 섞지 않음")
             if existing:
@@ -706,6 +715,16 @@ def created_tables(sql: str, dialect: str, schema: str | None) -> dict[str, list
     return tables
 
 
+def column_types(sql: str, dialect: str, schema: str | None) -> list[tuple[str, str, str | None]]:
+    """이관 글이 만들거나 더한 열의 (테이블, 열, 형식). 이름을 바꾼 열은 형식을 모름(None). 설계서 대조(S-SEC-10)가 씀."""
+    lint = FileLint("", sqltext.split(sql), dialect, schema, outside_transaction(sql))
+    lint.run()
+    out: list[tuple[str, str, str | None]] = [(t, c, k) for t, info in lint.created.items() if not info.is_partition for c, k in info.columns.items()]
+    out += [(t, c, k) for t, _, c, k in lint.added_columns]
+    out += [(t, c, None) for t, _, c in lint.renamed_columns]
+    return out
+
+
 def partitioned_parents(sql: str, schema: str | None) -> list[str]:
     """이관 글이 만드는 파티션 부모 표(`PARTITION BY`)."""
     lint = FileLint("", sqltext.split(sql), "postgres", schema, outside_transaction(sql))
@@ -814,27 +833,60 @@ def default_schema(rel_dir: Path) -> str | None:
 
 
 WRAPPED_KEY_COLUMN = re.compile(r"(?:^|_)wrapped_key$")
+# 키 재료로 보이는 이름(QA 9344ed3 보통: `wrapped_key`만 보면 `row_key`·`dek`·`wrapped_dek`·`data_key`가 빠짐). 형식과 상관없이 봄.
+KEY_MATERIAL_NAME = re.compile(
+    r"(^|_)(wrapped|dek|deks|kek|keks)($|_)"
+    r"|(^|_)(row|data|field|subject|user|member|encryption|enc|cipher|crypto|master|symmetric|aes|hmac|signing|secret|private)_?keys?($|_)"
+    r"|(^|_)key_?(material|blob|bytes)($|_)"
+)
+KEY_TOKEN = re.compile(r"(^|_)(keys?|dek|kek)($|_)")
+# 키 ID·판·참조는 키 재료가 아님(`<열>_bidx_kid`, `key_id`, `kek_version` 등).
+KEY_ID_SUFFIX = re.compile(r"_(id|ids|kid|version|ref|name)$")
+# 키 DB의 키 표 모양(database.md §9.8): 이 열만, 이 형식으로.
+KEY_TABLE_COLUMNS = {"subject_id": "uuid", "purpose": "text", "wrapped_key": "bytea", "created_at": "timestamptz"}
+KEY_DB_ROLE_SUFFIXES = ("owner", "migrate", "app")  # 키 DB에는 읽기·대사·유지보수 계정이 없음(§9.8)
+
+
+def is_key_material(column: str, ctype: str | None) -> bool:
+    """키 DB 밖에 두면 안 되는 키 재료 열인가: 키 재료 이름이거나, `bytea`이면서 이름에 `key`·`dek`·`kek` 낱말이 있음(키 ID 꼴은 뺌)."""
+    if KEY_ID_SUFFIX.search(column):
+        return False
+    if KEY_MATERIAL_NAME.search(column):
+        return True
+    return (ctype or "").lower() == "bytea" and bool(KEY_TOKEN.search(column))
 
 
 def key_table_findings(rel: str, rel_dir: Path, lint: "FileLint") -> list[Finding]:
-    """S-SEC-10: 감싼 행 키(`RowKeys::create`의 `WrappedKey`) 열은 키 DB에만 두고, 키 DB에는 키 표만 둔다.
+    """S-SEC-10: 감싼 행 키(`RowKeys::create`의 `WrappedKey`) 같은 키 재료 열은 키 DB에만 두고, 키 DB에는 키 표만 둔다.
     서비스 DB에 두면 그 백업(돈 DB는 월말 전체를 몇 년)에 감싼 키가 남아 KEK로 다시 풀 수 있어 키 파기가 되지 않고,
-    키 DB에 다른 표를 두면 짧은 백업 보관 때문에 그 표가 복구 범위에서 먼저 사라진다."""
+    키 DB에 다른 표를 두면 짧은 백업 보관 때문에 그 표가 복구 범위에서 먼저 사라진다.
+    서비스 DB의 `bytea` + `key` 낱말 열이 키 재료가 아닌 해시(예: links `reporter_key`)면 lint는 통과시키지 않으므로, 이름에 `_hash`·`_digest`
+    같은 뜻을 담거나 설계서 보호 `해시`로 적는다(설계서 대조는 `data_classes.py`)."""
     findings: list[Finding] = []
     key_dir = is_key_dir(rel_dir)
     columns = [(t, info.line, c, ctype) for t, info in lint.created.items() for c, ctype in info.columns.items()]
-    columns += [(t, 1, c, None) for t, added in lint.added.items() for c in added]
+    columns += [(t, line, c, ctype) for t, line, c, ctype in lint.added_columns]
+    columns += [(t, line, c, None) for t, line, c in lint.renamed_columns]
     if not key_dir:
-        for table, line, column, _ in columns:
-            if WRAPPED_KEY_COLUMN.search(column):
-                findings.append(Finding(rel, line, "S-SEC-10", f"감싼 행 키 열 `{table}.{column}`은 키 DB 이관(`crates/services/<서비스>/keys/migrations/`)에만 둠 — 서비스 DB 백업에 남으면 키 파기가 되지 않음"))
+        for table, line, column, ctype in columns:
+            if KEY_MATERIAL_NAME.search(column) and not KEY_ID_SUFFIX.search(column):
+                findings.append(Finding(rel, line, "S-SEC-10", f"키 재료로 보이는 열 `{table}.{column}`은 키 DB 이관(`crates/services/<서비스>/keys/migrations/`)에만 둠 — 서비스 DB 백업에 남으면 키 파기가 되지 않음"))
         return findings
     for table, info in lint.created.items():
-        kind = info.columns.get("wrapped_key")
-        if kind is None:
+        if "wrapped_key" not in info.columns:
             findings.append(Finding(rel, info.line, "S-SEC-10", f"키 DB에는 키 표(`wrapped_key bytea` 열)만 둠 — `{table}`은 서비스 DB로"))
-        elif kind != "bytea":
-            findings.append(Finding(rel, info.line, "S-SEC-10", f"`{table}.wrapped_key` 형식 `{kind}` — `bytea`(`WrappedKey::to_bytes`)"))
+            continue
+        for column, kind in KEY_TABLE_COLUMNS.items():
+            actual = info.columns.get(column)
+            if actual is None:
+                findings.append(Finding(rel, info.line, "S-SEC-10", f"키 표 `{table}`에 `{column} {kind}`가 없음(§9.8 모양)"))
+            elif actual.lower() != kind:
+                findings.append(Finding(rel, info.line, "S-SEC-10", f"`{table}.{column}` 형식 `{actual}` — `{kind}`(§9.8 모양)"))
+        extra = sorted(set(info.columns) - set(KEY_TABLE_COLUMNS))
+        if extra:
+            findings.append(Finding(rel, info.line, "S-SEC-10", f"키 표 `{table}`에 §9.8 모양 밖의 열: {', '.join(extra)}"))
+    for table, line, column, _ in lint.added_columns + [(t, line, c, None) for t, line, c in lint.renamed_columns]:
+        findings.append(Finding(rel, line, "S-SEC-10", f"키 DB 표 `{table}`의 열을 더하거나 이름을 바꾸지 않음(`{column}`, §9.8 모양 고정)"))
     return findings
 
 
@@ -932,6 +984,7 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
         if problem:
             findings.append(Finding(rel, 1, "S-MIG-1", problem))
         lint = FileLint(rel, sqltext.split(text), dialect, schema, outside_transaction(text), fixed)
+        lint.key_db = is_key_dir(rel_dir)
         findings += lint.run()
         if dialect == "postgres":
             findings += key_table_findings(rel, rel_dir, lint)
