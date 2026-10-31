@@ -6,6 +6,7 @@
 - fixtures/data-model/*.md: `<!-- expect: … -->`
 - fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9, 모두 연 서비스), repo-reader-closed: 닫힌 기본
 - fixtures/repo-partition-bad: 파티션 부모를 엔진에 적기(S-PART-3)
+- fixtures/repo-validate: 같은 배포 VALIDATE 근거(S-MIG-4)
 - fixtures/repo-engine-good, repo-engine-bad: 엔진 표 읽기 계정 감추기(S-SEC-9 엔진 몫)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
 """
@@ -425,6 +426,21 @@ class ReaderClosedDefault(unittest.TestCase):
         self.assertEqual(len(found), 1, found)
         self.assertIn("`READER_TABLES`가", found[0])
         self.assertIn("`notes`", found[0])
+
+
+class ValidateDeploy(unittest.TestCase):
+    """S-MIG-4 예외: 바로 앞 NOT VALID 제약을 VALIDATE만 하는 파일은 배포(같은·다음)와 근거를 머리나 설계서에 적는다."""
+
+    def test_reason_in_header_or_doc(self) -> None:
+        root = FIXTURES / "repo-validate"
+        found = migration_lint.validate_deploy_findings(root, root / "crates" / "services" / "svc" / "migrations")
+        self.assertEqual([f.path.rsplit("/", 1)[-1] for f in found], ["0003_items_kind_validate.sql"], found)
+
+    def test_validate_only(self) -> None:
+        ok = "\n".join(["-- mookko:phase migrate", "SET LOCAL lock_timeout = '3s';", "ALTER TABLE s.t VALIDATE CONSTRAINT c;", ""])
+        mixed = "\n".join(["-- mookko:phase migrate", "ALTER TABLE s.t VALIDATE CONSTRAINT c;", "UPDATE s.t SET a = 1;", ""])
+        self.assertEqual(migration_lint.validate_only(ok), {"c"})
+        self.assertIsNone(migration_lint.validate_only(mixed))
 
 
 class ReconViews(unittest.TestCase):

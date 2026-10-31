@@ -1,4 +1,23 @@
 {
   "_doc": "DB 규약(2026-10-30) 전에 들어온 파일. 기한까지 담당이 고치면 지움. 기한이 지나면 check-db가 실패. 규칙: scripts/ci/db/pending.py",
-  "pending": []
+  "pending": [
+    {
+      "path": "crates/services/links/migrations/0010_pages_revoked_from_validate.sql",
+      "rules": [
+        "S-MIG-4"
+      ],
+      "owner": "links-dev",
+      "until": "2026-11-08",
+      "reason": "S-MIG-4 같은 배포 VALIDATE(2026-11-01): 0009 NOT VALID를 VALIDATE만 함 — 설계서 이관 표 0010 줄에 \"같은 배포: <옛 판이 어길 수 없는 이유>\" 또는 \"다음 배포\"를 적음(커밋한 이관 파일은 고치지 않음)"
+    },
+    {
+      "path": "crates/services/monitoring/migrations/0010_hosts_no_loopback_validate.sql",
+      "rules": [
+        "S-MIG-4"
+      ],
+      "owner": "monitoring-dev",
+      "until": "2026-11-08",
+      "reason": "S-MIG-4 같은 배포 VALIDATE(2026-11-01): 0009 NOT VALID를 VALIDATE만 함 — 설계서 이관 표 0010 줄에 \"같은 배포: <옛 판이 어길 수 없는 이유>\" 또는 \"다음 배포\"를 적음(커밋한 이관 파일은 고치지 않음)"
+    }
+  ]
 }

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 FILE_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 PHASES = {"expand", "migrate", "contract"}
-KNOWN_DIRECTIVES = {"phase", "transaction", "schema"}
+KNOWN_DIRECTIVES = {"phase", "transaction", "schema", "validate-deploy"}
 # 덧붙이기만 하는 표(이름에 ledger·journal·audit). 사슬·구간 머리(`…_head`, `…_heads`)는 지금 상태를 고쳐 쓰는 표라 뺀다.
 APPEND_ONLY = re.compile(r"^(?!.*_heads?$).*(ledger|journal|audit)")
 AMOUNT_NAME = re.compile(r"(^|_)(amount|balance|price|fee)s?($|_)|_minor$")
@@ -156,7 +156,7 @@ class FileLint:
         d = self.script.directives
         for name, (_, line) in d.items():
             if name not in KNOWN_DIRECTIVES:
-                self.add(line, "S-MIG-4", f"모르는 머리 지시 `mookko:{name}`(phase·transaction·schema만)")
+                self.add(line, "S-MIG-4", f"모르는 머리 지시 `mookko:{name}`(phase·transaction·schema·validate-deploy만)")
         for name, line in self.script.duplicate_directives:
             self.add(line, "S-MIG-4", f"머리 지시 `mookko:{name}`가 두 번")
         for line in self.script.late_directives:
@@ -801,6 +801,75 @@ def default_schema(rel_dir: Path) -> str | None:
     return None
 
 
+NOT_VALID_ADD = re.compile(rf"\bADD\s+CONSTRAINT\s+({IDENT})\b[^;]*?\bNOT\s+VALID\b", re.I | re.S)
+VALIDATE_STMT = re.compile(rf"^ALTER\s+TABLE\s+(?:ONLY\s+)?{QNAME}\s+VALIDATE\s+CONSTRAINT\s+({IDENT})\s*$", re.I)
+
+
+def validate_only(text: str) -> set[str] | None:
+    """`migrate` 파일이 `SET LOCAL …` 말고 `ALTER TABLE … VALIDATE CONSTRAINT`만 하면 그 제약 이름들, 아니면 None."""
+    script = sqltext.split(text)
+    if (script.directives.get("phase") or [None])[0] != "migrate":
+        return None
+    names: set[str] = set()
+    for st in script.statements:
+        if re.match(r"^SET\s+LOCAL\b", st.text, re.I):
+            continue
+        m = VALIDATE_STMT.match(st.text)
+        if not m:
+            return None
+        names.add(parse_qname(m.group(1))[1])
+    return names or None
+
+
+def service_doc_lines(root: Path, service: str | None) -> list[str]:
+    """서비스 설계서(`crates/services/<서비스>/docs/*.md`, `docs/spec/<서비스>/*.md`)의 줄."""
+    if not service:
+        return []
+    lines: list[str] = []
+    for base in (root / "crates" / "services" / service / "docs", root / "docs" / "spec" / service):
+        for path in walk(base, lambda name: name.endswith(".md")):
+            lines += path.read_text(encoding="utf-8").splitlines()
+    return lines
+
+
+def validate_deploy_findings(root: Path, directory: Path) -> list[Finding]:
+    """S-MIG-4 예외(같은 배포의 VALIDATE): 바로 앞 `expand` 파일이 `NOT VALID`로 건 제약을 `VALIDATE`만 하는 `migrate` 파일은
+    어느 배포에 싣는지와 근거를 적는다 — 파일 머리 `-- mookko:validate-deploy same <옛 판이 어길 수 없는 이유>`(또는 `next`),
+    아니면 서비스 설계서 이관 표에서 그 파일 이름이 있는 줄에 "같은 배포"(이유와 함께)나 "다음 배포". 커밋한 이관은 고칠 수
+    없으므로(S-MIG-1) 설계서 줄로도 받는다."""
+    findings: list[Finding] = []
+    files = sorted(p for p in directory.glob("*.sql") if FILE_NAME.match(p.name))
+    doc_lines = service_doc_lines(root, default_schema(directory.relative_to(root)))
+    for prev, path in zip(files, files[1:]):
+        text = path.read_text(encoding="utf-8")
+        names = validate_only(text)
+        if not names:
+            continue
+        prev_text = prev.read_text(encoding="utf-8")
+        if (sqltext.split(prev_text).directives.get("phase") or [None])[0] != "expand":
+            continue
+        added = {parse_qname(m.group(1))[1] for m in NOT_VALID_ADD.finditer(strip_sql_comments(prev_text))}
+        if not names & added:
+            continue
+        rel = path.relative_to(root).as_posix()
+        directive = sqltext.split(text).directives.get("validate-deploy")
+        if directive:
+            value, line = directive
+            if value == "next" or (value.startswith("same ") and value[5:].strip()):
+                continue
+            findings.append(Finding(rel, line, "S-MIG-4", "`-- mookko:validate-deploy`는 `next` 또는 `same <옛 판이 어길 수 없는 이유>`"))
+            continue
+        stem = path.stem
+        if any(stem in line and ("같은 배포" in line or "다음 배포" in line) for line in doc_lines):
+            continue
+        findings.append(Finding(
+            rel, 1, "S-MIG-4",
+            f"바로 앞 넓히기 `{prev.name}`의 NOT VALID 제약({', '.join(sorted(names & added))})을 VALIDATE만 함 — 같은 배포에 실으면 근거를, "
+            "아니면 다음 배포라고 적음(머리 `-- mookko:validate-deploy same <이유>|next` 또는 설계서 이관 표의 이 파일 줄)",
+        ))
+    return findings
+
+
 def lint_dir(root: Path, directory: Path) -> list[Finding]:
     """`migrations/` 폴더 하나: 파일 이름·번호 + 파일마다 판정."""
     registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
@@ -826,6 +895,8 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
         if problem:
             findings.append(Finding(rel, 1, "S-MIG-1", problem))
         findings += lint_text(rel, text, dialect, schema, fixed)
+    if dialect == "postgres":
+        findings += validate_deploy_findings(root, directory)
     for expected, actual in enumerate(sorted(numbers), start=1):
         if expected != actual:
             findings.append(Finding(rel_dir.as_posix(), 1, "S-MIG-1", f"번호가 0001부터 빠짐없이 이어지지 않음(기대 {expected:04d}, 실제 {actual:04d})"))
