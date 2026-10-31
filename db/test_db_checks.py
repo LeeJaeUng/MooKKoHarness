@@ -385,6 +385,25 @@ class ReaderCoverage(unittest.TestCase):
         access = data_classes.reader_access(FIXTURES / "repo-good" / "crates" / "services" / "svc", FIXTURES / "repo-good")
         self.assertEqual(access.columns, {"accounts": ["account_id", "state", "created_at", "closed_at", "region"]})
 
+    def test_rustfmt_layout_is_read(self) -> None:
+        # rustfmt가 줄을 나누고 끝 쉼표를 붙인 모양(links 3c0689b가 알려 줌).
+        text = "\n".join([
+            "const READER_COLUMNS: &[(&str, &[&str])] = &[",
+            "    (",
+            '        "pages",',
+            "        &[",
+            '            "page_id",',
+            '            "state",',
+            "        ],",
+            "    ),",
+            "];",
+            "fn f(m: M) { for (t, c) in READER_COLUMNS { m.reader_columns(t, c); } }",
+        ])
+        match = data_classes.READER_COLUMNS.search(text)
+        self.assertIsNotNone(match)
+        items = data_classes.READER_COLUMN_ITEM.findall(match.group(1))
+        self.assertEqual([(t, data_classes.LITERAL.findall(c)) for t, c in items], [("pages", ["page_id", "state"])])
+
     def test_bad_settings_are_caught(self) -> None:
         found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-bad")]
         for needle in (

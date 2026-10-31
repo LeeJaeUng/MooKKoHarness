@@ -370,7 +370,7 @@ class ReaderAccess:
 
 READER_HIDDEN = re.compile(r"\bconst\s+READER_HIDDEN\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_COLUMNS = re.compile(r"\bconst\s+READER_COLUMNS\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
-READER_COLUMN_ITEM = re.compile(r"\(\s*\"([^\"]+)\"\s*,\s*&\[(.*?)\]\s*\)", re.S)
+READER_COLUMN_ITEM = re.compile(r"\(\s*\"([^\"]+)\"\s*,\s*&\[(.*?)\]\s*,?\s*\)", re.S)  # rustfmt 끝 쉼표(`],\n)`)도
 LITERAL = re.compile(r"\"([^\"]*)\"")
 
 
