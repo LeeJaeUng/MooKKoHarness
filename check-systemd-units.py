@@ -106,6 +106,17 @@ def exec_prefix(command: str) -> str:
     return command[:end]
 
 
+def commands(line: str) -> list[str]:
+    """Exec* 값 한 줄을 ';' 낱말(앞뒤 공백)로 나눈 명령 목록. '\\;'는 인자 글자라 나누지 않는다."""
+    parts: list[list[str]] = [[]]
+    for word in line.split():
+        if word == ";":
+            parts.append([])
+        else:
+            parts[-1].append(word)
+    return [" ".join(p) for p in parts if p]
+
+
 def unwaivable_problems(path: Path) -> list[str]:
     """예외로 넘길 수 없는 문제: root 실행, 특권 접두어."""
     rel = path.relative_to(ROOT).as_posix()
@@ -115,10 +126,12 @@ def unwaivable_problems(path: Path) -> list[str]:
     if not users[-1] or any(u in {"root", "0"} for u in users):
         problems.append(f"{rel}: User가 없거나 root입니다(예외 불가)")
     for key in EXEC_KEYS:
-        for command in values.get(key, []):
-            prefix = exec_prefix(command)
-            if "+" in prefix or "!" in prefix:
-                problems.append(f"{rel}: {key}의 특권 접두어 {prefix!r}는 격리나 User를 무시합니다(예외 불가)")
+        for line in values.get(key, []):
+            # 옛 문법: 한 줄에 공백으로 떨어진 ';'로 명령을 이어 쓸 수 있으므로 명령마다 접두어를 본다(QA 2026-11-01 낮음).
+            for command in commands(line):
+                prefix = exec_prefix(command)
+                if "+" in prefix or "!" in prefix:
+                    problems.append(f"{rel}: {key}의 특권 접두어 {prefix!r}는 격리나 User를 무시합니다(예외 불가)")
     return problems
 
 
