@@ -259,7 +259,7 @@ class MigrationLockSamples(unittest.TestCase):
 
     def test_locked_unchanged_passes(self) -> None:
         data = self.locked()
-        self.assertEqual(len(data["launched"][0]["files"]), 5)
+        self.assertEqual(len(data["launched"][0]["files"]), 6)
         self.assertEqual(migration_lock.check(self.ROOT, data), [])
 
     def test_changed_missing_and_unlocked_files_fail(self) -> None:
@@ -421,10 +421,23 @@ class ReaderClosedDefault(unittest.TestCase):
     """엔진 읽기 계정 기본은 닫힘(9f027fa): 열지 않은 개인 표는 괜찮고, `READER_TABLES`로 표째 열면 걸린다."""
 
     def test_closed_default(self) -> None:
-        found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-closed")]
+        found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-closed") if "RECON_VIEWS" not in p.message]
         self.assertEqual(len(found), 1, found)
         self.assertIn("`READER_TABLES`가", found[0])
         self.assertIn("`notes`", found[0])
+
+
+class ReconViews(unittest.TestCase):
+    """S-SEC-9 대사 계정(E-DB-15): `RECON_VIEWS`는 `recon_view`로 넘기고, 이관이 만든 보기여야 한다."""
+
+    def test_good_repo(self) -> None:
+        access = data_classes.reader_access(FIXTURES / "repo-good" / "crates" / "services" / "svc", FIXTURES / "repo-good")
+        self.assertEqual(access.recon_views, {"accounts_recon"})
+        self.assertEqual(data_classes.reader_coverage(FIXTURES / "repo-good"), [])
+
+    def test_missing_view_is_caught(self) -> None:
+        found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-closed")]
+        self.assertTrue(any("`RECON_VIEWS`의 `notes_recon`" in m for m in found), found)
 
 
 class EngineReaderCoverage(unittest.TestCase):
@@ -463,7 +476,7 @@ class ApplySamples(unittest.TestCase):
     def test_good_repo_applies(self) -> None:
         code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
         self.assertEqual(code, 0, out)
-        self.assertIn("이관 5개 적용", out)
+        self.assertIn("이관 6개 적용", out)
 
     def test_reader_sees_personal_column_without_settings(self) -> None:
         """서비스 코드가 `reader_all_tables()`로 모두 열고 감추지 않으면, 적용 시험이 개인 등급 열을 잡는다."""
@@ -476,6 +489,19 @@ class ApplySamples(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("S-SEC-9 읽기 계정이 `accounts.email`(등급 `개인`)을 읽을 수 있음", out)
         self.assertNotIn("accounts.state", out)
+
+    def test_recon_view_using_personal_column_is_caught(self) -> None:
+        """대사 보기가 개인 등급 열을 쓰면(WHERE에만 써도) 잡고, 대사 계정은 원본 표를 못 읽는다."""
+        original = data_classes.reader_access
+        data_classes.reader_access = lambda crate, root: data_classes.ReaderAccess(recon_views={"accounts_recon", "accounts_contact"})
+        try:
+            code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
+        finally:
+            data_classes.reader_access = original
+        self.assertEqual(code, 1, out)
+        self.assertIn("S-SEC-9 대사 보기 `accounts_contact`가 `accounts.email`(등급 `개인`)을 씀", out)
+        self.assertNotIn("대사 보기 `accounts_recon`", out)
+        self.assertNotIn("대사 계정이 원본 표", out)
 
     def test_hidden_table_has_no_reader_privilege(self) -> None:
         """감춘 표는 grant 뒤 읽기 계정에 표·열 SELECT가 하나도 없어야 한다(has_table_privilege·has_column_privilege로 확인)."""

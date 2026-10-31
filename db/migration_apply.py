@@ -169,6 +169,55 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
     db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
 
 
+def grant_recon_like_engine(db: Connection, target: Target, reader_access: data_classes.ReaderAccess) -> None:
+    """엔진 `SchemaMigrator::grant_recon`(recon.rs, E-DB-15)과 같은 권한: 대사 계정(`_recon`)은 스키마 `USAGE`와 서비스 코드
+    `RECON_VIEWS` 보기의 `SELECT`만. 표·다른 보기·시퀀스 권한은 모두 걷어 냄."""
+    schema = quote_ident(target.schema)
+    recon = quote_ident(f"{target.schema}_recon")
+    sql = [f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {recon};", f"GRANT USAGE ON SCHEMA {schema} TO {recon};"]
+    relations = db.query(
+        f"SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = {quote_literal(target.schema)} AND c.relkind IN ('r', 'p', 'v', 'm', 'f') ORDER BY 1"
+    ).rows
+    for (name,) in relations:
+        relation = f"{schema}.{quote_ident(name or '')}"
+        sql.append(f"REVOKE ALL ON {relation} FROM {recon};")
+        if name in reader_access.recon_views:
+            sql.append(f"GRANT SELECT ON {relation} TO {recon};")
+    db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
+
+
+def recon_checks(
+    db: Connection,
+    target: Target,
+    classified: dict[str, dict[str, str]],
+    reader_access: data_classes.ReaderAccess,
+    problems: list[str],
+) -> None:
+    """S-SEC-9 대사 계정: 보기가 쓰는 원본 열(`information_schema.view_column_usage`, WHERE·JOIN에 쓴 것도)에 설계서 등급 `개인`
+    이상이 없어야 하고, 대사 계정은 원본 표를 읽지 못하고 정한 보기만 읽어야 한다(`has_table_privilege`)."""
+    s = quote_literal(target.schema)
+    recon = quote_literal(f"{target.schema}_recon")
+    for view in sorted(reader_access.recon_views):
+        used = db.query(
+            f"SELECT table_name, column_name FROM information_schema.view_column_usage "
+            f"WHERE view_schema = {s} AND view_name = {quote_literal(view)} AND table_schema = {s} ORDER BY 1, 2"
+        ).rows
+        for table, column in used:
+            known = classified.get(table or "", {})
+            grade = known.get(column or "", known.get(data_classes.REST))
+            if grade is not None and data_classes.RANK.get(grade, 0) >= data_classes.RANK["개인"]:
+                problems.append(f"{target.rel}: S-SEC-9 대사 보기 `{view}`가 `{table}.{column}`(등급 `{grade}`)을 씀")
+    readable = db.query(
+        f"SELECT c.relname, c.relkind::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = {s} AND c.relkind IN ('r', 'p', 'v', 'm', 'f') AND has_table_privilege({recon}, c.oid, 'SELECT') ORDER BY 1"
+    ).rows
+    for name, kind in readable:
+        if name not in reader_access.recon_views:
+            what = "원본 표" if kind in ("r", "p") else "정하지 않은 보기"
+            problems.append(f"{target.rel}: S-SEC-9 대사 계정이 {what} `{name}`을 읽을 수 있음")
+
+
 def reader_checks(
     db: Connection,
     target: Target,
@@ -343,7 +392,10 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
                 access = data_classes.reader_access(target.directory.parent, root)
                 grant_like_engine(db_admin, target, access)
                 catalog_checks(db_admin, target, problems)
-                reader_checks(db_admin, target, data_classes.service_classification(root, target.service), access, waivers, problems)
+                classified = data_classes.service_classification(root, target.service)
+                reader_checks(db_admin, target, classified, access, waivers, problems)
+                grant_recon_like_engine(db_admin, target, access)
+                recon_checks(db_admin, target, classified, access, problems)
             print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용")
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")

@@ -9,3 +9,13 @@ fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
     }
     Ok(migrator)
 }
+
+/// 이관에 없는 보기(S-SEC-9 대사 계정이 잡아야 함).
+const RECON_VIEWS: &[&str] = &["notes_recon"];
+
+fn recon(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+    for view in RECON_VIEWS {
+        migrator = migrator.recon_view(&SqlName::parse(view)?);
+    }
+    Ok(migrator)
+}

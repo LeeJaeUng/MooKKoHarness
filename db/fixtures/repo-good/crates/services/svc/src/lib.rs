@@ -15,6 +15,16 @@ fn ledger_partitions(migrator: SchemaMigrator) -> Result<SchemaMigrator, DataErr
     Ok(migrator.partitioned(table.archive_before_drop()))
 }
 
+/// 대사 계정(`svc_recon`)이 읽는 보기(개인 등급 열 없음, S-SEC-9·E-DB-15).
+const RECON_VIEWS: &[&str] = &["accounts_recon"];
+
+fn recon(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+    for view in RECON_VIEWS {
+        migrator = migrator.recon_view(&SqlName::parse(view)?);
+    }
+    Ok(migrator)
+}
+
 fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
     for (table, columns) in READER_COLUMNS {
         migrator = migrator.reader_columns(&SqlName::parse(table)?, &names(columns)?);

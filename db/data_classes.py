@@ -368,9 +368,12 @@ class ReaderAccess:
     columns: dict[str, list[str]] = field(default_factory=dict)
     tables: set[str] = field(default_factory=set)
     all_tables: bool = False
+    recon_views: set[str] = field(default_factory=set)  # 대사 계정(`_recon`)이 읽는 보기(E-DB-15 `recon_view`)
     problems: list[Problem] = field(default_factory=list)
 
 
+RECON_VIEWS = re.compile(r"\bconst\s+RECON_VIEWS\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
+CREATED_VIEW = re.compile(rf"^CREATE\s+(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?({QNAME})", re.I)
 READER_TABLES = re.compile(r"\bconst\s+READER_TABLES\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_HIDDEN = re.compile(r"\bconst\s+READER_HIDDEN\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_COLUMNS = re.compile(r"\bconst\s+READER_COLUMNS\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
@@ -412,6 +415,13 @@ def reader_access(crate: Path, root: Path) -> ReaderAccess:
             access.tables.update(LITERAL.findall(tables.group(1)))
         elif tables:
             access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_TABLES`를 적었지만 이 파일에서 그 상수를 `reader_table`로 넘기지 않음"))
+        recon = RECON_VIEWS.search(text)
+        if recon and passed_to(text, recon, "RECON_VIEWS", "recon_view"):
+            access.recon_views.update(LITERAL.findall(recon.group(1)))
+        elif recon:
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`RECON_VIEWS`를 적었지만 이 파일에서 그 상수를 `recon_view`로 넘기지 않음"))
+        if ".recon_view(" in text and not recon:
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`recon_view`에 넘기는 보기는 `const RECON_VIEWS`에 적음(검사가 읽는 자리)"))
         if re.search(r"\.reader_all_tables\(\s*\)", text):
             access.all_tables = True
         for call, found in (("reader_hidden", hidden), ("reader_columns", columns), ("reader_table", tables)):
@@ -435,10 +445,18 @@ def reader_coverage(root: Path) -> list[Problem]:
         access = reader_access(directory.parent, root)
         problems += access.problems
         created: dict[str, str] = {}
+        views: set[str] = set()
         for path in sorted(directory.glob("*.sql")):
-            for table in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service):
+            text = path.read_text(encoding="utf-8")
+            for table in migration_lint.created_tables(text, "postgres", service):
                 created.setdefault(table, path.relative_to(root).as_posix())
+            for st in sqltext.split(text).statements:
+                view = CREATED_VIEW.match(st.text)
+                if view:
+                    views.add(parse_qname(view.group(1))[1])
         where = directory.parent.relative_to(root).as_posix()
+        for view in sorted(access.recon_views - views):
+            problems.append(Problem(where, 1, "S-SEC-9", f"`RECON_VIEWS`의 `{view}`를 이관이 보기(`CREATE VIEW`)로 만들지 않음(엔진 `grant_recon`도 거부)"))
         for table in sorted(access.hidden | set(access.columns) | access.tables):
             if table not in created:
                 problems.append(Problem(where, 1, "S-SEC-9", f"읽기 계정 설정의 `{table}`을 이관이 만들지 않음(엔진 `grant`도 거부)"))
