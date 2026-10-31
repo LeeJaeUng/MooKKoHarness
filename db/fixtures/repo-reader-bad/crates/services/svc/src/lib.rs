@@ -6,7 +6,9 @@
 
 const READER_COLUMNS: &[(&str, &[&str])] = &[("people", &["person_id", "email"]), ("missing_table", &["id"])];
 
-fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+fn reader(migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+    // 스키마 전체를 읽기 계정에 엶 — 개인 표는 따로 감춰야 함.
+    let mut migrator = migrator.reader_all_tables();
     for (table, columns) in READER_COLUMNS {
         migrator = migrator.reader_columns(&SqlName::parse(table)?, &names(columns)?);
     }

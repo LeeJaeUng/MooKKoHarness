@@ -4,7 +4,7 @@
 - fixtures/migrations/single/*.sql: 머리 `-- expect: 규칙, …` 또는 `(없음)`, 이름이 `ch_`면 ClickHouse 규칙
 - fixtures/repo-good, repo-bad: 폴더 단위(이름·번호·Rust 문자열)
 - fixtures/data-model/*.md: `<!-- expect: … -->`
-- fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9)
+- fixtures/repo-reader-bad: 읽기 계정 감추기(S-SEC-9, 모두 연 서비스), repo-reader-closed: 닫힌 기본
 - fixtures/repo-partition-bad: 파티션 부모를 엔진에 적기(S-PART-3)
 - fixtures/repo-engine-good, repo-engine-bad: 엔진 표 읽기 계정 감추기(S-SEC-9 엔진 몫)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
@@ -408,13 +408,23 @@ class ReaderCoverage(unittest.TestCase):
         found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-bad")]
         for needle in (
             "`READER_COLUMNS`가 `people.email`(등급 `개인` 이상)을 읽기 계정에 엶",
-            "`notes`의 `개인` 이상 열(body)을 읽기 계정에서 감추지 않음",
-            "`visits`의 `개인` 이상 열(ip_hash)을 읽기 계정에서 감추지 않음",
+            "`reader_all_tables()`가 `notes`의 `개인` 이상 열(body)까지 엶",
+            "`reader_all_tables()`가 `visits`의 `개인` 이상 열(ip_hash)까지 엶",
             "`READER_HIDDEN`을 적었지만 이 파일에서 그 상수를 `reader_hidden`으로 넘기지 않음",
             "읽기 계정 설정의 `missing_table`을 이관이 만들지 않음",
         ):
             self.assertTrue(any(needle in m for m in found), (needle, found))
         self.assertEqual(len(found), 5, found)
+
+
+class ReaderClosedDefault(unittest.TestCase):
+    """엔진 읽기 계정 기본은 닫힘(9f027fa): 열지 않은 개인 표는 괜찮고, `READER_TABLES`로 표째 열면 걸린다."""
+
+    def test_closed_default(self) -> None:
+        found = [p.message for p in data_classes.reader_coverage(FIXTURES / "repo-reader-closed")]
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("`READER_TABLES`가", found[0])
+        self.assertIn("`notes`", found[0])
 
 
 class EngineReaderCoverage(unittest.TestCase):
@@ -456,9 +466,9 @@ class ApplySamples(unittest.TestCase):
         self.assertIn("이관 5개 적용", out)
 
     def test_reader_sees_personal_column_without_settings(self) -> None:
-        """서비스 코드에 읽기 계정 설정이 없으면 엔진처럼 표 전체 SELECT가 되고, 적용 시험이 개인 등급 열을 잡는다."""
+        """서비스 코드가 `reader_all_tables()`로 모두 열고 감추지 않으면, 적용 시험이 개인 등급 열을 잡는다."""
         original = data_classes.reader_access
-        data_classes.reader_access = lambda crate, root: data_classes.ReaderAccess()
+        data_classes.reader_access = lambda crate, root: data_classes.ReaderAccess(all_tables=True)
         try:
             code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
         finally:

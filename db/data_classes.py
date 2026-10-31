@@ -361,13 +361,17 @@ def migration_coverage(root: Path) -> list[Problem]:
 
 @dataclass
 class ReaderAccess:
-    """서비스 코드가 엔진 이관기에 넘기는 읽기 계정 설정(E-DB-12): 감출 표, 열만 열 표."""
+    """서비스 코드가 엔진 이관기에 넘기는 읽기 계정 설정(E-DB-12). 엔진 기본은 닫힘(9f027fa): 정하지 않은 표는 읽기 계정이 못 봄.
+    연 표: `reader_all_tables()`(스키마 전체) 또는 `READER_TABLES`(`reader_table`). 감춘 표·열만 연 표는 그보다 앞섬."""
 
     hidden: set[str] = field(default_factory=set)
     columns: dict[str, list[str]] = field(default_factory=dict)
+    tables: set[str] = field(default_factory=set)
+    all_tables: bool = False
     problems: list[Problem] = field(default_factory=list)
 
 
+READER_TABLES = re.compile(r"\bconst\s+READER_TABLES\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_HIDDEN = re.compile(r"\bconst\s+READER_HIDDEN\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_COLUMNS = re.compile(r"\bconst\s+READER_COLUMNS\s*:[^=]*=\s*&\[(.*?)\]\s*;", re.S)
 READER_COLUMN_ITEM = re.compile(r"\(\s*\"([^\"]+)\"\s*,\s*&\[(.*?)\]\s*,?\s*\)", re.S)  # rustfmt 끝 쉼표(`],\n)`)도
@@ -403,9 +407,17 @@ def reader_access(crate: Path, root: Path) -> ReaderAccess:
                 access.columns[table] = LITERAL.findall(listed)
         elif columns:
             access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_COLUMNS`를 적었지만 이 파일에서 그 상수를 `reader_columns`로 넘기지 않음"))
-        for call in ("reader_hidden", "reader_columns"):
-            if f".{call}(" in text and not (hidden if call == "reader_hidden" else columns):
-                access.problems.append(Problem(rel, 1, "S-SEC-9", f"`{call}`에 넘기는 표는 `const READER_{call.split('_')[1].upper()}`에 적음(검사가 읽는 자리)"))
+        tables = READER_TABLES.search(text)
+        if tables and passed_to(text, tables, "READER_TABLES", "reader_table"):
+            access.tables.update(LITERAL.findall(tables.group(1)))
+        elif tables:
+            access.problems.append(Problem(rel, 1, "S-SEC-9", "`READER_TABLES`를 적었지만 이 파일에서 그 상수를 `reader_table`로 넘기지 않음"))
+        if re.search(r"\.reader_all_tables\(\s*\)", text):
+            access.all_tables = True
+        for call, found in (("reader_hidden", hidden), ("reader_columns", columns), ("reader_table", tables)):
+            if f".{call}(" in text and not found:
+                const = {"reader_hidden": "READER_HIDDEN", "reader_columns": "READER_COLUMNS", "reader_table": "READER_TABLES"}[call]
+                access.problems.append(Problem(rel, 1, "S-SEC-9", f"`{call}`에 넘기는 표는 `const {const}`에 적음(검사가 읽는 자리)"))
     return access
 
 
@@ -415,7 +427,8 @@ def high_columns(classified: dict[str, dict[str, str]], table: str) -> list[str]
 
 
 def reader_coverage(root: Path) -> list[Problem]:
-    """S-SEC-9: 등급 `개인` 이상 열이 있는 표는 읽기 계정(`<서비스>_ro`)에서 감추거나(`reader_hidden`), 그 열을 뺀 열만 연다(`reader_columns`)."""
+    """S-SEC-9: 등급 `개인` 이상 열이 있는 표를 읽기 계정(`<서비스>_ro`)에 표째 열지 않는다. 엔진 기본은 닫힘이라 열지 않은 표는
+    괜찮고, `reader_all_tables()`·`READER_TABLES`로 열었으면 그 표는 감추거나(`READER_HIDDEN`) 그 열을 뺀 열만 연다(`READER_COLUMNS`)."""
     problems: list[Problem] = []
     for directory, service in service_dirs(root):
         classified = service_classification(root, service)
@@ -426,7 +439,7 @@ def reader_coverage(root: Path) -> list[Problem]:
             for table in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", service):
                 created.setdefault(table, path.relative_to(root).as_posix())
         where = directory.parent.relative_to(root).as_posix()
-        for table in sorted(access.hidden | set(access.columns)):
+        for table in sorted(access.hidden | set(access.columns) | access.tables):
             if table not in created:
                 problems.append(Problem(where, 1, "S-SEC-9", f"읽기 계정 설정의 `{table}`을 이관이 만들지 않음(엔진 `grant`도 거부)"))
         for table, rel in sorted(created.items()):
@@ -434,7 +447,10 @@ def reader_coverage(root: Path) -> list[Problem]:
             if not high or table in access.hidden:
                 continue
             if table not in access.columns:
-                problems.append(Problem(rel, 1, "S-SEC-9", f"`{table}`의 `개인` 이상 열({', '.join(high)})을 읽기 계정에서 감추지 않음 — `READER_HIDDEN` 또는 `READER_COLUMNS`"))
+                if table in access.tables:
+                    problems.append(Problem(rel, 1, "S-SEC-9", f"`READER_TABLES`가 `개인` 이상 열({', '.join(high)})이 있는 `{table}`을 표째 엶 — `READER_COLUMNS`로 그 열을 빼고 열기"))
+                elif access.all_tables:
+                    problems.append(Problem(rel, 1, "S-SEC-9", f"`reader_all_tables()`가 `{table}`의 `개인` 이상 열({', '.join(high)})까지 엶 — `READER_HIDDEN` 또는 `READER_COLUMNS`"))
                 continue
             known = classified.get(table, {})
             for column in access.columns[table]:

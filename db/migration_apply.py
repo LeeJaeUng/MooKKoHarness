@@ -139,8 +139,8 @@ def apply_files(conn: Connection, target: Target, problems: list[str]) -> int:
 
 def grant_like_engine(db: Connection, target: Target, reader_access: data_classes.ReaderAccess) -> None:
     """엔진 `SchemaMigrator::grant`(access.rs, E-DB-12)와 같은 권한: 보통 표와 파티션 부모만 받고 파티션 자식은 모두 걷어 냄.
-    앱 계정은 DML만, 덧붙이기만 표는 SELECT·INSERT만. 읽기 계정은 표마다 SELECT, 서비스 코드의 `READER_HIDDEN` 표는 없음,
-    `READER_COLUMNS` 표는 그 열만. 덧붙이기만 표는 서비스가 `append_only`로 지정한 것이라 SQL에서 알 수 없으므로 이름 규칙(S-MONEY-2)으로
+    앱 계정은 DML만, 덧붙이기만 표는 SELECT·INSERT만. 읽기 계정은 닫힌 기본(엔진 9f027fa) — `reader_all_tables()`·`READER_TABLES`로 연 표만
+    SELECT, 서비스 코드의 `READER_HIDDEN` 표는 없음, `READER_COLUMNS` 표는 그 열만. 덧붙이기만 표는 서비스가 `append_only`로 지정한 것이라 SQL에서 알 수 없으므로 이름 규칙(S-MONEY-2)으로
     고른다 — 서비스가 실제로 지정했는지는 [QA]. 표마다 좁히는 `table_privileges`는 덧붙이기만 판정에 영향이 없어 따라 하지 않는다."""
     schema = quote_ident(target.schema)
     app = quote_ident(f"{target.schema}_app")
@@ -163,8 +163,9 @@ def grant_like_engine(db: Connection, target: Target, reader_access: data_classe
         if name in reader_access.columns:
             columns = ", ".join(quote_ident(c) for c in reader_access.columns[name])
             sql.append(f"GRANT SELECT ({columns}) ON {table} TO {reader};")
-        else:
+        elif reader_access.all_tables or name in reader_access.tables:
             sql.append(f"GRANT SELECT ON {table} TO {reader};")
+        # 그 밖의 표는 읽기 계정이 못 봄(엔진 닫힌 기본, 9f027fa)
     db.query(f"SET ROLE {quote_ident(target.schema + '_owner')};\n" + "\n".join(sql) + "\nRESET ROLE;")
 
 
