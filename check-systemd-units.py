@@ -1,7 +1,8 @@
 """운영 systemd unit 격리 검사(docs/architecture/host-security.md §3, 관문 HOST-01).
 
 저장소 안의 모든 *.service 파일이 서비스 잠그기 지시어를 다 가지고 있는지 본다. 하나라도 빠지거나 값이 다르면 실패한다.
-User가 root이거나 없으면 실패한다(이것은 예외로도 넘길 수 없다). 같은 지시어를 여러 줄 쓰면 systemd가 합치므로 실패로 본다
+User가 root이거나 없으면 실패한다(이것은 예외로도 넘길 수 없다). Exec* 줄의 특권 접두어 +·!·!!도 같다(+는 격리를 모두 끄고,
+!는 User를 무시하고 root로 돌린다 — systemd.service(5) 표 "Special executable prefixes", QA 2026-11-01 보통). 같은 지시어를 여러 줄 쓰면 systemd가 합치므로 실패로 본다
 (SystemCallFilter만 허용·거부 줄을 따로 쓴다). drop-in(<unit>.service.d/*.conf)도 합쳐서 본다. .socket unit은 기준이 없어 통합 담당
 확인 전까지 실패로 본다. 기한 있는 예외는 docs/policy/waivers.json(rule에 HOST-01, paths에 그 unit)에 있어야 한다.
 """
@@ -45,6 +46,9 @@ REQUIRED: dict[str, str | None] = {
 # SystemCallFilter는 여러 줄: 허용 묶음과 거부 묶음이 둘 다 있어야 한다.
 SYSCALL_ALLOW = "@system-service"
 SYSCALL_DENY = {"@privileged", "@resources", "@mount", "@swap", "@reboot", "@raw-io", "@module", "@obsolete", "@cpu-emulation", "@debug"}
+# 명령을 받는 지시어와 그 앞에 붙을 수 있는 특수 접두어 글자(systemd.service(5)).
+EXEC_KEYS = ("ExecCondition", "ExecStartPre", "ExecStart", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost")
+EXEC_PREFIX_CHARS = "@-:+!"
 
 
 def tracked(pattern: str) -> list[Path]:
@@ -94,12 +98,28 @@ def waived(rel: str, today: datetime.date) -> bool:
     return False
 
 
-def user_problem(path: Path) -> str | None:
-    """예외로 넘길 수 없는 문제: root 실행."""
-    users = service_section(path).get("User") or [""]
+def exec_prefix(command: str) -> str:
+    """Exec* 값 앞의 특수 접두어 묶음(@ - : + !)."""
+    end = 0
+    while end < len(command) and command[end] in EXEC_PREFIX_CHARS:
+        end += 1
+    return command[:end]
+
+
+def unwaivable_problems(path: Path) -> list[str]:
+    """예외로 넘길 수 없는 문제: root 실행, 특권 접두어."""
+    rel = path.relative_to(ROOT).as_posix()
+    values = service_section(path)
+    problems: list[str] = []
+    users = values.get("User") or [""]
     if not users[-1] or any(u in {"root", "0"} for u in users):
-        return f"{path.relative_to(ROOT).as_posix()}: User가 없거나 root입니다(예외 불가)"
-    return None
+        problems.append(f"{rel}: User가 없거나 root입니다(예외 불가)")
+    for key in EXEC_KEYS:
+        for command in values.get(key, []):
+            prefix = exec_prefix(command)
+            if "+" in prefix or "!" in prefix:
+                problems.append(f"{rel}: {key}의 특권 접두어 {prefix!r}는 격리나 User를 무시합니다(예외 불가)")
+    return problems
 
 
 def check_unit(path: Path) -> list[str]:
@@ -133,9 +153,7 @@ def main() -> int:
     for sock in tracked("*.socket"):
         problems.append(f"{sock.relative_to(ROOT).as_posix()}: .socket unit은 기준이 없습니다 — 통합 담당이 host-security.md에 기준을 넣을 때까지 금지")
     for path in files:
-        root_problem = user_problem(path)
-        if root_problem:
-            problems.append(root_problem)
+        problems.extend(unwaivable_problems(path))
         found = check_unit(path)
         if found and waived(path.relative_to(ROOT).as_posix(), today):
             waived_count += 1
