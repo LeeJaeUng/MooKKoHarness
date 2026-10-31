@@ -67,7 +67,7 @@
 
 - S-PART-1 시간으로 쌓이고 떼어 낼 표(원장 항목·감사·이벤트)는 월별 범위 파티션, 기본 키와 모든 UNIQUE에 파티션 열(예: `seq` 하나만 기본 키인 파티션 표는 PostgreSQL이 거부 — 멱등 키 UNIQUE도 파티션 열을 함께). **[lint]**(기본 키·UNIQUE) **[QA]**(파티션할 표 고르기)
 - S-PART-2 기본(`DEFAULT`) 파티션 금지(새 파티션 붙일 때 기본 파티션을 훑으며 잠그고, 기본 파티션이 있으면 `DETACH … CONCURRENTLY`를 쓸 수 없음). 엔진 유지보수(E-DB-5)가 3달 앞까지 미리 만든다(S-PART-3). **[lint]** **[검사]** `migration_apply.py`
-- S-PART-3 파티션은 엔진이 관리한다(E-DB-5, database.md §4.2). 서비스 이관은 부모 표(`PARTITION BY`)만 만들고 달 파티션(`PARTITION OF`)은 쓰지 않는다(엔진의 `<표>_YYYYMM`과 겹침). 서비스 이관이 만든 파티션 부모는 모두 서비스 코드가 이관기에 `partitioned(PartitionedTable::monthly(표, 키).keep_days(n))`로 적는다 — 표 이름은 그 호출 안에 글자(`"표"`)나 `&str` 상수로, 반복문으로 넘기면 `const PARTITIONED: &[…]`에. 만들기·떼기는 이관·유지보수 단계(`<실행 파일> maintain`, 이관 계정)만, 지우기는 `DETACH … CONCURRENTLY` 뒤 `DROP`(`DELETE`로 지우지 않음). 서비스 코드의 파티션 DDL은 S-BND-7. 법정 보관 때문에 내보내야 하는 표는 `archive_before_drop`. **[lint]**(`PARTITION OF`, 부모 등록) **[QA]**(`keep_days`가 설계서 보관과 같은지, 내보내기)
+- S-PART-3 파티션은 엔진이 관리한다(E-DB-5, database.md §4.2). 서비스 이관은 부모 표(`PARTITION BY`)만 만들고 달 파티션(`PARTITION OF`)은 쓰지 않는다(엔진의 `<표>_YYYYMM`과 겹침). `<부모>_YYYYMM` 이름의 일반 표도 두지 않는다(엔진이 이름만 보고 기한 지난 달로 지울 수 있음). 서비스 이관이 만든 파티션 부모는 모두 서비스 코드가 이관기에 `partitioned(PartitionedTable::monthly(표, 키).keep_days(n))`로 적는다 — 표 이름은 그 호출 안에 글자(`"표"`)나 `&str` 상수로, 반복문으로 넘기면 `const PARTITIONED: &[…]`에. 만들기·떼기는 이관·유지보수 단계(`<실행 파일> maintain`, 이관 계정)만, 지우기는 `DETACH … CONCURRENTLY` 뒤 `DROP`(`DELETE`로 지우지 않음). 서비스 코드의 파티션 DDL은 S-BND-7. 법정 보관 때문에 내보내야 하는 표는 `archive_before_drop`. **[lint]**(`PARTITION OF`, `<부모>_YYYYMM` 이름, 부모 등록 — 주석 안 등록은 세지 않음) **[QA]**(`keep_days`가 설계서 보관과 같은지, 내보내기)
 - S-PART-4 돈 테이블은 분할 키 열을 모든 행에, 논리 버킷은 `FNV-1a(키) mod 1024`(엔진 `PartitionLeases`). 뜨거운 키는 database.md §4.3대로. **[QA]**
 
 ## 6. 데이터 보호
