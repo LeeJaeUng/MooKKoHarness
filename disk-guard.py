@@ -69,6 +69,11 @@ def caches(cache_dir: Path) -> list[Cache]:
     return sorted(found, key=lambda c: c.last_used)  # 오래된 것부터
 
 
+# 캐시를 쓰지 않는데 환경만 물려받아 오래 남는 프로세스(시험용 DB를 띄운 rootless Podman의 일시정지·감시 프로세스).
+# 이것들을 '쓰는 중'으로 보면 자기 캐시가 한도를 넘어도 끝까지 못 지운다(2026-11-01 catatonit -P가 CARGO_TARGET_DIR를 물고 남음).
+NOT_BUILDERS = frozenset({"catatonit", "conmon", "podman", "pasta", "pasta.avx2", "slirp4netns", "rootlessport"})
+
+
 def own_lineage() -> set[str]:
     """이 검사 자신과 조상 프로세스 번호(check-all·감싸기 셸). 자기 캐시를 '남이 쓰는 중'으로 보지 않게."""
     lineage: set[str] = set()
@@ -93,6 +98,8 @@ def in_use(exclude: set[str] | None = None) -> set[Path]:
         if not entry.name.isdigit() or (exclude and entry.name in exclude):
             continue
         try:
+            if (entry / "comm").read_text(encoding="utf-8").strip() in NOT_BUILDERS:
+                continue
             environ = (entry / "environ").read_bytes()
         except OSError:
             continue  # 끝났거나 남의 프로세스
