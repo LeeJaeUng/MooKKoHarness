@@ -4,7 +4,16 @@
 /// 원장 테이블(앱 계정은 SELECT·INSERT만).
 const LEDGER_TABLE: &str = "ledger_entries";
 
+/// 읽기 계정(`svc_ro`)이 이 열만 읽는 표(개인 등급 `email`을 감춤, S-SEC-9).
+const READER_COLUMNS: &[(&str, &[&str])] = &[("accounts", &["account_id", "state", "created_at", "closed_at", "region"])];
+
 // migrator: SchemaMigrator::new(schema).add_dir(dir).await?.append_only(&SqlName::parse(LEDGER_TABLE)?)
+fn reader(mut migrator: SchemaMigrator) -> Result<SchemaMigrator, DataError> {
+    for (table, columns) in READER_COLUMNS {
+        migrator = migrator.reader_columns(&SqlName::parse(table)?, &names(columns)?);
+    }
+    Ok(migrator)
+}
 
 // 통과해야 할 글(SQL 문장이 아님): 감사 동작 이름·식별자·낱말 하나·설명 글.
 const ACTIONS: &[&str] = &["handle.revoke", "revoke_handle", "grant", "truncate", "drop", "staff.grant_role"];
