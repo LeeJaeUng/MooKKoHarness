@@ -136,6 +136,9 @@ class DocCheck:
         # 테이블 → 열 → 등급, 테이블 → (나머지) 등급
         self.classified: dict[str, dict[str, str]] = {}
         self.sql_tables: dict[str, tuple[int, list[str]]] = {}
+        # 테이블 → 열 → 보호, `이름 예외`를 적은 (테이블, 열) — 이관 대조(S-SEC-10)가 씀
+        self.protection: dict[str, dict[str, str]] = {}
+        self.name_exceptions: set[tuple[str, str]] = set()
 
     def add(self, line: int, rule: str, message: str) -> None:
         self.problems.append(Problem(self.rel, line, rule, message))
@@ -222,6 +225,9 @@ class DocCheck:
             self.check_row(no, table, column, grade, prot, NAME_EXCEPTION in line)
             seen.setdefault(table, {})[column] = prot
             self.classified.setdefault(table, {})[column] = grade
+            self.protection.setdefault(table, {})[column] = prot
+            if NAME_EXCEPTION in line:
+                self.name_exceptions.add((table, column))
         for table, columns in seen.items():
             for column, prot in columns.items():
                 if prot == "암호+색인":
@@ -244,8 +250,9 @@ class DocCheck:
             return
         if prot not in ALLOWED[grade]:
             self.add(line, "S-SEC-2", f"{where} 등급 `{grade}`에는 보호 {'·'.join(sorted(ALLOWED[grade]))}만(지금 `{prot}`)")
-        if migration_lint.WRAPPED_KEY_COLUMN.search(column) and (grade, prot) != ("비밀", "암호"):
-            self.add(line, "S-SEC-10", f"{where}는 KEK로 감싼 행 키 — 등급 `비밀`, 보호 `암호`(지금 `{grade}`·`{prot}`)")
+        material = migration_lint.KEY_MATERIAL_NAME.search(column) and not migration_lint.KEY_ID_SUFFIX.search(column)
+        if material and (grade, prot) != ("비밀", "암호"):
+            self.add(line, "S-SEC-10", f"{where}는 키 재료(감싼 키) 이름 — 등급 `비밀`, 보호 `암호`, 키 DB에만(지금 `{grade}`·`{prot}`)")
         if column == REST or name_exception or column.endswith(("_bidx", "_bidx_kid")):
             return
         name = snake(column)
@@ -349,15 +356,40 @@ def service_dirs(root: Path) -> list[tuple[Path, str]]:
     return out
 
 
+def service_protection(root: Path, service: str) -> tuple[dict[str, dict[str, str]], set[tuple[str, str]]]:
+    """서비스 설계서들의 테이블 → 열 → 보호와 `이름 예외` 열."""
+    protection: dict[str, dict[str, str]] = {}
+    exceptions: set[tuple[str, str]] = set()
+    for doc in service_docs(root, service):
+        check = DocCheck(doc.relative_to(root).as_posix(), doc.read_text(encoding="utf-8"))
+        check.run()
+        for table, columns in check.protection.items():
+            protection.setdefault(table, {}).update(columns)
+        exceptions |= check.name_exceptions
+    return protection, exceptions
+
+
 def migration_coverage(root: Path) -> list[Problem]:
-    """서비스 이관이 만드는 테이블의 열마다 그 서비스 설계서에 등급이 있는지(S-SEC-1). 설계서 표 형식만 보면 놓치는 것을 잡는다."""
+    """서비스 이관이 만드는 테이블의 열마다 그 서비스 설계서에 등급이 있는지(S-SEC-1). 설계서 표 형식만 보면 놓치는 것을 잡는다.
+    서비스 DB(키 DB 밖)의 `bytea` 열 이름에 `key`·`dek`·`kek` 낱말이 있으면 설계서 보호가 `해시`(키를 담지 않는 값)이거나 그 줄에
+    `이름 예외: 이유`가 있어야 한다(S-SEC-10: 감싼 키를 다른 이름으로 서비스 DB에 두는 것, QA 9344ed3 보통)."""
     problems: list[Problem] = []
     for directory, service in service_dirs(root):
         classified = service_classification(root, service)
+        protection, exceptions = service_protection(root, service)
+        key_db = migration_lint.is_key_dir(directory.relative_to(root))
         for path in sorted(directory.glob("*.sql")):
             rel = path.relative_to(root).as_posix()
             schema = migration_lint.default_schema(directory.relative_to(root))
-            for table, columns in migration_lint.created_tables(path.read_text(encoding="utf-8"), "postgres", schema).items():
+            text = path.read_text(encoding="utf-8")
+            if not key_db:
+                for table, column, ctype in migration_lint.column_types(text, "postgres", schema):
+                    if (ctype or "").lower() != "bytea" or not migration_lint.KEY_TOKEN.search(column) or migration_lint.KEY_ID_SUFFIX.search(column):
+                        continue
+                    prot = protection.get(table, {}).get(column)
+                    if prot != "해시" and (table, column) not in exceptions:
+                        problems.append(Problem(rel, 1, "S-SEC-10", f"`{table}.{column}`(bytea, 이름에 key)이 설계서에서 보호 `해시`가 아님(지금 `{prot or '없음'}`) — 키 재료면 키 DB로, 아니면 `해시`나 `이름 예외: 이유`"))
+            for table, columns in migration_lint.created_tables(text, "postgres", schema).items():
                 known = classified.get(table)
                 if known is None:
                     problems.append(Problem(rel, 1, "S-SEC-1", f"이관이 만드는 `{table}`의 열 등급 표가 `{service}` 설계서에 없음"))

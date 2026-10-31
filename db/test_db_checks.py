@@ -493,13 +493,30 @@ class KeyTables(unittest.TestCase):
     def test_wrapped_keys_outside_key_db_and_other_tables_inside_are_caught(self) -> None:
         root = FIXTURES / "repo-keys-bad"
         service = [f.message for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations") if f.rule == "S-SEC-10"]
-        self.assertEqual(len(service), 2, service)
-        self.assertTrue(any("`profiles.profile_wrapped_key`" in m for m in service), service)
-        self.assertTrue(any("`profiles.wrapped_key`" in m for m in service), service)
-        keys = [f.message for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "keys" / "migrations") if f.rule == "S-SEC-10"]
-        self.assertIn("`row_keys.wrapped_key` 형식 `text` — `bytea`(`WrappedKey::to_bytes`)", keys)
-        self.assertIn("키 DB에는 키 표(`wrapped_key bytea` 열)만 둠 — `notes`은 서비스 DB로", keys)
-        self.assertEqual(len(keys), 2, keys)
+        caught = {m.split("`")[1] for m in service}
+        # QA 9344ed3 보통: `wrapped_key`가 아닌 이름(dek·row_key·data_key·wrapped_dek)과 이름 바꾸기(subject_key)도
+        self.assertEqual(caught, {"profiles.profile_wrapped_key", "profiles.wrapped_key", "vaults.dek", "vaults.row_key", "vaults.data_key", "vaults.wrapped_dek", "blobs.subject_key"}, service)
+        keys = [f.message for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "keys" / "migrations") if f.rule == "S-SEC-10" or f.rule == "S-BND-5"]
+        for needle in (
+            "`row_keys.wrapped_key` 형식 `text` — `bytea`(§9.8 모양)",
+            "키 표 `row_keys`에 `created_at timestamptz`가 없음(§9.8 모양)",
+            "키 표 `row_keys`에 §9.8 모양 밖의 열: label",
+            "키 DB에는 키 표(`wrapped_key bytea` 열)만 둠 — `notes`은 서비스 DB로",
+            "키 DB 표 `row_keys`의 열을 더하거나 이름을 바꾸지 않음(`note`, §9.8 모양 고정)",
+            # QA 9344ed3 보통: 키 DB에는 읽기·대사 계정이 없고, 앱에 UPDATE·TRUNCATE를 주지 않음
+            "`svc_keys_ro`에게 GRANT: 자기 서비스 계정(svc_keys_app, svc_keys_migrate, svc_keys_owner)만",
+            "`svc_keys_recon`에게 GRANT: 자기 서비스 계정(svc_keys_app, svc_keys_migrate, svc_keys_owner)만",
+            "키 DB 표에는 UPDATE·TRUNCATE·TRIGGER·REFERENCES 권한을 주지 않음(앱은 SELECT·INSERT·DELETE만, §9.8)",
+        ):
+            self.assertIn(needle, keys)
+        self.assertEqual(len(keys), 8, keys)
+
+    def test_bytea_key_columns_must_be_hashes_in_the_design_doc(self) -> None:
+        """서비스 DB의 bytea + key 낱말 열은 설계서 보호 `해시`이거나 `이름 예외`여야 한다(감싼 키를 다른 이름으로 두는 것)."""
+        found = [p.message for p in data_classes.migration_coverage(FIXTURES / "repo-keys-bad") if p.rule == "S-SEC-10" and "digests" in p.message]
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("`digests.blob_key`", found[0])
+        self.assertEqual([p for p in data_classes.migration_coverage(FIXTURES / "repo-good") if p.rule == "S-SEC-10"], [])
 
 
 class PendingList(unittest.TestCase):
@@ -576,15 +593,23 @@ class ApplySamples(unittest.TestCase):
             "S-MIG-3 `loose_rows`에 기본 키가 없음",
             "S-BND-2 앱 계정이 스키마에 CREATE",
             "S-SEC-3 `members.email_bidx` 형식 `text`",
-            "S-SEC-3 `members.email_bidx`에 `CHECK (octet_length(email_bidx) = 32)`가 없음",
+            "S-SEC-3 `members.email_bidx`에 `CHECK (octet_length(email_bidx) = 32)`(이 글 그대로 따로 된 CHECK)가 없음",
             "S-SEC-3 `members.email_bidx`으로 시작하는 색인",
             "S-SEC-3 `members.email_bidx` 옆에 키 ID 열 `email_bidx_kid text`가 없음",
             "S-SEC-3 `members.phone_bidx`와 `phone_bidx_kid`의 NOT NULL이 다름",
             "S-SEC-3 `members.alias_bidx`와 `alias_bidx_kid`가 NULL을 받는데",
             "S-SEC-3 `members.alias_bidx_kid`에 `CHECK (alias_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$')`가 없음",
+            # QA 9344ed3 낮음: CHECK는 정의 전체를 맞춤(`= 320`·`OR true`는 잡음)
+            "S-SEC-3 `contacts.wide_bidx`에 `CHECK (octet_length(wide_bidx) = 32)`",
+            "S-SEC-3 `contacts.wide_bidx_kid`에 `CHECK (wide_bidx_kid ~ '^[A-Za-z0-9_-]{1,32}$')`가 없음",
+            # 키 DB(§9.8)
+            "S-SEC-10 키 표 `row_keys`의 기본 키가 `(subject_id, purpose)`가 아님(지금 `subject_id`)",
+            "S-SEC-10 키 DB에 표가 아닌 `row_key_counts`(v)",
+            "S-SEC-10 키 DB에 표가 아닌 `noop`(function)",
+            "S-SEC-10 키 DB에 `svcbad_keys_ro`이 스키마 USAGE를 가짐",
         ):
             self.assertIn(needle, out)
-        for needle in ("`members.phone_bidx_kid`에 `CHECK", "`members.email_bidx_kid`에 `CHECK"):
+        for needle in ("`members.phone_bidx_kid`에 `CHECK", "`members.email_bidx_kid`에 `CHECK", "`contacts.note_bidx", "키 DB 앱 계정이"):
             self.assertNotIn(needle, out)
 
 

@@ -5,6 +5,7 @@ CREATE TABLE __SCHEMA__.row_keys (
     subject_id uuid NOT NULL,
     purpose text NOT NULL,
     wrapped_key text NOT NULL,
+    label text,
     CONSTRAINT row_keys_pkey PRIMARY KEY (subject_id, purpose)
 );
 
