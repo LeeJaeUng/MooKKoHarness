@@ -4,5 +4,7 @@
   "jobs": 4,
   "pollSeconds": 15,
   "maxWaitMinutes": 90,
-  "dir": "~/.local/state/mookko/build-slots"
+  "dir": "~/.local/state/mookko/build-slots",
+  "targetRoot": "~/target",
+  "targetNote": "빌드 캐시는 자리마다 하나(<targetRoot>/slot-<n>), worktree끼리 나눠 씀. check-all이 CARGO_TARGET_DIR를 이 값으로 바꾸고 CARGO_INCREMENTAL=0(2026-11-02 세션별 캐시 8개·약 100GB로 C 드라이브 바닥)."
 }
