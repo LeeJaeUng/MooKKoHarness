@@ -1,0 +1,45 @@
+{
+  "note": "보안 관문 도구(H-5) 고정 판. 각 프로젝트 공식 GitHub 릴리스에서 받아, 릴리스가 함께 낸 SHA256과 맞을 때만 설치함(2026-11-02 PM 사용자 대행 결정, 사용자 \"PM말만 들어 나한테 묻지말고\"). 설치 위치는 WSL ~/.local/share/mookko/tools/<이름>-<판>/, 실행 파일 링크는 ~/.local/bin. 판을 바꿀 때는 이 파일의 판·주소·해시를 함께 바꾸고 커밋 본문에 확인 결과를 남김. Trivy 릴리스는 sigstore 서명도 내지만 cosign이 없어 아직 서명은 확인하지 않음(SHA256만).",
+  "tools": [
+    {
+      "name": "gitleaks",
+      "version": "8.30.1",
+      "released": "2026-03-21",
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+      "checksums": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binary": "gitleaks",
+      "binarySha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509"
+    },
+    {
+      "name": "trivy",
+      "version": "0.76.0",
+      "released": "2026-10-14",
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.0/trivy_0.76.0_Linux-64bit.tar.gz",
+      "checksums": "https://github.com/aquasecurity/trivy/releases/download/v0.76.0/trivy_0.76.0_checksums.txt",
+      "archiveSha256": "e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7",
+      "binary": "trivy",
+      "binarySha256": "1f889576636db0623539cb339df7d06c40ebf39e7919489eafa1160e29808f19"
+    },
+    {
+      "name": "osv-scanner",
+      "version": "2.7.0",
+      "released": "2026-10-12",
+      "url": "https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64",
+      "checksums": "https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_SHA256SUMS",
+      "archiveSha256": "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b",
+      "binary": "osv-scanner",
+      "binarySha256": "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+    },
+    {
+      "name": "cargo-cyclonedx",
+      "version": "0.5.9",
+      "released": "2026-03-19",
+      "url": "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz",
+      "checksums": "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz.sha256",
+      "archiveSha256": "fb8dbee9f182173e062a64a387b21a0badc6fab8b2abf9294973f012972bf6d8",
+      "binary": "cargo-cyclonedx",
+      "binarySha256": "32fe44609a71e051f88dd08ff7e1e3039dd70afa3ddf09de004feec6e2273bdc"
+    }
+  ]
+}
