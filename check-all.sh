@@ -48,6 +48,20 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     export CARGO_TARGET_DIR="$(slot_setting targetRoot)/slot-$MOOKKO_BUILD_SLOT"
     export CARGO_INCREMENTAL=0
     echo "== 빌드 자리 $MOOKKO_BUILD_SLOT/$SLOT_COUNT, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS, CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+    # 같은 자리 캐시를 바로 전에 다른 worktree가 썼으면 workspace crate 결과만 지우고 다시 빌드합니다(registry 의존 결과는 둠).
+    # cargo는 path crate 결과를 workspace 기준 상대 경로로 이름 짓고 파일 수정 시각으로 새것인지 보므로, 이 worktree 파일이
+    # 더 오래됐으면 다른 worktree에서 만든 결과를 그대로 다시 씁니다(2026-11-02 운영툴 통합에서 옛 crate로 컴파일이 깨짐).
+    mkdir -p "$CARGO_TARGET_DIR"
+    slot_owner="$CARGO_TARGET_DIR/.mookko-worktree"
+    if [ "$(cat "$slot_owner" 2>/dev/null || true)" != "$PWD" ]; then
+        echo "== 빌드 자리 캐시를 다른 worktree가 썼음: workspace crate 결과를 지웁니다"
+        mapfile -t members < <(cargo metadata --no-deps --format-version 1 --locked \
+            | python3 -I -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))')
+        clean_args=()
+        for name in "${members[@]}"; do clean_args+=(-p "$name"); done
+        cargo clean --locked "${clean_args[@]}"
+        printf '%s\n' "$PWD" > "$slot_owner"
+    fi
 fi
 
 # 자기 캐시가 폴더 한도를 넘으면 자기 것만 지우고 새로 빌드하고, 여유가 모자라면 24시간 넘은 남의 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
