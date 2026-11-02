@@ -42,7 +42,12 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
             sleep "$SLOT_POLL"
         fi
     done
-    echo "== 빌드 자리 $MOOKKO_BUILD_SLOT/$SLOT_COUNT, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
+    # 빌드 캐시는 자리마다 하나(targetRoot/slot-<n>)를 worktree끼리 나눠 씁니다. 같은 자리는 위 잠금으로 한 번에 하나만 씁니다.
+    # 세션마다 캐시를 따로 두니 8개·약 100GB까지 자라 C 드라이브가 바닥났습니다(2026-11-02). incremental은 캐시의 절반이고
+    # check-all은 매번 전체를 보므로 끕니다.
+    export CARGO_TARGET_DIR="$(slot_setting targetRoot)/slot-$MOOKKO_BUILD_SLOT"
+    export CARGO_INCREMENTAL=0
+    echo "== 빌드 자리 $MOOKKO_BUILD_SLOT/$SLOT_COUNT, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS, CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
 fi
 
 # 자기 캐시가 폴더 한도를 넘으면 자기 것만 지우고 새로 빌드하고, 여유가 모자라면 24시간 넘은 남의 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
