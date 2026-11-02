@@ -56,7 +56,12 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     if [ "$(cat "$slot_owner" 2>/dev/null || true)" != "$PWD" ]; then
         echo "== 빌드 자리 캐시를 다른 worktree가 썼음: workspace crate 결과를 지웁니다"
         mapfile -t members < <(cargo metadata --no-deps --format-version 1 --locked \
-            | python3 -I -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))')
+            | python3 -I -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin)["packages"]]')
+        # 목록이 비면 `cargo clean`이 자리 캐시 전체를 지우므로 멈춥니다(QA 2026-11-02 b1fb070 낮음).
+        if [ "${#members[@]}" -eq 0 ]; then
+            echo "workspace 패키지 목록이 비었습니다(cargo metadata). 자리 캐시를 지우지 않고 멈춥니다." >&2
+            exit 1
+        fi
         clean_args=()
         for name in "${members[@]}"; do clean_args+=(-p "$name"); done
         cargo clean --locked "${clean_args[@]}"
