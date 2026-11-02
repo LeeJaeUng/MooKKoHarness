@@ -384,9 +384,16 @@ def migration_coverage(root: Path) -> list[Problem]:
             text = path.read_text(encoding="utf-8")
             if not key_db:
                 for table, column, ctype in migration_lint.column_types(text, "postgres", schema):
-                    if (ctype or "").lower() != "bytea" or not migration_lint.KEY_TOKEN.search(column) or migration_lint.KEY_ID_SUFFIX.search(column):
+                    if (ctype or "").lower() != "bytea":
                         continue
                     prot = protection.get(table, {}).get(column)
+                    # 이름에 key가 없어도(QA 낮음 11-02): 엔진 암호문(`FieldCipher`·`RowKeys`)은 text라, 서비스 DB의 bytea가 `암호`·`참조`면
+                    # 엔진 밖의 암호화나 감싼 키(`WrappedKey::to_bytes`)다. bytea는 `해시`(어느 등급이든)나 `평문`(공개·내부, S-SEC-2)만.
+                    if prot is not None and prot not in ("해시", "평문"):
+                        problems.append(Problem(rel, 1, "S-SEC-10", f"`{table}.{column}`(bytea)의 설계서 보호가 `{prot}` — 서비스 DB의 bytea는 `해시`·`평문`만(엔진 암호문은 text, 감싼 키는 키 DB)"))
+                        continue
+                    if not migration_lint.KEY_TOKEN.search(column) or migration_lint.KEY_ID_SUFFIX.search(column):
+                        continue
                     if prot != "해시" and (table, column) not in exceptions:
                         problems.append(Problem(rel, 1, "S-SEC-10", f"`{table}.{column}`(bytea, 이름에 key)이 설계서에서 보호 `해시`가 아님(지금 `{prot or '없음'}`) — 키 재료면 키 DB로, 아니면 `해시`나 `이름 예외: 이유`"))
             for table, columns in migration_lint.created_tables(text, "postgres", schema).items():

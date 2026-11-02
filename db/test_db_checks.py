@@ -516,6 +516,10 @@ class KeyTables(unittest.TestCase):
         found = [p.message for p in data_classes.migration_coverage(FIXTURES / "repo-keys-bad") if p.rule == "S-SEC-10" and "digests" in p.message]
         self.assertEqual(len(found), 1, found)
         self.assertIn("`digests.blob_key`", found[0])
+        # 이름에 key가 없는 bytea도 설계서 보호가 `암호`·`참조`면 잡음(QA 낮음 11-02), 해시 사슬 같은 `평문`은 통과
+        payloads = [p.message for p in data_classes.migration_coverage(FIXTURES / "repo-keys-bad") if p.rule == "S-SEC-10" and "payloads" in p.message]
+        self.assertEqual(len(payloads), 1, payloads)
+        self.assertIn("`payloads.payload`(bytea)의 설계서 보호가 `암호`", payloads[0])
         self.assertEqual([p for p in data_classes.migration_coverage(FIXTURES / "repo-good") if p.rule == "S-SEC-10"], [])
 
 
