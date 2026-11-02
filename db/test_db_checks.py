@@ -523,6 +523,43 @@ class KeyTables(unittest.TestCase):
         self.assertEqual([p for p in data_classes.migration_coverage(FIXTURES / "repo-good") if p.rule == "S-SEC-10"], [])
 
 
+class EngineKeyDatabases(unittest.TestCase):
+    """E-DB-17: 실행 파일이 있는 서비스의 키 DB 이관은 서비스 DB와 같은 `migrate` 실행에서 엔진이 돌린다(적용 시험의 설정 만들기)."""
+
+    EXAMPLE = {
+        "migrate": {
+            "databases": {"svc": {"connection": {"kind": "postgres", "host": "h", "port": 1, "database": "svc", "user": "svc_migrate"}}},
+            "keyDatabases": {"svc": {"connection": {"kind": "postgres", "host": "h", "port": 1, "database": "svc_keys", "user": "svc_keys_migrate"}, "ownerRole": "svc_keys_owner", "appRole": "svc_keys_app"}},
+        }
+    }
+
+    def test_key_database_connection_goes_to_its_own_test_database(self) -> None:
+        config = {"host": "127.0.0.1", "port": "5555"}
+        settings = migration_apply.engine_settings(self.EXAMPLE, config, "db_main", "db_keys", Path("/run/secret"), data_classes.ReaderAccess())
+        main = settings["migrate"]["databases"]["svc"]["connection"]
+        keys = settings["migrate"]["keyDatabases"]["svc"]["connection"]
+        self.assertEqual((main["database"], main["user"]), ("db_main", "svc_migrate"))
+        self.assertEqual((keys["database"], keys["user"], keys["port"]), ("db_keys", "svc_keys_migrate", 5555))
+        self.assertEqual(settings["migrate"]["keyDatabases"]["svc"]["appRole"], "svc_keys_app")
+        self.assertEqual(self.EXAMPLE["migrate"]["keyDatabases"]["svc"]["connection"]["database"], "svc_keys", "예시는 그대로")
+        with self.assertRaises(ValueError):
+            migration_apply.engine_settings(self.EXAMPLE, config, "db_main", None, Path("/run/secret"), data_classes.ReaderAccess())
+
+    def test_key_dir_without_key_databases_in_the_example_is_caught(self) -> None:
+        root = FIXTURES / "repo-good"
+        directory = root / "crates" / "services" / "svc" / "migrations"
+        target = migration_apply.Target(directory, "crates/services/svc/migrations", "svc", "svc")
+        problems: list[str] = []
+        app = migration_apply.EngineApp(Path("mookko-svc"), {"migrate": {"databases": {}}})
+        self.assertIsNone(migration_apply.engine_key_target(root, target, app, problems))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("`keyDatabases.svc`가 없음", problems[0])
+        problems.clear()
+        key = migration_apply.engine_key_target(root, target, migration_apply.EngineApp(Path("mookko-svc"), self.EXAMPLE), problems)
+        self.assertEqual(problems, [])
+        self.assertEqual((key.schema, key.rel), ("svc_keys", "crates/services/svc/keys/migrations"))
+
+
 class PendingList(unittest.TestCase):
     def test_expiry(self) -> None:
         import datetime

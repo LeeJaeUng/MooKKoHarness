@@ -472,14 +472,20 @@ class EngineApp:
     example: dict
 
 
+def migrate_example(root: Path, service: str) -> Path:
+    name = f"mookko-{service}"
+    return root / "crates" / "apps" / name / "config" / f"{name}.migrate.example.json"
+
+
 def engine_app(root: Path, target: Target) -> EngineApp | None:
     """`crates/apps/mookko-<서비스>`에 이관 설정 예시가 있으면 그 실행 파일로 엔진 이관 단계(`migrate`)를 돌린다(QA cd3ba1c 낮음:
     파이썬 grant 흉내는 엔진 grant와 다른 점을 못 잡음). 실행 파일은 `cargo test`가 이미 만든 것을 쓰고, 없으면 그것만 만든다.
-    표본 저장소(실행 파일 없음)는 None — 엔진을 흉내 내는 길로 본다. 키 DB 폴더도 아직 None(엔진 migrate가 키 DB를 돌리는 것은 E-DB-17)."""
+    표본 저장소(실행 파일 없음)는 None — 엔진을 흉내 내는 길로 본다. 키 DB 폴더는 None: 실행 파일이 있으면 서비스 DB와 같은
+    `migrate` 실행에서 키 DB(`keyDatabases`, E-DB-17)도 돌리므로 따로 돌리지 않는다(`main`이 건너뜀)."""
     if is_key_dir(Path(target.rel)):
         return None
     name = f"mookko-{target.service}"
-    example = root / "crates" / "apps" / name / "config" / f"{name}.migrate.example.json"
+    example = migrate_example(root, target.service)
     if not example.is_file():
         return None
     target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or root / "target")
@@ -489,8 +495,28 @@ def engine_app(root: Path, target: Target) -> EngineApp | None:
     return EngineApp(exe, json.loads(example.read_text(encoding="utf-8")))
 
 
+def engine_settings(
+    example: dict, config: dict, database: str, key_database: str | None, secret: Path, access: data_classes.ReaderAccess
+) -> dict:
+    """이관 설정 예시에서 접속만 시험 DB로 바꾼 설정. 키 DB(`keyDatabases.<서비스>`, E-DB-17)는 따로 된 시험 DB(`key_database`)와
+    이관 계정 `<서비스>_keys_migrate`로 바꾼다(키 클러스터는 서비스 DB와 다른 클러스터라 같은 DB에 두지 않음)."""
+    settings = json.loads(json.dumps(example))
+    settings["migrate"]["telemetry"] = {"filter": "warn", "format": "json"}
+    test_connection = {"host": config["host"], "port": int(config["port"]), "passwordFile": str(secret), "tls": {"mode": "disable"}}
+    for name, db in settings["migrate"]["databases"].items():
+        db["connection"].update({**test_connection, "database": database, "user": f"{name}_migrate"})
+        if access.recon_views:
+            db["reconRole"] = f"{name}_recon"
+    for name, db in (settings["migrate"].get("keyDatabases") or {}).items():
+        if key_database is None:
+            raise ValueError(f"keyDatabases.{name}가 있는데 키 시험 DB가 없음")
+        db["connection"].update({**test_connection, "database": key_database, "user": f"{name}_keys_migrate"})
+    return settings
+
+
 def engine_migrate(
-    config: dict, target: Target, app: EngineApp, database: str, password: str, access: data_classes.ReaderAccess, problems: list[str]
+    config: dict, target: Target, app: EngineApp, database: str, key_database: str | None, password: str,
+    access: data_classes.ReaderAccess, problems: list[str],
 ) -> bool:
     """이관 설정 예시의 접속만 시험 DB로 바꿔 `<실행 파일> migrate --config`를 돌린다. 임시 설정·암호 파일은 시험 DB 감싸기
     (`scripts/dev/with-test-postgres.sh`)의 실행 폴더 안에 두어, 감싸기가 끝날 때 함께 치운다."""
@@ -499,15 +525,7 @@ def engine_migrate(
     secret = work / "migrate-password.txt"
     secret.write_text(password, encoding="utf-8")
     secret.chmod(0o600)
-    settings = json.loads(json.dumps(app.example))
-    settings["migrate"]["telemetry"] = {"filter": "warn", "format": "json"}
-    for name, db in settings["migrate"]["databases"].items():
-        db["connection"].update({
-            "host": config["host"], "port": int(config["port"]), "database": database,
-            "user": f"{name}_migrate", "passwordFile": str(secret), "tls": {"mode": "disable"},
-        })
-        if access.recon_views:
-            db["reconRole"] = f"{name}_recon"
+    settings = engine_settings(app.example, config, database, key_database, secret, access)
     path = work / "migrate.json"
     path.write_text(json.dumps(settings, ensure_ascii=False), encoding="utf-8")
     done = subprocess.run([str(app.exe), "migrate", "--config", str(path)], capture_output=True, text=True, timeout=ENGINE_TIMEOUT_SECONDS)
@@ -552,6 +570,9 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
     problems: list[str] = []
     run = f"{os.getpid()}_{secrets.token_hex(3)}"
     database = f"mookko_dbcheck_{target.schema}_{run}"[:63]
+    key_database: str | None = None
+    key_target: Target | None = None
+    ok = False
     password = secrets.token_hex(16)
     with connect(config, config["user"], config["password"], config["database"]) as admin:
         try:
@@ -563,9 +584,15 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
             bootstrap(admin, database, target.schema, password)
             with connect(config, config["user"], config["password"], database) as db_admin:
                 bootstrap_schema(db_admin, target.schema, (shared,) if shared else ())
+            key_target = engine_key_target(root, target, app, problems) if app is not None else None
+            if key_target is not None:
+                key_database = f"mookko_dbcheck_{key_target.schema}_{run}"[:63]
+                bootstrap(admin, key_database, key_target.schema, password)
+                with connect(config, config["user"], config["password"], key_database) as db_admin:
+                    bootstrap_schema(db_admin, key_target.schema)
             if app is not None:
-                # 실제 엔진 이관 단계: 이관 적용·grant·grant_recon·파티션 만들기를 엔진이 한 뒤 목록으로 본다.
-                ok = engine_migrate(config, target, app, database, password, access, problems)
+                # 실제 엔진 이관 단계: 이관 적용·grant·grant_recon·파티션 만들기(와 키 DB 이관·grant_key_store)를 엔진이 한 뒤 목록으로 본다.
+                ok = engine_migrate(config, target, app, database, key_database, password, access, problems)
                 with connect(config, config["user"], config["password"], database) as db_admin:
                     applied = int(db_admin.query(f"SELECT count(*) FROM {quote_ident(target.schema)}.schema_migrations").rows[0][0] or 0) if ok else 0
             else:
@@ -587,11 +614,48 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
                         shared_reader_checks(db_admin, target, shared, root, problems)
             how = "엔진 이관 단계" if app is not None else "엔진 흉내(표본)"
             print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용({how})")
+            if key_target is not None and key_database is not None and ok:
+                key_checks_after_engine(config, key_target, key_database, problems)
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
-            for suffix in ROLE_SUFFIXES:
-                admin.query(f"DROP ROLE IF EXISTS {quote_ident(f'{target.schema}_{suffix}')}")
+            if key_database is not None:
+                admin.query(f"DROP DATABASE IF EXISTS {quote_ident(key_database)} WITH (FORCE)")
+            for schema in [target.schema] + ([key_target.schema] if key_target is not None else []):
+                for suffix in ROLE_SUFFIXES:
+                    admin.query(f"DROP ROLE IF EXISTS {quote_ident(f'{schema}_{suffix}')}")
     return problems
+
+
+def key_dir_of(target: Target) -> Path:
+    return target.directory.parent / "keys" / "migrations"
+
+
+def engine_key_target(root: Path, target: Target, app: EngineApp, problems: list[str]) -> Target | None:
+    """실행 파일이 있는 서비스의 키 DB 폴더(`keys/migrations`)를 엔진 이관 단계로 돌릴 대상. 폴더가 있는데 이관 설정 예시에
+    `keyDatabases.<서비스>`가 없으면 엔진이 키 DB 이관을 하지 않으므로(모듈이 `key_migrations`를 비워도 조용히 지나감) 실패로 적는다.
+    거꾸로 예시에만 있고 모듈에 키 이관이 없으면 엔진이 거부한다(S-MIG-8로 보임)."""
+    directory = key_dir_of(target)
+    entries = app.example["migrate"].get("keyDatabases") or {}
+    if not directory.is_dir():
+        return None
+    rel = directory.relative_to(root)
+    if target.service not in entries:
+        problems.append(f"{rel.as_posix()}: S-SEC-10 키 DB 이관이 있는데 이관 설정 예시에 `keyDatabases.{target.service}`가 없음 — 엔진 이관 단계가 키 DB를 돌리지 않음")
+        return None
+    return Target(directory, rel.as_posix(), default_schema(rel) or f"{target.service}_keys", target.service)
+
+
+def key_checks_after_engine(config: dict, key_target: Target, key_database: str, problems: list[str]) -> None:
+    """엔진이 키 DB 이관과 `grant_key_store`를 한 뒤: 적용 수가 폴더의 파일 수와 같은지(모듈이 폴더를 다 넣었는지), 그리고 흉내 길과
+    같은 목록 검사(catalog·key_db)."""
+    files = sorted(p for p in key_target.directory.glob("*.sql"))
+    with connect(config, config["user"], config["password"], key_database) as db_admin:
+        applied = int(db_admin.query(f"SELECT count(*) FROM {quote_ident(key_target.schema)}.schema_migrations").rows[0][0] or 0)
+        if applied != len(files):
+            problems.append(f"{key_target.rel}: S-SEC-10 엔진이 키 DB 이관을 {applied}개 적용했는데 폴더에는 {len(files)}개 — 서비스 모듈 `key_migrations`가 폴더를 다 넣지 않음")
+        catalog_checks(db_admin, key_target, problems)
+        key_db_checks(db_admin, key_target, problems)
+    print(f"  {key_target.rel}: 스키마 {key_target.schema}, 이관 {applied}개 적용(엔진 이관 단계)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -611,6 +675,8 @@ def main(argv: list[str] | None = None) -> int:
     problems: list[str] = []
     waivers = pending.load(problems, args.pending)
     for target in found:
+        if is_key_dir(Path(target.rel)) and migrate_example(root, target.service).is_file():
+            continue  # 서비스 DB와 같은 `migrate` 실행에서 엔진이 돌림(run_target → engine_key_target)
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", target.schema):
             problems.append(f"{target.rel}: S-TYPE-6 스키마 이름 `{target.schema}`")
             continue
