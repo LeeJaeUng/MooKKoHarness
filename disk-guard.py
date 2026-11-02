@@ -11,6 +11,9 @@ WSL이 입출력 오류로 멈춰 모든 세션의 빌드·검사가 막혔다. 
   (cargo가 debug/·.fingerprint를 고침) 수정 시각 중 가장 늦은 것. check-all 없이 cargo만 돌린 빌드도 잡힌다.
 - 가상 디스크는 안에서 지워도 줄지 않으므로, 여유 = C 드라이브 남은 공간 + (vhdx 크기 - Linux 사용량)으로 본다.
   안쪽 빈 곳이 compactSlackGiB를 넘으면 압축(diskpart compact, 관리자)을 권한다.
+- 그와 따로 C 드라이브 실제 남은 공간이 minFreeGiB보다 적으면 막는다. 안쪽 빈 곳은 가상 디스크만 다시 쓸 수 있어서,
+  Windows 쪽 다른 쓰기나 가상 디스크 메타데이터가 C 드라이브를 0으로 만드는 것은 막지 못한다(2026-11-02 여유 49.2GiB로
+  셌는데 실제 C 드라이브는 0.2GB였음).
 기준은 scripts/dev/disk-guard.json에서만 읽는다. `--dry-run`이면 지우지 않고 무엇을 지울지만 보인다.
 """
 
@@ -189,6 +192,13 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
     room = headroom(host)
     if room is not None:
         free, slack = room
+        host_free = shutil.disk_usage(host["path"]).free
+        if host_free < host["minFreeGiB"] * GIB:
+            problems.append(
+                f"{host['path']}: Windows C 드라이브 실제 남은 공간 {host_free / GIB:.1f}GiB < 기준 {host['minFreeGiB']}GiB "
+                f"(가상 디스크 안 빈 곳 {slack / GIB:.1f}GiB는 C 드라이브를 지켜 주지 않음; "
+                f"가상 디스크 압축(WSL 끄고 diskpart compact, 관리자)이나 C 드라이브 비우기 필요, 사용자 결정 필요)"
+            )
         if free < host["minHeadroomGiB"] * GIB:
             problems.append(
                 f"{host['path']}: 여유 {free / GIB:.1f}GiB < 기준 {host['minHeadroomGiB']}GiB "
