@@ -10,6 +10,7 @@ scripts/ci/fixtures/<검사>/{good,bad}/ 아래 표본을 임시 저장소로 �
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,10 +21,14 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "scripts" / "ci" / "fixtures"
 CHECKS = {
     "dev-exposure": ROOT / "scripts" / "ci" / "check-dev-exposure.py",
+    "acceptance": ROOT / "scripts" / "ci" / "check-acceptance.py",
 }
+# acceptance bad: enforce 서비스에 기록 없음 1, 깨진 JSON 1, 다른 service 1, 짧은 commit 1, passed 형 틀림 1.
 EXPECTED_BAD = {
     "dev-exposure": 15,
+    "acceptance": 5,
 }
+PROBLEM_LINE = re.compile(r"^\S+:\d+: ")
 
 
 def materialize(src: Path, dest: Path) -> None:
@@ -44,7 +49,7 @@ def run(check: Path, repo: Path) -> tuple[int, list[str]]:
         text=True,
         encoding="utf-8",
     )
-    lines = [line for line in result.stdout.splitlines() if ":" in line and not line.startswith("dev exposure check")]
+    lines = [line for line in result.stdout.splitlines() if PROBLEM_LINE.match(line)]
     return result.returncode, lines
 
 
