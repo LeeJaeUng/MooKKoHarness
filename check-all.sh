@@ -139,8 +139,10 @@ PY
         cargo clean --locked "${clean_args[@]}"
         # 공개 API 검사(nightly rustdoc)의 산출물도 버립니다. 남기면 다른 worktree의 옛 판 rmeta로 문서를 만들다
         # 실패하거나 거짓 통과합니다(2026-11-03 TOO_MANY_EVENTS unresolved import, 같은 판이 통과·실패를 오감).
-        cargo clean --target-dir "$CARGO_TARGET_DIR/public-api"
-        cargo clean --doc --target-dir "$CARGO_TARGET_DIR"
+        if [ -d "$CARGO_TARGET_DIR/public-api" ]; then
+            cargo clean --target-dir "$CARGO_TARGET_DIR/public-api"
+        fi
+        cargo clean --doc
         printf '%s\n' "$PWD" > "$slot_owner"
     fi
 fi
