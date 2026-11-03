@@ -559,6 +559,22 @@ class DroppedTables(unittest.TestCase):
         self.assertEqual(migration_lint.dropped_tables(root / "crates" / "services" / "svc" / "migrations"), set())
 
 
+class DroppedStillRead(unittest.TestCase):
+    """S-MIG-13(database.md §7.1.1 P0-5): contract가 지우는 표·열을 같은 서비스 src/ 문자열이 아직 부르면 실패."""
+
+    def test_dropped_column_and_table_in_code_are_caught(self) -> None:
+        root = FIXTURES / "repo-drop-read"
+        found = [f for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations") if f.rule == "S-MIG-13"]
+        got = sorted(f.message.split("`")[1] for f in found)
+        # 표 이름 없이 열 이름만 나오는 문자열, 표만 나오는 문자열, 주석은 잡지 않음
+        self.assertEqual(got, ["items.old_note", "olds"], [str(f) for f in found])
+
+    def test_dropped_table_unused_in_code_passes(self) -> None:
+        root = FIXTURES / "repo-drop"
+        found = [f for f in migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations") if f.rule == "S-MIG-13"]
+        self.assertEqual(found, [], [str(f) for f in found])
+
+
 class NameChecks(unittest.TestCase):
     """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
 

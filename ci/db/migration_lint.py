@@ -33,7 +33,11 @@ ROOT = paths.product_root()
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 FILE_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 PHASES = {"expand", "migrate", "contract"}
-KNOWN_DIRECTIVES = {"phase", "transaction", "schema", "validate-deploy"}
+KNOWN_DIRECTIVES = {"phase", "transaction", "schema", "validate-deploy", "expected"}
+# 이관 Job 기한(Argo CD PreSync Job activeDeadlineSeconds 처음 값, database.md §7.1.1). 기존 표를 훑는 파일의
+# `-- mookko:expected <초>`는 그 절반까지(S-MIG-12).
+PRESYNC_DEADLINE_S = 600
+MAX_EXPECTED_S = PRESYNC_DEADLINE_S // 2
 # 덧붙이기만 하는 표(이름에 ledger·journal·audit). 사슬·구간 머리(`…_head`, `…_heads`)는 지금 상태를 고쳐 쓰는 표라 뺀다.
 APPEND_ONLY = re.compile(r"^(?!.*_heads?$).*(ledger|journal|audit)")
 AMOUNT_NAME = re.compile(r"(^|_)(amount|balance|price|fee)s?($|_)|_minor$")
@@ -149,6 +153,9 @@ class FileLint:
         self.key_db = False  # 키 DB 이관(`keys/migrations`, §9.8): lint_dir이 정함
         self.validated = False
         self.lock_timeout_set = False
+        self.scans: list[int] = []  # 기존 표를 훑는 문장 줄(VALIDATE CONSTRAINT·CREATE INDEX CONCURRENTLY·ATTACH PARTITION) — S-MIG-12
+        self.dropped_columns: list[tuple[str, str, int]] = []  # contract의 (표, 열, 줄) — S-MIG-13
+        self.dropped_tables: list[tuple[str, int]] = []  # contract의 (표, 줄) — S-MIG-13
         phase = script.directives.get("phase")
         self.phase = phase[0] if phase else None
         tx = script.directives.get("transaction")
@@ -162,7 +169,7 @@ class FileLint:
         d = self.script.directives
         for name, (_, line) in d.items():
             if name not in KNOWN_DIRECTIVES:
-                self.add(line, "S-MIG-4", f"모르는 머리 지시 `mookko:{name}`(phase·transaction·schema·validate-deploy만)")
+                self.add(line, "S-MIG-4", f"모르는 머리 지시 `mookko:{name}`(phase·transaction·schema·validate-deploy·expected만)")
         for name, line in self.script.duplicate_directives:
             self.add(line, "S-MIG-4", f"머리 지시 `mookko:{name}`가 두 번")
         for line in self.script.late_directives:
@@ -351,6 +358,8 @@ class FileLint:
             return False
         if m.group("iname"):
             self.check_name(st.line, m.group("iname"), "색인")
+        if self.existing(m.group("table")) and m.group("conc"):
+            self.scans.append(st.line)
         if self.existing(m.group("table")) and not m.group("conc") and not m.group("only"):
             self.add(st.line, "S-MIG-2a", f"기존 테이블 `{parse_qname(m.group('table'))[1]}`의 색인은 CONCURRENTLY로(별도 파일, transaction off)")
             self.touch_existing(st)
@@ -435,10 +444,16 @@ class FileLint:
             return
         if re.match(r"^VALIDATE\s+CONSTRAINT\b", a, re.I):
             self.validated = True
+            self.scans.append(line)
             return
+        if re.match(r"^ATTACH\s+PARTITION\b", a, re.I):
+            self.scans.append(line)
         drop = re.match(rf"^DROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?(?!(?:CONSTRAINT|DEFAULT|NOT|IDENTITY|EXPRESSION)\b)({IDENT})", a, re.I)
         if drop and self.phase != "contract":
             self.add(line, "S-MIG-4", f"`{table}` 열 지우기는 contract 파일에서만(옛 판이 모두 내려간 뒤)")
+            return
+        if drop:
+            self.dropped_columns.append((table, parse_qname(drop.group(1))[1], line))
             return
         if re.match(r"^(SET\s+(TABLESPACE|LOGGED|UNLOGGED)|CLUSTER\s+ON)\b", a, re.I):
             self.add(line, "S-MIG-2h", f"`{table}`: 테이블을 다시 쓰거나 오래 잠그는 변경 금지")
@@ -456,6 +471,8 @@ class FileLint:
         drop = re.match(rf"^DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW|SCHEMA|SEQUENCE|TYPE)\s+(?:IF\s+EXISTS\s+)?({QNAME})", t, re.I)
         if drop and self.phase != "contract":
             self.add(line, "S-MIG-4", f"DROP {drop.group(1).upper()}는 contract 파일에서만")
+        elif drop and drop.group(1).upper() == "TABLE":
+            self.dropped_tables.append((parse_qname(drop.group(2))[1], line))
         trig = re.match(rf"^DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?{IDENT}\s+ON\s+({QNAME})", t, re.I)
         if trig and APPEND_ONLY.search(parse_qname(trig.group(1))[1]):
             self.add(line, "S-MONEY-2", "덧붙이기만 하는 테이블의 막기 트리거를 지울 수 없음")
@@ -541,6 +558,21 @@ class FileLint:
             self.check_other_ddl(st)
         self.check_tx_off()
         self.check_append_only()
+        self.check_expected()
+
+    def check_expected(self) -> None:
+        """S-MIG-12: 기존 표를 훑는 파일은 머리에 `-- mookko:expected <초>`, 값은 이관 Job 기한의 절반까지(§7.1.1)."""
+        d = self.script.directives.get("expected")
+        if d and not d[0].isdigit():
+            self.add(d[1], "S-MIG-12", f"`mookko:expected {d[0]}`: 초(정수)로")
+            return
+        if not self.scans:
+            return
+        if not d:
+            self.add(self.scans[0], "S-MIG-12", "기존 표를 훑는 문장(VALIDATE·CONCURRENTLY 색인·ATTACH)이 있으면 머리에 "
+                     "`-- mookko:expected <초>`(설계서 §7.1 잠금 시간과 데이터 양에서 셈)")
+        elif int(d[0]) > MAX_EXPECTED_S:
+            self.add(d[1], "S-MIG-12", f"예상 {d[0]}초가 이관 Job 기한({PRESYNC_DEADLINE_S}초)의 절반을 넘음 — 배경 이관 작업이나 파티션마다 나눠서")
 
     # ---- ClickHouse ----
     def run_clickhouse(self) -> None:
@@ -1107,6 +1139,8 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
         lint = FileLint(rel, sqltext.split(text), dialect, schema, outside_transaction(text), fixed)
         lint.key_db = is_key_dir(rel_dir)
         findings += lint.run()
+        if dialect == "postgres" and lint.phase == "contract":
+            findings += dropped_still_read(root, directory, rel, lint)
         if dialect == "postgres":
             findings += key_table_findings(rel, rel_dir, lint)
     if dialect == "postgres":
@@ -1117,6 +1151,30 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
             findings.append(Finding(rel_dir.as_posix(), 1, "S-MIG-1", f"번호가 0001부터 빠짐없이 이어지지 않음(기대 {expected:04d}, 실제 {actual:04d})"))
             break
     return findings
+
+
+def dropped_still_read(root: Path, directory: Path, rel: str, lint: "FileLint") -> list[Finding]:
+    """S-MIG-13: contract가 지우는 표·열을 같은 서비스 코드(src/의 Rust 문자열 — SQL·sqlx 쿼리)가 아직 부르면 실패(§7.1.1).
+
+    글로 보는 검사다: 지우는 표는 이름이 나오면, 지우는 열은 같은 문자열에 표 이름과 열 이름이 함께 나오면 잡는다.
+    별칭·동적 SQL은 QA가 본다."""
+    if not (lint.dropped_tables or lint.dropped_columns):
+        return []
+    service = directory.parent.parent if is_key_dir(directory.relative_to(root)) else directory.parent
+    found: list[Finding] = []
+    for path in walk(service / "src", lambda name: name.endswith(".rs")):
+        text = path.read_text(encoding="utf-8")
+        code_rel = path.relative_to(root).as_posix()
+        for start, body in rust_strings(text):
+            words = {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", body)}
+            code_line = text.count("\n", 0, start) + 1
+            for table, line in lint.dropped_tables:
+                if table.lower() in words:
+                    found.append(Finding(rel, line, "S-MIG-13", f"지우는 표 `{table}`를 코드가 아직 부름({code_rel}:{code_line})"))
+            for table, column, line in lint.dropped_columns:
+                if table.lower() in words and column.lower() in words:
+                    found.append(Finding(rel, line, "S-MIG-13", f"지우는 열 `{table}.{column}`을 코드가 아직 부름({code_rel}:{code_line})"))
+    return found
 
 
 CHAR_LITERAL = re.compile(r"'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|.)|[^'\\\n])'")
