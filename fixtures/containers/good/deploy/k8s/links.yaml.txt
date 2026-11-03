@@ -71,8 +71,23 @@ metadata:
   name: links
   namespace: mookko-links
 spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: links
   minReplicas: 3
   maxReplicas: 12
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: links-pdb
+  namespace: mookko-links
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: links
 ---
 apiVersion: v1
 kind: Service

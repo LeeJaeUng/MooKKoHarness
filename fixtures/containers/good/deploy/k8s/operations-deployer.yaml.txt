@@ -33,3 +33,23 @@ spec:
             httpGet: {path: /health/ready, port: 8080}
           livenessProbe:
             httpGet: {path: /health/live, port: 8080}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: operations-deployer}
+  minReplicas: 3
+  maxReplicas: 3
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: operations-deployer}

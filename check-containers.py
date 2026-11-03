@@ -23,6 +23,9 @@
   - 멀티 AZ(live-gap A5, deploy-containers §3): Deployment·StatefulSet은 topologySpreadConstraints에 topologyKey
     topology.kubernetes.io/zone·maxSkew 1, spec.replicas를 적었으면 MIN_REPLICAS 이상. HorizontalPodAutoscaler는
     minReplicas가 MIN_REPLICAS 이상(없으면 기본 1이라 실패). AZ 3개에 하나씩, AZ 하나를 잃어도 버티는 수
+  - 짝(HOST-01, mookko-rust-qa 2026-11-03): 오래 도는 워크로드(Deployment·StatefulSet)마다 같은 네임스페이스에
+    HorizontalPodAutoscaler(scaleTargetRef.name = 워크로드 이름)와 PodDisruptionBudget(이름이 같거나 selector
+    matchLabels 값에 워크로드 이름)이 있어야 함
   - Service: type NodePort·LoadBalancer 금지(바깥은 라우터·Gateway만)
   - Namespace: 라벨 pod-security.kubernetes.io/enforce: restricted, 같은 저장소에 그 네임스페이스의 기본 차단
     NetworkPolicy(podSelector: {}, policyTypes에 Ingress·Egress, 허용 규칙 없음)
@@ -333,7 +336,8 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
                     problems.append(f"{rel}:{cstart}: {clabel}: {probe}가 없습니다")
 
 
-def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[str, str], deny: set[str]) -> None:
+def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[str, str], deny: set[str],
+                     pairs: dict[str, dict]) -> None:
     for start, lines in documents(text):
         kind = top_value(lines, "kind")
         if not kind:
@@ -341,10 +345,20 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         doc = "\n".join(lines)
         where = f"{rel}:{start}"
         name = metadata_value(lines, "name") or "?"
+        ns = metadata_value(lines, "namespace") or "default"
         label = f"{kind} {name}"
         if kind in WORKLOADS:
             check_workload(rel, start, lines, kind, label, problems)
+            if kind in ZONE_SPREAD:
+                pairs["workloads"][(ns, name)] = (where, label)
+        elif kind == "PodDisruptionBudget":
+            pairs["pdb"].add((ns, name))
+            for value in re.findall(r"[\w./-]+:\s*\"?([\w.-]+)", section(doc, "matchLabels")):
+                pairs["pdb"].add((ns, value))
         elif kind == "HorizontalPodAutoscaler":
+            target = re.search(r"^\s*name:\s*\"?([\w.-]+)", section(doc, "scaleTargetRef"), re.MULTILINE)
+            if target:
+                pairs["hpa"].add((ns, target.group(1)))
             m = re.search(r"^\s+minReplicas:\s*(\d+)", doc, re.MULTILINE)
             if not m or int(m.group(1)) < MIN_REPLICAS:
                 found = m.group(1) if m else "없음(기본 1)"
@@ -377,15 +391,21 @@ def main() -> int:
     counts = {"dockerfile": 0, "compose": 0, "kubernetes": 0}
     namespaces: dict[str, str] = {}
     deny: set[str] = set()
+    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set()}
     for kind, path, rel in files(root):
         counts[kind] += 1
         text = path.read_text(encoding="utf-8")
         if kind == "kubernetes":
-            check_kubernetes(rel.as_posix(), text, problems, namespaces, deny)
+            check_kubernetes(rel.as_posix(), text, problems, namespaces, deny, pairs)
         elif kind == "dockerfile":
             check_dockerfile(rel.as_posix(), text, problems)
         else:
             check_compose(rel.as_posix(), text, problems)
+    for key, (where, label) in sorted(pairs["workloads"].items()):
+        if key not in pairs["hpa"]:
+            problems.append(f"{where}: {label}에 짝 HorizontalPodAutoscaler(scaleTargetRef.name: {key[1]})가 없습니다")
+        if key not in pairs["pdb"]:
+            problems.append(f"{where}: {label}에 짝 PodDisruptionBudget이 없습니다")
     for ns, where in sorted(namespaces.items()):
         if ns not in deny:
             problems.append(f"{where}: Namespace {ns}에 기본 차단 NetworkPolicy(podSelector: {{}}, Ingress·Egress, 허용 규칙 없음)가 없습니다")
