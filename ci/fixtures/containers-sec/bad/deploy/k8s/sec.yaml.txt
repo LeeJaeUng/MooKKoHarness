@@ -231,3 +231,44 @@ spec:
             limits:
               cpu: 500m
               memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flow-untrusted
+  namespace: mookko-sandbox
+spec:
+  template:
+    metadata:
+      labels: {app: flow, mookko.io/input: untrusted}
+    spec:
+      automountServiceAccountToken: false
+      tolerations: [{key: sandbox.gke.io/runtime, operator: Equal, value: gvisor}]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sandbox.gke.io/runtime
+                    operator: In
+                    values:
+                      - gvisor
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi

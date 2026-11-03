@@ -2,7 +2,10 @@
   "schema": 1,
   "entries": [
     {
-      "id": "CVE-2026-0010",
+      "id": "VR-010",
+      "cve": "CVE-2026-0001",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
@@ -13,13 +16,19 @@
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0001",
+      "id": "VR-001",
+      "cve": "CVE-2026-0001",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY+1@@",
@@ -27,13 +36,19 @@
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0001",
+      "id": "VR-001",
+      "cve": "CVE-2026-0001",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY+1@@",
@@ -41,41 +56,79 @@
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0011",
+      "id": "VR-011",
+      "cve": "CVE-2026-0011",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY+1@@",
-      "expires": "@@TODAY+40@@",
+      "expires": "@@TODAY+10@@",
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0012",
+      "id": "VR-012",
+      "cve": "CVE-2026-0011",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+29@@",
+      "owner": "보안"
+    },
+    {
+      "id": "VR-013",
+      "cve": "CVE-2026-0013",
+      "severity": "kev",
+      "published": "@@TODAY-32@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-31@@",
-      "reviewBy": "@@TODAY+1@@",
+      "reviewBy": "@@TODAY-2@@",
       "expires": "@@TODAY-1@@",
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0013",
+      "id": "VR-014",
+      "cve": "CVE-2026-0014",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "2026/11/01",
       "reviewBy": "@@TODAY+1@@",
@@ -83,28 +136,143 @@
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0014",
+      "id": "VR-015",
+      "cve": "CVE-2026-0015",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY+1@@",
       "expires": "@@TODAY+20@@",
       "owner": "보안",
-      "closed": "@@TODAY-10@@"
+      "closed": "@@TODAY-10@@",
+      "fixedIn": "판 1"
     },
     {
-      "id": "CVE-2026-0015",
+      "id": "VR-016",
+      "cve": "CVE-2026-0016",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "wait",
+          "what": "벤더 패치 기다림"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "VR-017",
+      "cve": "CVE-2026-0017",
+      "severity": "kev",
+      "published": "@@TODAY-6@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "VR-018",
+      "cve": "CVE-2026-0018",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+25@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "VR-019",
+      "cve": "CVE-2026-0019",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안",
+      "closed": "@@TODAY-1@@"
+    },
+    "VR-020",
+    {
+      "id": "VR-021",
+      "cve": "CVE-2026-0021",
+      "severity": "high",
+      "published": "@@TODAY-4@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "VR-022",
+      "cve": "CVE-2026-0022",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY-1@@",
