@@ -1,0 +1,10 @@
+use std::time::Duration;
+
+pub fn f(n: u64) -> Duration {
+    if n > 1000 {
+        g(4096);
+    }
+    Duration::from_secs(30)
+}
+
+fn g(_: u64) {}
