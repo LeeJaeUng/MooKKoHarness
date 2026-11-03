@@ -35,7 +35,7 @@
 
 - R-MOD-1 서비스 crate는 엔진 포트만 쓴다. HTTP·DB·gRPC·캐시 라이브러리 직접 의존 금지, 어댑터·실행 파일 의존 금지, 서비스끼리 의존 금지. **[검사]** `check-boundaries.py`, `check-stack.py`
 - R-MOD-2 바깥 시스템은 포트(trait) + 어댑터 crate + 적합성 시험(`mookko-ports-conformance`)으로만. 어댑터마다 적합성 시험 파일이 있어야 한다. **[검사]** `check-boundaries.py` **[QA]**
-- R-MOD-3 crate 하나에 한 가지 일. 파일 하나 600줄, 함수 하나 80줄을 넘기면 나눈다. **[lint]** `too_many_lines` **[QA]**
+- R-MOD-3 crate 하나에 한 가지 일. 파일 하나 600줄(파일 안 `#[cfg(test)]` 모듈은 빼고 셈), 함수 하나 80줄을 넘기면 나눈다. **[lint]** `too_many_lines` **[검사]** `check-file-size.py`(이미 넘은 파일은 `waivers.json`의 기한 있는 R-MOD-3 항목만) **[QA]**
 - R-MOD-4 도메인 값은 newtype(금액·ID·키·이메일)으로, 만들 때 검증한다(parse, don't validate). 맨 `String`·`i64`를 도메인 경계에 흘리지 않는다. **[QA]**
 - R-MOD-5 공개 API는 최소: 기본은 비공개, 꼭 필요한 것만 `pub`. 공개 항목은 모두 `///` 문서. 엔진 공개 API 변경은 `cargo public-api` 기록과 `cargo-semver-checks`. **[lint]** `missing_docs`, `unreachable_pub` **[검사]**(엔진 API 고정 — 엔진 담당이 도입)
 - R-MOD-6 반복되는 패턴(원장 처리, 작업 처리, 재시도, 적합성 시험)은 엔진에 제네릭으로 한 번만. 서비스는 업무 규칙 trait만 구현한다. **[QA]**
