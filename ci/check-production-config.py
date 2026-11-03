@@ -12,11 +12,12 @@ docs/architecture/config-catalog.md, docs/coordination/engine-priority.md "qa-en
 - 로컬 파일 객체 저장소(`objects.kind: "file"`) 실패(컨테이너를 바꾸면 사라짐).
 실패하면 `파일:1: 칸 경로: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-production-config.py [저장소 루트]
+사용: python3 -X utf8 ci/check-production-config.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import json
 import sys
 from pathlib import Path
@@ -78,7 +79,7 @@ def check(rel: str, data: object, problems: list[str]) -> None:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     problems: list[str] = []
     checked = 0
     for path in sorted(root.rglob("*.json")):

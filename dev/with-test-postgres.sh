@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 시험용 PostgreSQL을 Podman(rootless)으로 잠깐 띄우고 명령을 실행한 뒤 지웁니다.
-#   scripts/dev/with-test-postgres.sh <명령...>
-# 이미지·주소 같은 설정은 scripts/dev/test-postgres.json에서만 읽습니다(코드에 두지 않음).
+#   dev/with-test-postgres.sh <명령...>
+# 이미지·주소 같은 설정은 config/dev/test-postgres.json에서만 읽습니다(코드에 두지 않음).
 # 명령에는 MOOKKO_TEST_POSTGRES(접속 JSON 경로)와 MOOKKO_REQUIRE_TEST_POSTGRES=1을 넘깁니다.
 # 데이터는 컨테이너 tmpfs에만 두고, 임시 파일은 ${TMPDIR:-/tmp}/mookko-test/mookko/<실행 번호>/ 아래에 둡니다. 명령이 성공하면
 # 이 실행이 만든 그 폴더만 바로 지우고, 실패하면 원인 확인용으로 남깁니다(CLAUDE.md › WSL 시험 임시 폴더 예외, 2026-11-02).
@@ -12,8 +12,8 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SETTINGS="$ROOT/scripts/dev/test-postgres.json"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
+SETTINGS="$ROOT/config/dev/test-postgres.json"
 RUN_ID="pg-$(date +%Y%m%d%H%M%S)-$$"
 TEST_ROOT="${TMPDIR:-/tmp}/mookko-test/mookko"
 RUN_DIR="$TEST_ROOT/$RUN_ID"
@@ -59,8 +59,8 @@ if [ -n "$stale" ]; then
     echo "경고: 끝나지 않고 남은 시험 컨테이너가 있습니다(지우지 않음, 통합 담당에 알리세요): $(printf '%s ' $stale)" >&2
 fi
 
-# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(scripts/dev/memory-guard.json).
-python3 -X utf8 "$ROOT/scripts/dev/memory-guard.py" open "시험 PostgreSQL"
+# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(config/dev/memory-guard.json).
+python3 -X utf8 "$ROOT/dev/memory-guard.py" open "시험 PostgreSQL"
 
 podman run -d --rm --name "$NAME" \
     -e POSTGRES_DB="$DATABASE" -e POSTGRES_USER="$USER_NAME" \

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# 빌드 자리(scripts/dev/build-slots.json) 닫기·열기·상태(Linux, MooKKo-Linux 안에서).
-#   scripts/dev/build-slots.sh status   자리마다 실제 잠금을 잡아 보고 비었는지, 누가 쥐었는지 봅니다(표지 파일을 믿지 않음).
-#   scripts/dev/build-slots.sh close    모든 자리를 잡아 새 check-all이 시작하지 못하게 합니다. 돌던 빌드는 끝날 때까지 기다립니다.
-#   scripts/dev/build-slots.sh open     close가 띄운 붙드는 프로세스를 끝내 자리를 엽니다.
+# 빌드 자리(config/dev/build-slots.json) 닫기·열기·상태(Linux, MooKKo-Linux 안에서).
+#   dev/build-slots.sh status   자리마다 실제 잠금을 잡아 보고 비었는지, 누가 쥐었는지 봅니다(표지 파일을 믿지 않음).
+#   dev/build-slots.sh close    모든 자리를 잡아 새 check-all이 시작하지 못하게 합니다. 돌던 빌드는 끝날 때까지 기다립니다.
+#   dev/build-slots.sh open     close가 띄운 붙드는 프로세스를 끝내 자리를 엽니다.
 # WSL 디스크 압축이나 업데이트 전에 close, 끝나면 open을 씁니다. wsl --shutdown이 붙드는 프로세스를 끝내면 자리는 저절로 열립니다.
 # 상태 파일(<dir>/close-state)은 지우지 않고 덮어씁니다: "open", "closing <pid>", "closed <pid> <시각>".
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."  # 하네스 저장소 최상위
 setting() {
-    python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' scripts/dev/build-slots.json "$1"
+    python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' config/dev/build-slots.json "$1"
 }
 DIR="$(setting dir)"
 COUNT="$(setting count)"

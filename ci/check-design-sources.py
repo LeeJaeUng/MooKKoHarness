@@ -11,11 +11,12 @@ enforce를 따르고, 넓힌 모양(mookko-rust-qa·qa-design 2026-11-03)은 담
 docs/policy/design-sources.json의 enforce가 false이면 `경고:`로 시작하는 줄만 내고 0으로 끝난다(처음에는 경고만,
 PM 지시). true이면 `파일:줄: 이유`를 내고 1로 끝난다. 설정 파일이 없거나 틀리면 실패한다.
 
-사용: python3 -X utf8 scripts/ci/check-design-sources.py [저장소 루트]
+사용: python3 -X utf8 ci/check-design-sources.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import json
 import sys
 from pathlib import Path
@@ -52,7 +53,7 @@ def tables(text: str):
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     policy = root / "docs" / "policy" / "design-sources.json"
     try:
         enforce = json.loads(policy.read_text(encoding="utf-8"))["enforce"]

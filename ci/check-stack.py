@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()  # 인자를 주면 표본 폴더를 검사
 
 # 서비스가 직접 쓰면 안 되는 crate(엔진 포트를 거쳐야 함).
 ENGINE_ONLY_CRATES = {

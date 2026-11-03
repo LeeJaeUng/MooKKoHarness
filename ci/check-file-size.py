@@ -6,11 +6,12 @@ tests/·benches/·examples/는 보지 않는다. 600줄을 넘으면 실패한�
 예외를 지우라고 실패한다(낡은 예외를 남기지 않음).
 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-file-size.py [저장소 루트]
+사용: python3 -X utf8 ci/check-file-size.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import json
 import re
 import sys
@@ -80,7 +81,7 @@ def waived_paths(root: Path) -> set[str]:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     waived = waived_paths(root)
     problems: list[str] = []
     scanned = 0

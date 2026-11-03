@@ -15,12 +15,13 @@ cargo metadata로 판정하므로 PATH에 cargo가 있어야 한다.
 
 from __future__ import annotations
 
+import os
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()  # 인자를 주면 표본 폴더를 검사
 
 # 빌드 때만 도는 crate(동기 I/O 예외가 있음). 실행 코드에 링크되면 안 되므로 build-dependency로만.
 BUILD_ONLY = {"mookko-packet-gen"}

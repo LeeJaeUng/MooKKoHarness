@@ -10,12 +10,13 @@
 from __future__ import annotations
 
 import datetime
+import os
 import json
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()  # 인자를 주면 표본 폴더를 검사
 REGISTRY = ROOT / "docs" / "policy" / "lint-exceptions.json"
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 

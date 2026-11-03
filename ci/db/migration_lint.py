@@ -20,13 +20,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402  (같은 폴더)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import migration_lock  # noqa: E402
 import pending  # noqa: E402
 import sqltext  # noqa: E402
 from sqltext import IDENT, QNAME, parse_qname, paren_body, split_top_level  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = paths.product_root()
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 FILE_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 PHASES = {"expand", "migrate", "contract"}
@@ -637,7 +640,7 @@ def lint_text(rel: str, sql: str, dialect: str, schema: str | None, engine_fixed
     return FileLint(rel, sqltext.split(sql), dialect, schema, outside_transaction(sql), engine_fixed).run()
 
 
-ENGINE_GENERATED = Path(__file__).resolve().parent / "engine-generated.json"
+ENGINE_GENERATED = paths.product_data("engine-generated.json")
 
 
 def text_sha(text: str) -> str:
@@ -667,7 +670,7 @@ def engine_fixed_tests(root: Path, registry: dict) -> list[Finding]:
     본문을 엔진 출력과 글자로 비교해 다르면 거부). 옛 `test` 칸(비교 Rust 시험)은 모니터링이 옮긴 뒤(a55c6d9, 통합 b5e9618) 받지 않는다."""
     findings: list[Finding] = []
     for entry in registry.get("files", []):
-        where = entry.get("path", "scripts/ci/db/engine-generated.json")
+        where = entry.get("path", "docs/policy/db/engine-generated.json")
         parts = where.split("/")
         texts: list[str] = []
         if len(parts) >= 3 and parts[:2] == ["crates", "services"]:
@@ -1275,7 +1278,7 @@ def lint_embedded(root: Path, registry: dict | None = None) -> list[Finding]:
     return findings
 
 
-EXCEPTIONS = Path(__file__).resolve().parent / "exceptions.json"
+EXCEPTIONS = paths.product_data("exceptions.json")
 # SQL 문장 머리(문자열 처음이나 `;` 뒤)에 오는 DDL·권한 문장만 본다. 감사 동작 이름(`handle.revoke`)·식별자(`revoke_handle`)·
 # 낱말 하나(`"grant"`)는 문장이 아니므로 잡지 않는다(links 오탐 2026-10-30). ATTACH·DETACH PARTITION은 ALTER TABLE 문장 안에 있음.
 SERVICE_DDL = re.compile(
@@ -1296,14 +1299,14 @@ def exception_paths(registry: dict, today: datetime.date | None = None, root: Pa
     for item in registry.get("exceptions", []):
         missing = [k for k in ("id", "paths", "rule", "reason", "adr", "condition", "expires", "approvedBy") if not item.get(k)]
         if missing:
-            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item.get('id')}에 {missing} 칸이 없음"))
+            problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7", f"예외 {item.get('id')}에 {missing} 칸이 없음"))
             continue
         document = item["adr"].split()[0].rstrip(",")
         if root is not None and not (root / document).is_file():
-            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']}의 근거 문서 `{document}`가 없음"))
+            problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']}의 근거 문서 `{document}`가 없음"))
             continue
         if datetime.date.fromisoformat(item["expires"]) < (today or datetime.date.today()):
-            problems.append(Finding("scripts/ci/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']} 기한({item['expires']})이 지남 — 조건: {item['condition']}"))
+            problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']} 기한({item['expires']})이 지남 — 조건: {item['condition']}"))
             continue
         paths.update(item["paths"])
     return paths, problems
@@ -1458,7 +1461,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock-file", type=Path, default=migration_lock.LIST, help="이관 잠금 목록(시험용)")
     parser.add_argument("--exceptions", type=Path, default=EXCEPTIONS, help="기한 있는 예외 등록부(시험용)")
     parser.add_argument("--engine-generated", type=Path, default=ENGINE_GENERATED, help="엔진 생성 고정 파일 등록부(시험용)")
-    parser.add_argument("--name-checks", type=Path, default=Path(__file__).resolve().parent / "name-checks.json", help="이름 종류별 CHECK 글 등록부(시험용)")
+    parser.add_argument("--name-checks", type=Path, default=paths.product_data("name-checks.json"), help="이름 종류별 CHECK 글 등록부(시험용)")
     parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
     parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
     parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")

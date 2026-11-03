@@ -1,4 +1,4 @@
-"""기한부 유예 목록 (scripts/ci/db/pending.json).
+"""기한부 유예 목록 (docs/policy/db/pending.json).
 
 DB 규약이 생기기 전에 들어온 파일(이관·설계서)은 담당이 고칠 때까지 기한을 두고 경고로만 알린다.
 기한이 지나면 그 파일의 판정이 다시 실패가 된다. 목록에 없는 새 파일은 처음부터 실패.
@@ -10,9 +10,13 @@ from __future__ import annotations
 import datetime
 import json
 from dataclasses import dataclass
+import sys
 from pathlib import Path
 
-LIST = Path(__file__).resolve().parent / "pending.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402  (같은 폴더)
+
+LIST = paths.product_data("pending.json")
 
 
 @dataclass(frozen=True)

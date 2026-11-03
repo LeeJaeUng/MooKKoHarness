@@ -15,12 +15,16 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402  (같은 폴더)
 
 import migration_lint as ml
 import sqltext
 
-REGISTRY = Path(__file__).resolve().parent / "name-checks.json"
+REGISTRY = paths.product_data("name-checks.json")
 CHECK_OPEN = re.compile(r"\bCHECK\s*\(", re.I)
 
 

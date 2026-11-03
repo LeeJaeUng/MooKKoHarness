@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
-# WSL 멈춤 표지를 걸고 풉니다(Windows Git Bash). 표지가 paused인 동안 scripts/dev/wsl-run.sh는 WSL을 켜지 않습니다.
-#   scripts/dev/wsl-pause.sh on "<사유>"   예: on "PM vhdx 압축"
-#   scripts/dev/wsl-pause.sh off
-#   scripts/dev/wsl-pause.sh status
-# 압축 순서: (WSL 안) scripts/dev/build-slots.sh close → on → wsl --shutdown → 압축 → off. 경로는 scripts/dev/wsl.json.
+# WSL 멈춤 표지를 걸고 풉니다(Windows Git Bash). 표지가 paused인 동안 dev/wsl-run.sh는 WSL을 켜지 않습니다.
+#   dev/wsl-pause.sh on "<사유>"   예: on "PM vhdx 압축"
+#   dev/wsl-pause.sh off
+#   dev/wsl-pause.sh status
+# 압축 순서: (WSL 안) dev/build-slots.sh close → on → wsl --shutdown → 압축 → off. 경로는 config/dev/wsl.json.
 # 표지 파일은 지우지 않고 첫 낱말(paused·running)만 바꿉니다.
 set -euo pipefail
 
-# 본 체크아웃 최상위(worktree는 <본 체크아웃>/.claude/worktrees/<이름> 아래, scripts/dev/machine.py와 같은 규칙).
+# 본 체크아웃 최상위(worktree는 <본 체크아웃>/.claude/worktrees/<이름> 아래, dev/machine.py와 같은 규칙).
 main_root() {
     local root
-    root="$(cd "$(dirname "$0")/../.." && pwd)"
+    # 제품 저장소(표지는 제품 본 체크아웃의 data\에 둠). 제품의 얇은 래퍼가 MOOKKO_PRODUCT_ROOT를 넘깁니다.
+    root="${MOOKKO_PRODUCT_ROOT:-$PWD}"
+    root="$(cd "$root" && pwd)"
     case "$root" in
         */.claude/worktrees/*) root="${root%%/.claude/worktrees/*}" ;;
     esac
     printf '%s\n' "$root"
 }
 
-SETTINGS="$(cd "$(dirname "$0")" && pwd)/wsl.json"
+SETTINGS="$(cd "$(dirname "$0")/.." && pwd)/config/dev/wsl.json"
 MARKER="$(sed -n 's/^[[:space:]]*"pauseMarker"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS")"
 # 표지 경로는 본 체크아웃 기준 상대 경로입니다(기계 전용 절대 경로를 커밋하지 않음, PM 2026-11-03).
 case "$MARKER" in
@@ -25,7 +27,7 @@ case "$MARKER" in
     ?*) MARKER="$(main_root)/$MARKER" ;;
 esac
 if [ -z "$MARKER" ]; then
-    echo "scripts/dev/wsl.json에서 pauseMarker를 읽지 못했습니다" >&2
+    echo "config/dev/wsl.json에서 pauseMarker를 읽지 못했습니다" >&2
     exit 2
 fi
 

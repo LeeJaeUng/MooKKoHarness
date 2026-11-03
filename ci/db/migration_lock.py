@@ -9,7 +9,7 @@
   `출시 전 이관 다시 씀: <파일 이름>`이 있어야 한다(기준 커밋 `historyCheckedSince` 뒤만 봄 — 그 전 일은 이 규칙 전).
 git 기록을 읽을 수 없으면(Windows 쪽 worktree를 WSL에서 여는 경우 등) "건너뜀(통과 아님)"을 출력하고,
 `MOOKKO_REQUIRE_GIT_HISTORY=1`이면 실패한다(하네스 CI는 켬).
-잠금 기록: `python3 -X utf8 scripts/ci/db/migration_lint.py --lock <폴더> --decided-by <사용자 결정 근거> --launched-at YYYY-MM-DD`.
+잠금 기록: `python3 -X utf8 ci/db/migration_lint.py --lock <폴더> --decided-by <사용자 결정 근거> --launched-at YYYY-MM-DD`.
 """
 
 from __future__ import annotations
@@ -18,10 +18,14 @@ import datetime
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
-LIST = Path(__file__).resolve().parent / "migration-lock.json"
-LIST_REL = "scripts/ci/db/migration-lock.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402  (같은 폴더)
+
+LIST = paths.product_data("migration-lock.json")
+LIST_REL = "docs/policy/db/migration-lock.json"
 REWRITE_MARK = "출시 전 이관 다시 씀:"
 MIGRATION_GLOB = ":(glob)crates/**/migrations/*.sql"
 

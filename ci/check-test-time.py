@@ -13,7 +13,7 @@ docs/policy/gates.md TEST-01, docs/coordination/harness-backlog.md).
 - enforce true: 기준보다 많아지면 그 줄을 `파일:줄: 이유`로 내고 실패, 줄면 기준을 낮추라고 실패, 기한이 지나면 실패.
 `--list`는 걸린 줄을 모두, `--write-baseline`은 지금 개수로 기준을 다시 쓴다(통합 담당만).
 
-사용: python3 -X utf8 scripts/ci/check-test-time.py [저장소 루트] [--list] [--write-baseline]
+사용: python3 -X utf8 ci/check-test-time.py [저장소 루트] [--list] [--write-baseline]
 """
 
 from __future__ import annotations

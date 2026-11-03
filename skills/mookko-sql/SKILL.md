@@ -5,11 +5,11 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 
 # MooKKo SQL 규약 (요약)
 
-정본은 `docs/policy/conventions/sql.md`(규칙 번호 S-*), 왜 그런지는 `docs/architecture/database.md`. 스키마를 바꾸기 전에 `<crate>/docs/data-model.md`를 먼저 고친다(DBDES-01, 지금 QA 승인은 보류지만 설계서는 지킨다). 커밋 전에 `scripts/ci/db/check-db.sh`(check-all에 포함)가 이관·설계서를 검사한다.
+정본은 `docs/policy/conventions/sql.md`(규칙 번호 S-*), 왜 그런지는 `docs/architecture/database.md`. 스키마를 바꾸기 전에 `<crate>/docs/data-model.md`를 먼저 고친다(DBDES-01, 지금 QA 승인은 보류지만 설계서는 지킨다). 커밋 전에 `ci/db/check-db.sh`(check-all에 포함)가 이관·설계서를 검사한다.
 
 ## 이관 파일을 쓸 때
 
-- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 출시된 서비스(`scripts/ci/db/migration-lock.json`에 잠김)의 이관은 고치지 않는다. 이미 커밋한 이관은 출시 전이라도 지금은 다시 쓸 수 없다(검사가 실패, 출시 전 예외는 사용자 결정 대기) — 새 이관 파일을 더한다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 단계(`mookko-app migrate`, 이관 계정 `<서비스>_migrate`)에서만 돌고, 객체 주인은 `<서비스>_owner`(이관기가 `SET LOCAL ROLE`)다. 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다(S-BND-2).
+- 위치·이름: `<crate>/migrations/NNNN_<snake 설명>.sql`(파일 이름 = 엔진 이관 ID), 0001부터 빠짐없이. 출시된 서비스(`docs/policy/db/migration-lock.json`에 잠김)의 이관은 고치지 않는다. 이미 커밋한 이관은 출시 전이라도 지금은 다시 쓸 수 없다(검사가 실패, 출시 전 예외는 사용자 결정 대기) — 새 이관 파일을 더한다. 스키마는 쓰지 않거나 `__SCHEMA__.테이블`(S-MIG-1). 이관은 이관 단계(`mookko-app migrate`, 이관 계정 `<서비스>_migrate`)에서만 돌고, 객체 주인은 `<서비스>_owner`(이관기가 `SET LOCAL ROLE`)다. 권한은 엔진 `grant`가 맞추므로 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정한다(S-BND-2).
 - 머리: `-- mookko:phase expand|migrate|contract`(필수). `CONCURRENTLY` 색인 이관은 **머리(맨 앞에 이어지는 `--` 줄, 사이에 빈 줄 없이) 안에 `-- mookko:transaction off`**를 두고(phase 앞뒤 상관없음), 문장은 `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <이름> ON __SCHEMA__.<표>` 하나만(S-MIG-4·6). 스키마가 경로(`crates/services/<서비스>/`)로 정해지지 않으면 `-- mookko:schema <이름>`.
 - 기존 테이블을 바꾸면 맨 앞 `SET LOCAL lock_timeout = '3s';`(S-MIG-5).
 - 기존 테이블에 금지(S-MIG-2): 일반 `CREATE/DROP INDEX`·`REINDEX`(→ `CONCURRENTLY`), 휘발 기본값·`STORED`·`serial` 열 추가, 상수 기본값 없는 `NOT NULL` 열 추가, `ALTER COLUMN TYPE`, 검사 제약 확인 없는 `SET NOT NULL`, `NOT VALID` 없는 외래 키·검사 제약, `USING INDEX` 없는 PK·UNIQUE 추가, 열 추가와 `UNIQUE`·`PRIMARY KEY`·`CHECK`·`REFERENCES`를 한 문장에, `TRUNCATE`·`VACUUM FULL`·`CLUSTER`·`LOCK TABLE`, `CONCURRENTLY` 없는 `DETACH PARTITION`, `UPDATE`·`DELETE`(→ 배경 이관 작업). 큰 테이블 변경은 잠금 시간·데이터 양을 설계서에.

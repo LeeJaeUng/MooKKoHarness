@@ -17,7 +17,7 @@
   실패(되돌아 늘지 않게). 기한이 지났는데 기준이 남아 있으면 실패.
 `--list`는 걸린 줄을 모두 낸다(담당별 정리용). `--write-baseline`은 지금 개수로 baseline을 다시 쓴다(통합 담당만).
 
-사용: python3 -X utf8 scripts/ci/check-hardcoded-values.py [저장소 루트] [--list] [--write-baseline]
+사용: python3 -X utf8 ci/check-hardcoded-values.py [저장소 루트] [--list] [--write-baseline]
 """
 
 from __future__ import annotations
@@ -256,7 +256,7 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
     지금 개수로 처음 쓴다."""
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
-    root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[2]
+    root = Path(args[0]).resolve() if args else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     policy_path = root / policy_rel
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))

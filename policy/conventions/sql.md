@@ -2,13 +2,13 @@
 
 대상: 각 crate의 `migrations/`(이관 파일), Rust 코드 안의 SQL, 설계서 `<crate>/docs/data-model.md`. 저장소는 PostgreSQL(ADR-0022 이어받음), 로그·추적·지표만 ClickHouse(§10, 사용자 결정 2026-10-29). 왜 그렇게 하는지와 운영 모양은 DB 설계 정본 [`docs/architecture/database.md`](../../architecture/database.md)입니다. 관문 DBDES-01(설계서 먼저)·SEC-01·FINOPS-01(`docs/policy/gates.md`, 지금 QA·설계 승인은 보류 — 설계서는 그대로 지킴).
 
-강제 표시는 [README.md](README.md) › 강제 표시. 이 규약의 **[lint]**·**[검사]**는 `scripts/ci/db/check-db.sh`(check-all이 부름)입니다.
+강제 표시는 [README.md](README.md) › 강제 표시. 이 규약의 **[lint]**·**[검사]**는 `ci/db/check-db.sh`(check-all이 부름)입니다.
 
 | 검사 | 하는 일 |
 |---|---|
-| `scripts/ci/db/migration_lint.py` | 이관 파일(`crates/**/migrations/*.sql`)과 Rust 안 SQL 문자열을 읽어 아래 [lint] 규칙을 판정 |
-| `scripts/ci/db/data_classes.py` | 설계서의 열마다 등급·보호가 적혔는지, 등급에 맞는 보호인지 판정 |
-| `scripts/ci/db/migration_apply.py` | 실제 PostgreSQL(시험 컨테이너)에 서비스 계정을 만들고 이관을 차례대로 적용한 뒤 목록(catalog)으로 다시 확인 |
+| `ci/db/migration_lint.py` | 이관 파일(`crates/**/migrations/*.sql`)과 Rust 안 SQL 문자열을 읽어 아래 [lint] 규칙을 판정 |
+| `ci/db/data_classes.py` | 설계서의 열마다 등급·보호가 적혔는지, 등급에 맞는 보호인지 판정 |
+| `ci/db/migration_apply.py` | 실제 PostgreSQL(시험 컨테이너)에 서비스 계정을 만들고 이관을 차례대로 적용한 뒤 목록(catalog)으로 다시 확인 |
 
 ## 1. 경계·권한
 
@@ -18,15 +18,15 @@
 - S-BND-4 서비스 이관에 `CREATE ROLE`·`ALTER ROLE`·`DROP ROLE`·`CREATE DATABASE`·`CREATE EXTENSION`·`ALTER SYSTEM` 금지(DB 준비 스크립트의 일). **[lint]**
 - S-BND-5 `GRANT`는 자기 서비스 계정에게만: `<스키마>_` + S-BND-2의 접미어(`owner`·`migrate`·`app`·`ro`·`recon`·`maint`·`audit_reader`). `TO PUBLIC`·`GRANT ALL`·`WITH GRANT OPTION` 금지. **[lint]**
 - S-BND-6 `SECURITY DEFINER` 함수는 `SET search_path = <스키마>, pg_catalog`를 함께 둔다(권한 올리기 방지). CHECK가 부르는 자기 스키마 함수는 그 폴더 이관이 만든 것이고 `IMMUTABLE`·`SET search_path = pg_catalog`(값은 `pg_catalog`·자기 스키마·`pg_temp`만, 이미 커밋했으면 뒤 이관의 `ALTER FUNCTION … SET search_path`)를 두며, CHECK에서는 스키마를 붙여 부른다(`__SCHEMA__.함수(…)`). **[lint]**
-- S-BND-7 서비스·실행 파일 코드(`crates/services/*/src`, `crates/apps/*/src`)는 DDL·권한 문장(`CREATE|ALTER|DROP TABLE·INDEX·…`, `ALTER TABLE … ATTACH|DETACH PARTITION`, `TRUNCATE`, `GRANT … ON|TO`, `REVOKE … ON|FROM`)을 쓰지 않는다. 검사는 문자열 안의 SQL 주석(`--`, `/* */`)을 지운 뒤, SQL 문장 머리(문자열 처음이나 `;` 뒤)에 오는 것만 본다(감사 동작 이름 `handle.revoke` 같은 글은 문장이 아님). 구조는 이관 파일, 파티션 유지보수는 엔진 작업(E-DB-5)이 바꾼다. 서비스 실행 경로가 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를 모두 비켜 가기 때문이다. 기한 있는 예외는 `scripts/ci/db/exceptions.json`에 id·파일·이유·근거 문서(`adr`: 저장소 기준 경로와 §절, 승인 — gates.md waived의 근거 문서 + 만료일)·끝내는 조건·기한·승인자를 적는다(DB 담당이 올림, 근거 문서가 없으면 실패). 기한이 지나면 check-db가 실패한다. 지금 예외는 없다(links `guard.rs`·운영툴 `migrate.rs` 두 건은 E-DB-5로 옮겨 2026-11-01에 걷음, `exceptions.json` 비어 있음). **[lint]** `migration_lint.py`
+- S-BND-7 서비스·실행 파일 코드(`crates/services/*/src`, `crates/apps/*/src`)는 DDL·권한 문장(`CREATE|ALTER|DROP TABLE·INDEX·…`, `ALTER TABLE … ATTACH|DETACH PARTITION`, `TRUNCATE`, `GRANT … ON|TO`, `REVOKE … ON|FROM`)을 쓰지 않는다. 검사는 문자열 안의 SQL 주석(`--`, `/* */`)을 지운 뒤, SQL 문장 머리(문자열 처음이나 `;` 뒤)에 오는 것만 본다(감사 동작 이름 `handle.revoke` 같은 글은 문장이 아님). 구조는 이관 파일, 파티션 유지보수는 엔진 작업(E-DB-5)이 바꾼다. 서비스 실행 경로가 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를 모두 비켜 가기 때문이다. 기한 있는 예외는 `docs/policy/db/exceptions.json`에 id·파일·이유·근거 문서(`adr`: 저장소 기준 경로와 §절, 승인 — gates.md waived의 근거 문서 + 만료일)·끝내는 조건·기한·승인자를 적는다(DB 담당이 올림, 근거 문서가 없으면 실패). 기한이 지나면 check-db가 실패한다. 지금 예외는 없다(links `guard.rs`·운영툴 `migrate.rs` 두 건은 E-DB-5로 옮겨 2026-11-01에 걷음, `exceptions.json` 비어 있음). **[lint]** `migration_lint.py`
 
 ## 2. 이관
 
 - S-MIG-1 이관 파일은 `<crate>/migrations/NNNN_<snake 설명>.sql`(엔진 `SchemaMigrator` ID 형식 `0001_name`과 같음 — 파일 이름에서 `.sql`을 뺀 것이 이관 ID), 번호는 0001부터 빠짐없이. 앞으로만, 적용된 이관은 고치지 않는다(엔진 이관기가 SHA-256으로 막음). 되돌리는 방법은 설계서에. 스키마 이름은 쓰지 않거나(이관 계정의 `search_path`) `__SCHEMA__.테이블` 자리 표시로 쓴다(이관기가 바꿈). **[lint]**(이름·번호) **[검사]** 엔진 이관기
-  - **출시 잠금**: 서비스가 출시되면 그 서비스 `migrations/` 파일의 SHA-256(엔진과 같은 계산: `__SCHEMA__`를 운영 스키마 이름으로 바꾼 뒤, 줄 끝을 LF로)을 `scripts/ci/db/migration-lock.json`에 적는다. 그 뒤로 잠긴 파일을 고치거나 지우거나 이름을 바꾸면 검사가 실패하고, 이 실패는 유예(pending.json)로 넘길 수 없다. 잠금 목록에서 항목·파일·값을 지우거나 바꿔도 git 기록 비교로 실패한다. 출시된 서비스의 새 이관은 같은 커밋에서 잠금 목록에 더한다. **[lint]** `migration_lint.py`(잠금)
+  - **출시 잠금**: 서비스가 출시되면 그 서비스 `migrations/` 파일의 SHA-256(엔진과 같은 계산: `__SCHEMA__`를 운영 스키마 이름으로 바꾼 뒤, 줄 끝을 LF로)을 `docs/policy/db/migration-lock.json`에 적는다. 그 뒤로 잠긴 파일을 고치거나 지우거나 이름을 바꾸면 검사가 실패하고, 이 실패는 유예(pending.json)로 넘길 수 없다. 잠금 목록에서 항목·파일·값을 지우거나 바꿔도 git 기록 비교로 실패한다. 출시된 서비스의 새 이관은 같은 커밋에서 잠금 목록에 더한다. **[lint]** `migration_lint.py`(잠금)
   - **지금은 이미 커밋한 이관을 다시 쓸 수 없다**: 잠금 전이라도 `historyCheckedSince` 뒤 커밋이 이미 있던 이관을 바꾸거나 이름을 바꾸거나 지우면, 커밋 본문 표시와 상관없이 검사가 실패한다(작업 사본의 바꿈도). 바꿀 것은 새 이관 파일로 더한다. **[lint]** `migration_lint.py`
   - **출시 전 예외 — 사용자 결정 대기, 효력 없음**(규약 완화라 사용자 결정의 날짜·인용이 필요함, QA 7차·10차 2026-10-30. 통합 담당이 사용자께 묻는 중. 승인되면 통합 담당이 `migration-lock.json`의 `prelaunchRewrite`에 `allowed: true`와 `decidedBy`(날짜·인용)를 적고 이 줄에도 적는다. 거절되면 이 문단을 지운다). 승인되면: 잠금 전에는 이미 커밋한 이관 파일을 다시 써도 된다(파일 합치기·고치기). 조건 넷이 모두 맞아야 한다. (1) 그 이관을 적용한 DB가 지우고 다시 만들 수 있는 개발·시험 DB뿐이다. (2) 같은 커밋에서 설계서(`data-model.md`)를 함께 고친다. (3) 커밋 본문에 `출시 전 이관 다시 씀: <파일>`과 이유를 적는다. (4) 다른 담당이 그 이관 위에 쌓은 것이 없다. 기한은 그 서비스의 출시까지다. 출시란 지울 수 없는 데이터를 담는 DB(라이브, 또는 데이터를 남기는 외부 시험)가 처음 생기는 것이다. **[lint]** `migration_lint.py`(조건 (3): git 기록에서 `migration-lock.json`의 `historyCheckedSince` 뒤 커밋이 이미 있던 이관을 바꾸거나 이름을 바꾸거나 지웠으면 그 커밋 본문에 표시와 파일 이름이 있어야 함 — 기록을 못 읽으면 건너뜀(통과 아님), 하네스 CI는 `MOOKKO_REQUIRE_GIT_HISTORY=1`) **[QA]**(조건 (1)·(2)·(4))
-  - **누가**: 출시 시점은 사용자가 정한다. 통합 담당이 출시 배포 전에 `python3 -X utf8 scripts/ci/db/migration_lint.py --lock <폴더> --decided-by <사용자 결정 근거> --launched-at YYYY-MM-DD`로 잠금을 남기고, 그 커밋은 DB 담당이 검토한다. 잠금을 풀거나 잠긴 값을 바꾸려면 사용자 결정이 있어야 하고, 운영 DB를 다시 만드는 경우뿐이다.
+  - **누가**: 출시 시점은 사용자가 정한다. 통합 담당이 출시 배포 전에 `python3 -X utf8 ci/db/migration_lint.py --lock <폴더> --decided-by <사용자 결정 근거> --launched-at YYYY-MM-DD`로 잠금을 남기고, 그 커밋은 DB 담당이 검토한다. 잠금을 풀거나 잠긴 값을 바꾸려면 사용자 결정이 있어야 하고, 운영 DB를 다시 만드는 경우뿐이다.
 - S-MIG-2 기존 테이블에 긴 잠금·다시 쓰기를 부르는 문장 금지(같은 파일에서 만든 새 테이블은 예외). 대신 쓰는 방법은 database.md §7.2 표. 큰 테이블을 바꾸는 이관은 잠금 시간과 데이터 양을 설계서에 적는다(DBDES-01). **[lint]** **[QA]**(설계서의 잠금 시간)
   - 파티션 부모 표의 새 CHECK는 `ONLY` 없이 `… NOT VALID`로 건다(모든 파티션에 함께 생김, 거는 순간 부모·모든 파티션 `ACCESS EXCLUSIVE`). `VALIDATE`는 파티션마다 먼저 해도 되고, 덧붙이기만 하는 표는 위반 행 0을 먼저 확인한다(PostgreSQL 18.6 실측, database.md §7.2). **[lint]**(앞 파일에서 만든 파티션 부모의 `ALTER TABLE ONLY … ADD CONSTRAINT`) **[적용 시험]**(42P16) **[QA]**
   - a `CREATE INDEX`·`DROP INDEX`·`REINDEX`는 `CONCURRENTLY`로
@@ -44,14 +44,14 @@
 - S-MIG-5 기존 테이블을 바꾸는 파일은 맨 앞에 `SET LOCAL lock_timeout = '…'`(5초 이하). 잠금 실패는 이관기가 지연을 두고 다시 시도한다(엔진 요청 E-DB-4). **[lint]**
 - S-MIG-6 `CONCURRENTLY`는 트랜잭션 안에서 돌 수 없다. 그런 이관은 **머리(앞 빈 줄 뒤 맨 앞에 이어지는 `--` 줄, 사이에 빈 줄 없이) 안에 `-- mookko:transaction off`**를 두고(엔진 이관기가 머리 안 어디서든 읽어 트랜잭션 밖을 고름 — phase 앞이든 뒤든, 통합 결정 2026-10-31, 엔진 02f0f4a), 문장은 엔진이 받는 `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <이름> ON __SCHEMA__.<표>` **하나만** 둔다. `DROP INDEX`·`REINDEX`·`DETACH PARTITION`의 `CONCURRENTLY`는 엔진이 받을 때까지 쓰지 않는다. 트랜잭션 파일에는 `CONCURRENTLY`를 쓰지 않는다. **[lint]** **[검사]** `migration_apply.py`(엔진과 같은 규칙으로 적용)
 - S-MIG-10 이관을 실행 파일에 넣어 쓰면(`include_str!` + `SchemaMigrator::add`) 코드의 이관 ID는 파일 이름(`.sql` 뺀 것)과 같고, 폴더의 이관 파일은 모두 한 번씩 들어 있어야 한다. `.add()`는 늘 트랜잭션 안에서 돌리므로 머리에 `-- mookko:transaction off`가 있는 파일은 엔진 `add_embedded`(머리를 보고 고름, E-DB-13)·`add_generated`(E-DB-14)·`add_concurrent_index`로 넣는다(검사는 crate가 그중 하나를 쓰면 통과로 보고, 파일별로 맞게 보내는지는 [QA] — `add_embedded`를 권함). 폴더째 읽으려면 `add_dir`. **[lint]** `migration_lint.py`
-- S-MIG-11 **엔진 생성 SQL 고정 파일**: 이미 코드로 적용한 이관(예: 엔진 `SequencedStream::create_table_sql()` 출력)을 파일로 옮길 때는, 체크섬을 지키려고 엔진 출력과 글자 하나까지 같게 둔다(따옴표 친 스키마 이름만 `__SCHEMA__`로). 그런 파일은 `scripts/ci/db/engine-generated.json`에 경로·SHA-256(파일 글, 줄 끝 LF)·source·이유·기한·승인자를 적고, 서비스 이관기는 그 파일을 엔진 `SchemaMigrator::add_generated(id, 엔진 출력, 파일 글)`로 넣는다(E-DB-14: 머리를 뗀 본문이 엔진 출력과 글자로 다르면 이관기가 거부). 옛 방식 `test` 칸(비교 Rust 시험)은 받지 않는다(2026-11-01부터). SHA가 같을 때만 phase 머리(S-MIG-4)와 큰따옴표 이름(S-TYPE-6)을 건너뛴다. 다른 규칙은 그대로 본다. 내용이 바뀌면 예외가 없어져 보통 규칙으로 판정되고, 기한이 지나거나 칸이 빠지면 실패한다. 실행 파일에 넣어 쓰는 서비스는 이 파일을 `include_str!` 목록에 두지 않고 엔진 함수로 같은 글을 만들어 적용해도 된다(S-MIG-10 예외). 그 파일을 등록부 SHA대로 되돌리는 커밋은 S-MIG-1 다시 쓰기 금지에서 뺀다. 코드로 적용하던 이관 ID(서비스 코드에 그 ID 글자가 있던 것)를 새 파일로 바꾸는 커밋은, 그 파일이 이 등록부에 있고 그 커밋의 내용이 등록 SHA와 같아야 한다(`migration-lock.json` `codeIdCheckSince` 뒤 커밋, git 기록). 등록부는 DB 담당만 고친다. **[lint]** `migration_lint.py`(SHA, `add_generated` 호출, 코드 ID → 파일 바꿈)
+- S-MIG-11 **엔진 생성 SQL 고정 파일**: 이미 코드로 적용한 이관(예: 엔진 `SequencedStream::create_table_sql()` 출력)을 파일로 옮길 때는, 체크섬을 지키려고 엔진 출력과 글자 하나까지 같게 둔다(따옴표 친 스키마 이름만 `__SCHEMA__`로). 그런 파일은 `docs/policy/db/engine-generated.json`에 경로·SHA-256(파일 글, 줄 끝 LF)·source·이유·기한·승인자를 적고, 서비스 이관기는 그 파일을 엔진 `SchemaMigrator::add_generated(id, 엔진 출력, 파일 글)`로 넣는다(E-DB-14: 머리를 뗀 본문이 엔진 출력과 글자로 다르면 이관기가 거부). 옛 방식 `test` 칸(비교 Rust 시험)은 받지 않는다(2026-11-01부터). SHA가 같을 때만 phase 머리(S-MIG-4)와 큰따옴표 이름(S-TYPE-6)을 건너뛴다. 다른 규칙은 그대로 본다. 내용이 바뀌면 예외가 없어져 보통 규칙으로 판정되고, 기한이 지나거나 칸이 빠지면 실패한다. 실행 파일에 넣어 쓰는 서비스는 이 파일을 `include_str!` 목록에 두지 않고 엔진 함수로 같은 글을 만들어 적용해도 된다(S-MIG-10 예외). 그 파일을 등록부 SHA대로 되돌리는 커밋은 S-MIG-1 다시 쓰기 금지에서 뺀다. 코드로 적용하던 이관 ID(서비스 코드에 그 ID 글자가 있던 것)를 새 파일로 바꾸는 커밋은, 그 파일이 이 등록부에 있고 그 커밋의 내용이 등록 SHA와 같아야 한다(`migration-lock.json` `codeIdCheckSince` 뒤 커밋, git 기록). 등록부는 DB 담당만 고친다. **[lint]** `migration_lint.py`(SHA, `add_generated` 호출, 코드 ID → 파일 바꿈)
 - S-MIG-7 이관 파일에서 기존 테이블의 `UPDATE`·`DELETE` 금지(채우기는 배경 이관 작업, database.md §7.1). 작은 참조 데이터 `INSERT`는 허용. **[lint]**
 - S-MIG-8 이관은 CI에서 실제 PostgreSQL(운영과 같은 큰 판)에 처음부터 엔진 이관기와 같은 길(주인 역할·`search_path`·`lock_timeout`·트랜잭션 밖 판정·`grant`)로 적용해 본다. **[검사]** `migration_apply.py`
 - S-MIG-9 `DO` 블록, `CREATE OR REPLACE FUNCTION|PROCEDURE|TRIGGER`, 이관 최상위의 `SELECT`·`CALL`·`WITH`·`EXECUTE`(새 이름 함수를 만들어 부르는 우회) 금지. `DO` 본문은 검사가 볼 수 없고(안의 `UPDATE`·`TRUNCATE`·`DISABLE TRIGGER`가 빠져나감), `CREATE OR REPLACE`는 막기 함수를 거부하지 않는 함수로 바꿔칠 수 있다. 함수를 바꾸려면 새 이름으로 만들고 트리거를 옮긴 뒤 좁히기에서 옛것을 지운다. **[lint]** **[검사]** `migration_apply.py`(막기 함수가 `RAISE EXCEPTION`하는지)
 
 ## 3. 형식
 
-- S-TYPE-1 시각은 `timestamptz`만(`timestamp`·`timetz` 금지). 날짜만이면 `date`. 시각을 날짜·달로 자르거나 글자로 바꿀 때는 `AT TIME ZONE 'UTC'`(또는 `date_trunc(…, ts, 'UTC')`)를 함께 쓰고 세션 시간대에 기대지 않는다(엔진도 접속마다 `TimeZone = UTC`, XC-T8). **[lint]**(형식) **[lint 경고]**(`date_trunc(` 두 인자·`::date`·`to_char(`에 `AT TIME ZONE`이 없으면 — 인자 형식을 글로 몰라 경고만, `scripts/ci/db/time_rules.py`)
+- S-TYPE-1 시각은 `timestamptz`만(`timestamp`·`timetz` 금지). 날짜만이면 `date`. 시각을 날짜·달로 자르거나 글자로 바꿀 때는 `AT TIME ZONE 'UTC'`(또는 `date_trunc(…, ts, 'UTC')`)를 함께 쓰고 세션 시간대에 기대지 않는다(엔진도 접속마다 `TimeZone = UTC`, XC-T8). **[lint]**(형식) **[lint 경고]**(`date_trunc(` 두 인자·`::date`·`to_char(`에 `AT TIME ZONE`이 없으면 — 인자 형식을 글로 몰라 경고만, `ci/db/time_rules.py`)
 - S-TIME-1 서비스 SQL의 시각은 엔진 Clock이 넘긴 `$now`(트랜잭션마다 하나), 새 ID는 앱 `TimeOrderedId`로 바인딩한다. DB 시계·ID 함수(`now()`·`clock_timestamp()`·`current_timestamp`·`statement_timestamp()`·`uuidv7()`·`gen_random_uuid()` 등)는 이관의 트리거 함수 안(늦은 값 막기 같은 하한)과 엔진이 만든 DDL 기본값(엔진 고정 파일, 키 DB `row_keys.created_at`)에만 쓴다. 앱 서버와 DB 시계가 어긋나면 기한 비교가 어긋나고, 엔진 Clock으로 멈춘 시험이 SQL 시각에는 먹지 않는다(qa-design XC-D3). 이 규칙 전부터 있던 links·모니터링 파일은 `pending.json`에 기한(2026-11-30, 엔진 C2 시계 공용화 뒤)과 함께 올라 있고, 새 파일은 처음부터 실패. **[lint]** `time_rules.py`(서비스·실행 파일 `src/`의 Rust 문자열, 서비스 이관의 함수 밖 문장; 시험 코드는 보지 않음)
 - S-TYPE-2 글자는 `text` + `CHECK (char_length(…) …)`. `varchar`·`char(n)` 금지, 예외는 통화 `char(3)`. **[lint]**
 - S-TYPE-3 JSON은 `jsonb`만(`json` 금지), 크기 상한 `CHECK (octet_length(c::text) <= …)`. **[lint]**(`json`) **[QA]**(상한)
@@ -101,7 +101,7 @@
 ## 9. 이름·서식
 
 - S-NAME-1 테이블·열은 `snake_case`, 테이블은 복수형, 외래 키는 `<대상>_id`, 시각은 `timestamptz` + `_at`, 불리언은 `is_`·`has_`, blind index는 `<열>_bidx`·`<열>_bidx_kid`. **[QA]**
-- S-NAME-2 이름 종류(직원 ID `staff_id`, 행위자 `actor_id`·`*_by`, 동작 이름 `action`, 슬러그 `*_slug`, 멱등 영수증 키 등)의 열은 엔진 이름 규칙(C3 `mookko_core::names::NameKind::sql_check(열)`)이 낸 CHECK 글을 그대로 쓴다. 서비스마다 다르게 짜면 엔진이 받은 값이 DB에서 거절되거나 다른 길로 들어온 값을 못 막는다(qa-design XC-D5). NULL을 받는 열은 `열 IS NULL OR (그 글)`. 서비스 사이 공유 SQL 함수는 쓰지 않는다(S-BND-1). 글은 `scripts/ci/db/name-checks.json`(종류·열 이름 정규식·글·본보기 열·SHA·엔진 출처)에 DB 담당이 등록하고, 이미 있는 열은 새 넓히기에서 `NOT VALID`로 맞춘 뒤 위반 0 확인 → `VALIDATE`(다음 배포) → 옛 제약은 contract에서 지운다. 엔진 C3 전에는 등록부가 비어 있다. **[lint]** `name_rules.py`(등록된 종류의 열마다 같은 글의 CHECK가 그 폴더 이관에 있는지)
+- S-NAME-2 이름 종류(직원 ID `staff_id`, 행위자 `actor_id`·`*_by`, 동작 이름 `action`, 슬러그 `*_slug`, 멱등 영수증 키 등)의 열은 엔진 이름 규칙(C3 `mookko_core::names::NameKind::sql_check(열)`)이 낸 CHECK 글을 그대로 쓴다. 서비스마다 다르게 짜면 엔진이 받은 값이 DB에서 거절되거나 다른 길로 들어온 값을 못 막는다(qa-design XC-D5). NULL을 받는 열은 `열 IS NULL OR (그 글)`. 서비스 사이 공유 SQL 함수는 쓰지 않는다(S-BND-1). 글은 `docs/policy/db/name-checks.json`(종류·열 이름 정규식·글·본보기 열·SHA·엔진 출처)에 DB 담당이 등록하고, 이미 있는 열은 새 넓히기에서 `NOT VALID`로 맞춘 뒤 위반 0 확인 → `VALIDATE`(다음 배포) → 옛 제약은 contract에서 지운다. 엔진 C3 전에는 등록부가 비어 있다. **[lint]** `name_rules.py`(등록된 종류의 열마다 같은 글의 CHECK가 그 폴더 이관에 있는지)
 - S-FMT-1 키워드 대문자, 한 줄에 절 하나. **[QA]**
 
 ## 10. ClickHouse (로그·추적·지표만)
@@ -158,4 +158,4 @@
 - SQL 코드 블록(`CREATE TABLE`)으로 적은 테이블(ClickHouse 등)은 따로 `| 테이블 | 열 | 등급 | 보호 |` 표에 열마다 적는다. 같은 등급인 나머지 열은 `열` 칸에 `(나머지)` 한 줄로 묶을 수 있다.
 - 엔진 테이블처럼 서비스가 이름을 정하는 테이블은 제목에 꺾쇠 자리 표시로 적는다(`### \`<원장>_heads\``).
 - 이름이 비밀값·개인정보처럼 보이지만 아닌 열(예: 개수 `token_count`)은 그 줄에 `이름 예외: <이유>`를 적는다.
-- 이 규약 전에 들어온 이관·설계서는 `scripts/ci/db/pending.json`에 담당·기한과 함께 올라 있고, 기한까지는 경고만, 지나면 검사가 실패한다. 새 파일은 처음부터 실패. 목록은 DB 담당만 고친다.
+- 이 규약 전에 들어온 이관·설계서는 `docs/policy/db/pending.json`에 담당·기한과 함께 올라 있고, 기한까지는 경고만, 지나면 검사가 실패한다. 새 파일은 처음부터 실패. 목록은 DB 담당만 고친다.

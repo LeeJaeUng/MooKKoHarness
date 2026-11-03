@@ -27,6 +27,6 @@ description: MooKKo Rust 코딩 규약. crates/ 아래 Rust 코드를 쓰거나 
 
 ## 끝내기 전에 (Linux, WSL `MooKKo-Linux`)
 ```
-CARGO_TARGET_DIR=$HOME/target/mookko scripts/ci/check-all.sh
+CARGO_TARGET_DIR=$HOME/target/mookko ci/check-all.sh
 ```
 fmt·clippy(-D warnings)·test·deny·audit·forbid-unsafe·경계·주소·스택·규칙 끄기 검사가 모두 통과해야 끝이다. Windows 결과는 세지 않는다. 결과(명령·종료 코드·시험 수)를 보고에 적는다.

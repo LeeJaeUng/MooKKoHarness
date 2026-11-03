@@ -10,12 +10,13 @@ Rust 소스(시험 포함)에서 아래를 찾으면 실패한다. 주석 줄(`/
 from __future__ import annotations
 
 import datetime
+import os
 import json
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()  # 인자를 주면 표본 폴더를 검사
 IDENTIFIERS = ROOT / "docs" / "policy" / "identifier-uris.json"
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [

@@ -28,4 +28,4 @@ description: MooKKo 프론트엔드 규약(TypeScript·React·Tailwind CSS, web/
 `eslint-disable`·`@ts-ignore`·`@ts-expect-error`·`@ts-nocheck` 금지. 필요하면 `docs/policy/lint-exceptions.json` 등록 뒤에만.
 
 ## 끝내기 전에 (Linux)
-`pnpm install --frozen-lockfile && pnpm -r exec tsc --noEmit && pnpm -r exec eslint . --max-warnings 0 && pnpm -r build && pnpm audit`, 그리고 저장소 `scripts/ci/check-all.sh`(스택·규칙 끄기 검사 포함). 결과를 보고에 적는다.
+`pnpm install --frozen-lockfile && pnpm -r exec tsc --noEmit && pnpm -r exec eslint . --max-warnings 0 && pnpm -r build && pnpm audit`, 그리고 저장소 `ci/check-all.sh`(스택·규칙 끄기 검사 포함). 결과를 보고에 적는다.

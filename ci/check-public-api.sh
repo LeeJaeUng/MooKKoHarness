@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # 엔진 공개 API 고정(7단계): crates/engine/* 마다 공개 API를 crates/engine/<crate>/public-api.txt와 비교합니다.
 # 서비스가 기대는 엔진 API가 모르게 바뀌지 않게 합니다. API를 일부러 바꿨으면
-#   MOOKKO_BLESS_PUBLIC_API=1 scripts/ci/check-public-api.sh
+#   MOOKKO_BLESS_PUBLIC_API=1 ci/check-public-api.sh
 # 로 스냅숏을 고쳐 같은 커밋에 올립니다(바뀐 줄이 리뷰에 보임).
 # rustdoc JSON은 nightly에서만 나오므로 nightly 툴체인(rustup toolchain install nightly --profile minimal)과
 # cargo-public-api(cargo install --locked cargo-public-api)가 필요합니다.
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+H="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
+if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then
+    echo "MOOKKO_PRODUCT_ROOT(검사할 제품 저장소)가 없습니다. 제품의 ci/check-all.sh(harness.lock 판)로 부르세요" >&2
+    exit 2
+fi
+cd "$MOOKKO_PRODUCT_ROOT"
 
 crates=$(python3 -I -c '
 import json, subprocess, sys

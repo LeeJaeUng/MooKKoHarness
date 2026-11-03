@@ -1,6 +1,6 @@
 """하네스 검사 스크립트의 표본 시험 (tools.md: 새 검사는 잡아야 할 표본과 통과시켜야 할 표본으로 시험).
 
-scripts/ci/fixtures/<검사>/{good,bad}/ 아래 표본을 임시 저장소로 복사해 검사를 돌린다. 표본 파일은 이름 끝에 `.txt`를
+ci/fixtures/<검사>/{good,bad}/ 아래 표본을 임시 저장소로 복사해 검사를 돌린다. 표본 파일은 이름 끝에 `.txt`를
 붙여 두어(예: a.sh.txt) 저장소 자체 검사가 표본을 실제 파일로 읽지 않게 하고, 복사할 때 `.txt`를 뗀다.
 - good: 종료 코드 0
 - bad: 종료 코드 1이고 문제 줄 수가 EXPECTED_BAD와 같음(검사가 잡는 개수가 줄면 실패)
@@ -18,28 +18,28 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = ROOT / "scripts" / "ci" / "fixtures"
+HARNESS = Path(__file__).resolve().parents[1]  # 하네스 저장소 최상위
+FIXTURES = HARNESS / "ci" / "fixtures"
 CHECKS = {
-    "dev-exposure": ROOT / "scripts" / "ci" / "check-dev-exposure.py",
-    "acceptance": ROOT / "scripts" / "ci" / "check-acceptance.py",
-    "file-size": ROOT / "scripts" / "ci" / "check-file-size.py",
-    "engine-reuse": ROOT / "scripts" / "ci" / "check-engine-reuse.py",
-    "endpoints": ROOT / "scripts" / "ci" / "check-no-hardcoded-endpoints.py",
-    "lint-escapes": ROOT / "scripts" / "ci" / "check-lint-escapes.py",
-    "waivers": ROOT / "scripts" / "ci" / "check-waivers.py",
-    "tempdirs": ROOT / "scripts" / "ci" / "check-test-tempdirs.py",
-    "boundaries": ROOT / "scripts" / "ci" / "check-boundaries.py",
-    "stack": ROOT / "scripts" / "ci" / "check-stack.py",
-    "forbid-unsafe": ROOT / "scripts" / "ci" / "check-forbid-unsafe.py",
-    "systemd-units": ROOT / "scripts" / "ci" / "check-systemd-units.py",
-    "containers": ROOT / "scripts" / "ci" / "check-containers.py",
-    "design-sources": ROOT / "scripts" / "ci" / "check-design-sources.py",
-    "hardcoded": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
-    "hardcoded-warn": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
-    "test-time": ROOT / "scripts" / "ci" / "check-test-time.py",
-    "prr": ROOT / "scripts" / "ci" / "check-prr.py",
-    "production-config": ROOT / "scripts" / "ci" / "check-production-config.py",
+    "dev-exposure": HARNESS / "ci" / "check-dev-exposure.py",
+    "acceptance": HARNESS / "ci" / "check-acceptance.py",
+    "file-size": HARNESS / "ci" / "check-file-size.py",
+    "engine-reuse": HARNESS / "ci" / "check-engine-reuse.py",
+    "endpoints": HARNESS / "ci" / "check-no-hardcoded-endpoints.py",
+    "lint-escapes": HARNESS / "ci" / "check-lint-escapes.py",
+    "waivers": HARNESS / "ci" / "check-waivers.py",
+    "tempdirs": HARNESS / "ci" / "check-test-tempdirs.py",
+    "boundaries": HARNESS / "ci" / "check-boundaries.py",
+    "stack": HARNESS / "ci" / "check-stack.py",
+    "forbid-unsafe": HARNESS / "ci" / "check-forbid-unsafe.py",
+    "systemd-units": HARNESS / "ci" / "check-systemd-units.py",
+    "containers": HARNESS / "ci" / "check-containers.py",
+    "design-sources": HARNESS / "ci" / "check-design-sources.py",
+    "hardcoded": HARNESS / "ci" / "check-hardcoded-values.py",
+    "hardcoded-warn": HARNESS / "ci" / "check-hardcoded-values.py",
+    "test-time": HARNESS / "ci" / "check-test-time.py",
+    "prr": HARNESS / "ci" / "check-prr.py",
+    "production-config": HARNESS / "ci" / "check-production-config.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -143,10 +143,10 @@ def main() -> int:
                 subprocess.run(["cargo", "generate-lockfile", "--offline", "--quiet"], cwd=repo, check=True)
             code, lines = run(name, check, repo)
             if kind == "good" and code != 0:
-                failures.append(f"scripts/ci/fixtures/{name}/good:1: 통과해야 할 표본이 걸림(rc={code}): {lines}")
+                failures.append(f"ci/fixtures/{name}/good:1: 통과해야 할 표본이 걸림(rc={code}): {lines}")
             if kind == "bad" and (code != 1 or len(lines) != EXPECTED_BAD[name]):
                 failures.append(
-                    f"scripts/ci/fixtures/{name}/bad:1: 잡아야 할 표본 {EXPECTED_BAD[name]}건 중 {len(lines)}건(rc={code})"
+                    f"ci/fixtures/{name}/bad:1: 잡아야 할 표본 {EXPECTED_BAD[name]}건 중 {len(lines)}건(rc={code})"
                     + "".join(f"\n  {line}" for line in lines)
                 )
     for failure in failures:

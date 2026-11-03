@@ -8,11 +8,12 @@ Linux에는 휴지통이 없어서, 시험이 같은 실행에서 직접 만든 
 - Bash(scripts/·crates/의 *.sh): `rm -r`의 대상은 `"$변수"` 하나여야 하고, 그 변수를 따라가면 값에 `mookko-test`가 있어야 한다.
 - 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-test-tempdirs.py [저장소 루트]  (루트를 주면 표본 폴더를 검사할 수 있음)
+사용: python3 -X utf8 ci/check-test-tempdirs.py [저장소 루트]  (루트를 주면 표본 폴더를 검사할 수 있음)
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -101,7 +102,7 @@ def check_shell(rel: Path, text: str, problems: list[str]) -> None:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     problems: list[str] = []
     scanned = 0
     for base in (root / "crates", root / "acceptance"):  # 인수 시험 실행기도 봄(RustDev 11-03)

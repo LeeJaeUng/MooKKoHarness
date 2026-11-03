@@ -1,4 +1,4 @@
-"""scripts/ci/db 검사의 표본 시험 (docs/policy/conventions/tools.md T-PY-7).
+"""ci/db 검사의 표본 시험 (docs/policy/conventions/tools.md T-PY-7).
 
 잡아야 할 표본은 기대한 규칙 번호로 정확히 잡히고, 통과해야 할 표본은 아무것도 걸리지 않아야 한다.
 - fixtures/migrations/single/*.sql: 머리 `-- expect: 규칙, …` 또는 `(없음)`, 이름이 `ch_`면 ClickHouse 규칙
@@ -167,7 +167,7 @@ class ServiceDdl(unittest.TestCase):
 class EngineFixedEvidence(unittest.TestCase):
     """S-MIG-11 보강: 등록 파일마다 비교 시험이 있어야 하고, 코드로 적용하던 이관 ID를 새 파일로 바꾼 커밋은 등록·SHA가 맞아야 한다."""
 
-    REPO = HERE.parents[2]
+    REPO = paths.product_root()
 
     def test_repository_registry_uses_add_generated(self) -> None:
         registry = json.loads(migration_lint.ENGINE_GENERATED.read_text(encoding="utf-8"))
@@ -255,7 +255,7 @@ class MigrationLockSamples(unittest.TestCase):
 
     def test_repository_lock_is_consistent(self) -> None:
         # 출시한 날에도 깨지지 않게: 실제 목록이 비었는지가 아니라 실제 저장소와 맞는지를 본다.
-        self.assertEqual(migration_lock.check(HERE.parents[2], migration_lock.load()), [])
+        self.assertEqual(migration_lock.check(paths.product_root(), migration_lock.load()), [])
         self.assertIn("historyCheckedSince", migration_lock.load())
 
     def test_locked_unchanged_passes(self) -> None:

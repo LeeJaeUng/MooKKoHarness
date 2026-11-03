@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 시험용 ClickHouse를 Podman(rootless)으로 잠깐 띄우고 명령을 실행한 뒤 지웁니다(with-test-postgres.sh와 같은 방식).
-#   scripts/dev/with-test-clickhouse.sh <명령...>
-# 이미지·주소 같은 설정은 scripts/dev/test-clickhouse.json에서만 읽습니다(코드에 두지 않음).
+#   dev/with-test-clickhouse.sh <명령...>
+# 이미지·주소 같은 설정은 config/dev/test-clickhouse.json에서만 읽습니다(코드에 두지 않음).
 # 명령에는 MOOKKO_TEST_CLICKHOUSE(접속 JSON 경로)와 MOOKKO_REQUIRE_TEST_CLICKHOUSE=1을 넘깁니다.
 # 접속 JSON의 칸은 로그 담당 ClickHouse 어댑터 설정의 connection 모양(host·port·tls·user·passwordFile·database …)을 따릅니다.
 # 데이터는 컨테이너 tmpfs에만 두고, 임시 파일은 ${TMPDIR:-/tmp}/mookko-test/mookko/<실행 번호>/ 아래에 둡니다. 명령이 성공하면
@@ -13,8 +13,8 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SETTINGS="$ROOT/scripts/dev/test-clickhouse.json"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
+SETTINGS="$ROOT/config/dev/test-clickhouse.json"
 RUN_ID="ch-$(date +%Y%m%d%H%M%S)-$$"
 TEST_ROOT="${TMPDIR:-/tmp}/mookko-test/mookko"
 RUN_DIR="$TEST_ROOT/$RUN_ID"
@@ -66,8 +66,8 @@ if [ -n "$stale" ]; then
     echo "경고: 끝나지 않고 남은 시험 컨테이너가 있습니다(지우지 않음, 통합 담당에 알리세요): $(printf '%s ' $stale)" >&2
 fi
 
-# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(scripts/dev/memory-guard.json).
-python3 -X utf8 "$ROOT/scripts/dev/memory-guard.py" open "시험 ClickHouse"
+# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(config/dev/memory-guard.json).
+python3 -X utf8 "$ROOT/dev/memory-guard.py" open "시험 ClickHouse"
 
 podman run -d --rm --name "$NAME" \
     --env-file "$RUN_DIR/env" \

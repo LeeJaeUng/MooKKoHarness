@@ -9,11 +9,12 @@ docs/policy/prr.json의 서비스마다 docs/spec/<서비스>/prr.md를 본다.
   있어야 함)가 아니면 한 건.
 prr.json의 enforce가 false인 동안(QA 관문 1차 경고 단계, 출시 관문 L4 전까지) `경고:`로 내고 0, true면 `파일:줄: 이유`로 1.
 
-사용: python3 -X utf8 scripts/ci/check-prr.py [저장소 루트]
+사용: python3 -X utf8 ci/check-prr.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import json
 import re
 import sys
@@ -77,7 +78,7 @@ def check(root: Path, service: str, problems: list[str]) -> None:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     try:
         policy = json.loads((root / "docs" / "policy" / "prr.json").read_text(encoding="utf-8"))
         enforce, services = policy["enforce"], policy["services"]

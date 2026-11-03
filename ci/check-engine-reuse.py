@@ -10,11 +10,12 @@ crates/services/·crates/apps/ 아래 src/의 *.rs(주석 줄은 뺌, tests/·be
 넘어간다(엔진 것이 들어오면 서비스가 옮기고 경로를 뺌). 예외가 있는데 그 파일에서 그 모양이 사라졌으면 예외를 지우라고
 실패한다. 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-engine-reuse.py [저장소 루트]
+사용: python3 -X utf8 ci/check-engine-reuse.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import json
 import re
 import sys
@@ -80,7 +81,7 @@ def waivers(root: Path) -> dict[str, set[str]]:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     waived = waivers(root)
     problems: list[str] = []
     found: dict[str, set[str]] = {}

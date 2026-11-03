@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # 보안 도구 관문(docs/architecture/host-security.md §6, H-5). check-all에서 돕니다.
-#   1) 도구 판 고정: scripts/dev/security-tools.json의 설치 위치에 있는 실행 파일만 쓰고, SHA256이 다르면 멈춥니다.
+#   1) 도구 판 고정: config/dev/security-tools.json의 설치 위치에 있는 실행 파일만 쓰고, SHA256이 다르면 멈춥니다.
 #   2) 작업 트리 사본: git이 올리는 파일(추적 + 무시되지 않은 새 파일)만 $TMPDIR/mookko-test/rustdev/<실행>/src에 복사해 봅니다.
 #      data/·.claude/ 같은 로컬 파일과 빌드 캐시는 보지 않습니다.
-#   3) gitleaks(비밀값, 예외는 scripts/ci/gitleaks.toml) · OSV-Scanner(lock 파일 취약점) ·
+#   3) gitleaks(비밀값, 예외는 docs/policy/gitleaks.toml(제품)) · OSV-Scanner(lock 파일 취약점) ·
 #      Trivy(취약점·설정 오류·비밀값, HIGH 이상) · cargo-cyclonedx(SBOM이 패키지마다 만들어지는지)
 # 사본 폴더는 이 실행이 만든 것만 성공하면 바로 지우고, 실패하면 원인 확인용으로 남깁니다(CLAUDE.md › WSL 시험 임시 폴더 예외).
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+H="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
+if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then
+    echo "MOOKKO_PRODUCT_ROOT(검사할 제품 저장소)가 없습니다. 제품의 ci/check-all.sh(harness.lock 판)로 부르세요" >&2
+    exit 2
+fi
+cd "$MOOKKO_PRODUCT_ROOT"
 ROOT="$PWD"
-MANIFEST="$ROOT/scripts/dev/security-tools.json"
+MANIFEST="$H/config/dev/security-tools.json"
 
 # 1) 판·해시 확인 뒤 도구 경로를 받습니다(PATH에서 찾지 않음).
 declare -A TOOL
@@ -70,18 +75,18 @@ git ls-files -z -co --exclude-standard \
     | tar --null -T - -cf - | tar -xf - -C "$SRC"
 cd "$SRC"
 
-# 도구가 스스로 찾아 읽는 예외 파일은 옆길이라 두지 않습니다(QA 6b8bdab T3). 예외는 scripts/ci/gitleaks.toml 하나뿐입니다.
+# 도구가 스스로 찾아 읽는 예외 파일은 옆길이라 두지 않습니다(QA 6b8bdab T3). 예외는 docs/policy/gitleaks.toml(제품) 하나뿐입니다.
 side_doors="$(find . -type f \( -name .gitleaksignore -o -name '.trivyignore*' -o -name 'trivy.yaml' -o -name 'trivy.yml' \
     -o -name 'osv-scanner.toml' \) -print)"
 if [ -n "$side_doors" ]; then
-    echo "보안 도구 예외 파일은 두지 않습니다. 예외는 scripts/ci/gitleaks.toml에 사유와 함께 적으세요:" >&2
+    echo "보안 도구 예외 파일은 두지 않습니다. 예외는 docs/policy/gitleaks.toml(제품)에 사유와 함께 적으세요:" >&2
     printf '%s\n' "$side_doors" >&2
     exit 1
 fi
 
 echo "-- gitleaks"
 # 코드 안 gitleaks:allow 주석도 예외 옆길이라 무시합니다.
-"${TOOL[gitleaks]}" dir . --config "$ROOT/scripts/ci/gitleaks.toml" --ignore-gitleaks-allow --no-banner --redact \
+"${TOOL[gitleaks]}" dir . --config "$ROOT/docs/policy/gitleaks.toml" --ignore-gitleaks-allow --no-banner --redact \
     --exit-code 1 --log-level warn
 
 echo "-- osv-scanner"

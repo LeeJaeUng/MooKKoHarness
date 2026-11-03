@@ -2,10 +2,10 @@
 
 판정 기준(설정 source): WSL 안이면 Windows 전체 사용률로 한다. WSL VM 안의 /proc/meminfo는 page cache 때문에
 Windows가 보는 vmmemWSL 크기와 다르므로 판정에 쓰지 않는다(기록용으로만 봄). WSL이 아닌 Linux(내부 시험 서버,
-deploy-containers §11)이면 그 기계의 /proc/meminfo(MemAvailable)로 한다. 설정은 scripts/dev/memory-guard.json.
+deploy-containers §11)이면 그 기계의 /proc/meminfo(MemAvailable)로 한다. 설정은 config/dev/memory-guard.json.
 powershell.exe·wsl.exe 위치는 기계마다 달라 저장소에 적지 않는다: 환경 변수 MOOKKO_POWERSHELL·MOOKKO_WSL_EXE →
 data/dev-machine.json의 memoryGuard.powershell·wslExe → PATH → /mnt/<드라이브>/ 아래 Windows 기본 위치 순으로 찾는다
-(scripts/dev/machine.py, PM 2026-11-03 "하드코딩으로 경로같은거").
+(dev/machine.py, PM 2026-11-03 "하드코딩으로 경로같은거").
 
   memory-guard.py slots <자리 수>
                                 빌드 자리를 잡기 전. hard 이상이면 resume 미만이 될 때까지 기다린다. soft 이상이면
@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import machine  # noqa: E402  (같은 폴더의 도우미)
 
-SETTINGS = Path(__file__).resolve().with_name("memory-guard.json")
+SETTINGS = Path(__file__).resolve().parents[1] / "config" / "dev" / "memory-guard.json"
 
 
 def load() -> dict:

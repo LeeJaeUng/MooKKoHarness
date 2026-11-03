@@ -14,7 +14,7 @@ WSL이 입출력 오류로 멈춰 모든 세션의 빌드·검사가 막혔다. 
 - 그와 따로 C 드라이브 실제 남은 공간이 minFreeGiB보다 적으면 막는다. 안쪽 빈 곳은 가상 디스크만 다시 쓸 수 있어서,
   Windows 쪽 다른 쓰기나 가상 디스크 메타데이터가 C 드라이브를 0으로 만드는 것은 막지 못한다(2026-11-02 여유 49.2GiB로
   셌는데 실제 C 드라이브는 0.2GB였음).
-기준은 scripts/dev/disk-guard.json에서만 읽는다. `--dry-run`이면 지우지 않고 무엇을 지울지만 보인다.
+기준은 config/dev/disk-guard.json에서만 읽는다. `--dry-run`이면 지우지 않고 무엇을 지울지만 보인다.
 """
 
 from __future__ import annotations
@@ -28,8 +28,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-SETTINGS = ROOT / "scripts" / "dev" / "disk-guard.json"
+SETTINGS = Path(__file__).resolve().parents[1] / "config" / "dev" / "disk-guard.json"  # 하네스 설정
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import machine  # noqa: E402  (같은 폴더의 도우미)
 GIB = 1024**3
@@ -251,7 +250,7 @@ def stamp(settings: dict) -> None:
 def resolve_host(host: dict) -> None:
     """기계 전용 경로를 저장소 설정에 두지 않는다(PM 2026-11-03). vhdx는 본 체크아웃 기준 상대 경로이고,
     host.path가 비었으면 그 vhdx가 든 드라이브의 마운트 위치로 본다. data/dev-machine.json의 diskGuard.vhdx·hostPath가 있으면
-    그것을 쓴다(scripts/dev/machine.py)."""
+    그것을 쓴다(dev/machine.py)."""
     host["vhdx"] = str(machine.local("diskGuard.vhdx") or machine.repo_path(host["vhdx"]))
     host["path"] = str(machine.local("diskGuard.hostPath") or host.get("path") or machine.mount_point(Path(host["vhdx"]).parent))
 

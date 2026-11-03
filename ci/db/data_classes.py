@@ -21,13 +21,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402  (같은 폴더)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import migration_lint  # noqa: E402
 import pending  # noqa: E402
 import sqltext  # noqa: E402
 from sqltext import IDENT, QNAME, paren_body, parse_qname, split_top_level  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = paths.product_root()
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 
 ALLOWED: dict[str, set[str]] = {

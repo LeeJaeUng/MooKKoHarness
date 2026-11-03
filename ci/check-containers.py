@@ -38,11 +38,12 @@
     남게, deploy-containers.md §7′. 칸이 없으면 기본값 Delete라 실패)
 YAML 해석기 없이 들여쓰기로만 읽는다(표준 라이브러리만, tools.md). 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-containers.py [저장소 루트]
+사용: python3 -X utf8 ci/check-containers.py [저장소 루트]
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -59,7 +60,7 @@ def files(root: Path):
             continue
         name = path.name
         if name.endswith(".txt"):
-            continue  # 하네스 표본(scripts/ci/fixtures, 이름 끝 .txt)은 실제 설정이 아님
+            continue  # 하네스 표본(ci/fixtures, 이름 끝 .txt)은 실제 설정이 아님
         if name == "Dockerfile" or name.startswith("Dockerfile.") or name.endswith(".Dockerfile"):
             yield "dockerfile", path, rel
         elif re.fullmatch(r"(docker-)?compose[\w.-]*\.ya?ml", name):
@@ -452,7 +453,7 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     problems: list[str] = []
     counts = {"dockerfile": 0, "compose": 0, "kubernetes": 0}
     namespaces: dict[str, str] = {}

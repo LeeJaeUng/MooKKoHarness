@@ -6,14 +6,15 @@ WSL을 mirrored 네트워크로 바꾸면 WSL 안에서 모든 주소(0.0.0.0)�
 - Bash(scripts/·crates/의 *.sh): podman·docker의 run·create·pod create에서
   - `-p`/`--publish` 값은 `127.0.0.1:`·`[::1]:`이나 `"$BIND_HOST` 변수(설정 json의 bindHost)로 시작해야 한다.
   - `-P`/`--publish-all`, `--network host`/`--net host`(= 붙여 쓴 것 포함)는 금지.
-- JSON(scripts/dev/*.json): `bindHost`는 `127.0.0.1`이나 `::1`이어야 한다.
+- JSON(dev/*.json): `bindHost`는 `127.0.0.1`이나 `::1`이어야 한다.
 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
-사용: python3 -X utf8 scripts/ci/check-dev-exposure.py [저장소 루트]  (루트를 주면 표본 폴더를 검사할 수 있음)
+사용: python3 -X utf8 ci/check-dev-exposure.py [저장소 루트]  (루트를 주면 표본 폴더를 검사할 수 있음)
 """
 
 from __future__ import annotations
 
+import os
 import json
 import re
 import shlex
@@ -108,7 +109,7 @@ def check_json(rel: Path, text: str, problems: list[str]) -> None:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     problems: list[str] = []
     scanned = 0
     for base in (root / "scripts", root / "crates"):

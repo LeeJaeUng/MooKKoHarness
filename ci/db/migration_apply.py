@@ -1,7 +1,7 @@
 """이관 실제 적용 시험 (docs/policy/conventions/sql.md S-MIG-8·S-MIG-3·S-BND-2·S-MONEY-2, database.md §2·§7).
 
 글로 읽는 검사(migration_lint.py)가 놓치는 것 — 문법 오류, 트랜잭션 안의 CONCURRENTLY, 계정·주인, 실제로 생긴 형식, 막기 함수 — 를
-시험용 PostgreSQL(scripts/dev/with-test-postgres.sh, 접속 JSON은 MOOKKO_TEST_POSTGRES)에서 엔진 이관기와 같은 길로 확인한다.
+시험용 PostgreSQL(dev/with-test-postgres.sh, 접속 JSON은 MOOKKO_TEST_POSTGRES)에서 엔진 이관기와 같은 길로 확인한다.
 서비스 `migrations/` 폴더마다:
 1. DB 준비 스크립트처럼 새 DB와 계정을 만든다: 주인 `<스키마>_owner`(로그인 없음), 이관 `_migrate`(주인의 구성원), `_app`·`_ro`·`_recon`·`_maint`.
    스키마는 `AUTHORIZATION <스키마>_owner`(database.md §2.2, engine.md 이관 단계).
@@ -519,7 +519,7 @@ def engine_migrate(
     access: data_classes.ReaderAccess, problems: list[str],
 ) -> bool:
     """이관 설정 예시의 접속만 시험 DB로 바꿔 `<실행 파일> migrate --config`를 돌린다. 임시 설정·암호 파일은 시험 DB 감싸기
-    (`scripts/dev/with-test-postgres.sh`)의 실행 폴더 안에 두어, 감싸기가 끝날 때 함께 치운다."""
+    (`dev/with-test-postgres.sh`)의 실행 폴더 안에 두어, 감싸기가 끝날 때 함께 치운다."""
     work = Path(os.environ["MOOKKO_TEST_POSTGRES"]).resolve().parent / f"dbcheck-{database}"
     work.mkdir(mode=0o700)
     secret = work / "migrate-password.txt"
@@ -666,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config()
     if config is None:
         if os.environ.get("MOOKKO_REQUIRE_TEST_POSTGRES") == "1":
-            print("migration apply failed: MOOKKO_TEST_POSTGRES가 없음(scripts/dev/with-test-postgres.sh 안에서 실행)")
+            print("migration apply failed: MOOKKO_TEST_POSTGRES가 없음(dev/with-test-postgres.sh 안에서 실행)")
             return 1
         print("migration apply 건너뜀(통과 아님): MOOKKO_TEST_POSTGRES가 없음")
         return 0

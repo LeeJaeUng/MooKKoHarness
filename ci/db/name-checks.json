@@ -1,4 +1,0 @@
-{
-  "_doc": "이름 종류별 SQL CHECK 글(S-NAME-2, qa-design XC-D5). check는 엔진 C3 mookko_core::names::NameKind::sql_check(sample_column)의 출력 그대로, sha256은 그 글의 SHA-256, columns는 그 종류 열 이름의 정규식, source는 엔진 커밋. 엔진 C3 전에는 비어 있음. 목록은 DB 담당만 고친다. 규칙: scripts/ci/db/name_rules.py",
-  "kinds": []
-}

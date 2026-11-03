@@ -9,12 +9,13 @@ acceptance/services.json의 서비스마다 acceptance/runs/<id>/*.json 실행 �
 - 형식이 틀린 기록, services.json에 없는 runs 폴더, services.json 칸 오류는 enforce와 상관없이 실패.
 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다. 경고는 `경고:`로 시작한다.
 
-사용: python3 -X utf8 scripts/ci/check-acceptance.py [저장소 루트]
+사용: python3 -X utf8 ci/check-acceptance.py [저장소 루트]
 """
 
 from __future__ import annotations
 
 import datetime
+import os
 import json
 import re
 import subprocess
@@ -61,7 +62,7 @@ def read_run(root: Path, path: Path, service: str, problems: list[str]) -> dict 
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     plan_path = root / "acceptance" / "services.json"
     problems: list[str] = []
     warnings: list[str] = []

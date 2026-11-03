@@ -3,7 +3,12 @@
 # 이 PC에서는 WSL 배포판 MooKKo-Linux에서 돌립니다(README › 검사).
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+H="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
+if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then
+    echo "MOOKKO_PRODUCT_ROOT(검사할 제품 저장소)가 없습니다. 제품의 scripts/ci/check-all.sh(harness.lock 판)로 부르세요" >&2
+    exit 2
+fi
+cd "$MOOKKO_PRODUCT_ROOT"
 
 # 로그인 셸이 아니면 rustup이 PATH에 cargo를 넣지 않습니다(WSL에서 bash -c로 부를 때).
 if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
@@ -25,11 +30,11 @@ if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
     esac
 fi
 
-# 빌드 자리: 여러 세션이 동시에 돌리면 WSL 메모리가 모자라 연결이 끊깁니다(2026-10-30). scripts/dev/build-slots.json의
+# 빌드 자리: 여러 세션이 동시에 돌리면 WSL 메모리가 모자라 연결이 끊깁니다(2026-10-30). config/dev/build-slots.json의
 # 자리 수만큼만 동시에 돌고 나머지는 기다립니다. 잠금은 이 프로세스와 자식(시험용 DB 감싸기 포함)이 끝나면 풀립니다.
 if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     slot_setting() {
-        python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' scripts/dev/build-slots.json "$1"
+        python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' "$H/config/dev/build-slots.json" "$1"
     }
     SLOT_DIR="$(slot_setting dir)"
     SLOT_COUNT="$(slot_setting count)"
@@ -38,7 +43,7 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(slot_setting jobs)}"
     export MOOKKO_BASE_JOBS="$CARGO_BUILD_JOBS"
     mkdir -p "$SLOT_DIR"
-    # scripts/dev/build-slots.sh close가 자리를 닫는 중이거나 닫았으면 새로 잡지 않습니다(QA 6b8bdab T4).
+    # dev/build-slots.sh close가 자리를 닫는 중이거나 닫았으면 새로 잡지 않습니다(QA 6b8bdab T4).
     slots_closing() {
         local word pid
         read -r word pid _ < "$SLOT_DIR/close-state" 2>/dev/null || return 1
@@ -60,7 +65,7 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
         # "빌드는 작업다하고 돌리는게 맞지 않아?", PM 전달). 자리를 잡은(done) run은 건드리지 않습니다.
         # pid가 다른 프로세스에 다시 쓰였을 수 있으므로, 같은 worktree에서 도는 check-all일 때만 끕니다.
         if [ -n "$t_pid" ] && [ "$t_pid" != "$$" ] && kill -0 "$t_pid" 2>/dev/null \
-            && tr '\0' ' ' < "/proc/$t_pid/cmdline" 2>/dev/null | grep -q "scripts/ci/check-all.sh" \
+            && tr '\0' ' ' < "/proc/$t_pid/cmdline" 2>/dev/null | grep -q "ci/check-all.sh" \
             && [ "$(readlink "/proc/$t_pid/cwd" 2>/dev/null)" = "$PWD" ]; then
             echo "== 같은 worktree에서 자리를 기다리던 옛 run(pid $t_pid)을 끝내고 그 차례를 이어받습니다"
             kill -TERM "$t_pid" 2>/dev/null || true
@@ -90,8 +95,8 @@ PY
     announced=""
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
         # PC 메모리 관문(사용자 2026-11-03 "램 90%이하로 만 먹어야해"): Windows 전체 사용률이 hard 이상이면 내려갈 때까지
-        # 기다리고, soft 이상이면 자리를 1개만 씁니다(scripts/dev/memory-guard.json).
-        usable="$(python3 -X utf8 scripts/dev/memory-guard.py slots "$SLOT_COUNT")"
+        # 기다리고, soft 이상이면 자리를 1개만 씁니다(config/dev/memory-guard.json).
+        usable="$(python3 -X utf8 "$H/dev/memory-guard.py" slots "$SLOT_COUNT")"
         rank="$(queue_rank)"
         if ! slots_closing && [ "$rank" -lt "$usable" ]; then
             for i in $(seq 1 "$usable"); do
@@ -148,27 +153,27 @@ PY
 fi
 
 # 자기 캐시가 폴더 한도를 넘으면 자기 것만 지우고 새로 빌드하고, 여유가 모자라면 24시간 넘은 남의 캐시부터 지우고, 그래도 모자라면 빌드를 시작하지 않습니다
-# (2026-10-30 C 드라이브 0 사고 뒤, scripts/dev/disk-guard.py).
+# (2026-10-30 C 드라이브 0 사고 뒤, dev/disk-guard.py).
 if [ -z "${MOOKKO_DISK_GUARD_DONE:-}" ]; then
-    python3 -X utf8 scripts/dev/disk-guard.py
+    python3 -X utf8 "$H/dev/disk-guard.py"
     export MOOKKO_DISK_GUARD_DONE=1
 fi
 
 # 저장소 어댑터 시험은 실제 PostgreSQL에 붙습니다. 접속 설정(MOOKKO_TEST_POSTGRES)이 없으면
 # Podman으로 시험용 PostgreSQL을 잠깐 띄우고 그 안에서 이 검사를 다시 실행합니다(끝나면 지움).
 if [ -z "${MOOKKO_TEST_POSTGRES:-}" ]; then
-    exec scripts/dev/with-test-postgres.sh scripts/ci/check-all.sh "$@"
+    exec "$H/dev/with-test-postgres.sh" "$H/ci/check-all.sh" "$@"
 fi
 export MOOKKO_REQUIRE_TEST_POSTGRES=1
 
 # 빌드 중에는 메모리 사용률을 30초마다 기록하고 soft 이상이면 WSL page cache를 비웁니다. 끝날 때 최고값을 남깁니다.
-python3 -X utf8 scripts/dev/memory-guard.py watch &
+python3 -X utf8 "$H/dev/memory-guard.py" watch &
 MEMORY_WATCH=$!
 trap 'kill "$MEMORY_WATCH" 2>/dev/null || true; wait "$MEMORY_WATCH" 2>/dev/null || true' EXIT
 
 # 단계마다 시작 전에 메모리를 봅니다: hard 이상이면 내려갈 때까지 기다리고, soft 이상이면 cargo 작업 수를 줄입니다.
 run() {
-    CARGO_BUILD_JOBS="$(python3 -X utf8 scripts/dev/memory-guard.py step "$1" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
+    CARGO_BUILD_JOBS="$(python3 -X utf8 "$H/dev/memory-guard.py" step "$1" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
     export CARGO_BUILD_JOBS
     echo "== $* (jobs $CARGO_BUILD_JOBS)"
     "$@"
@@ -179,26 +184,26 @@ run cargo clippy --workspace --all-targets --all-features --locked -- -D warning
 run cargo test --workspace --all-features --locked
 run cargo deny --locked check
 run cargo audit --deny warnings
-run scripts/ci/check-security-tools.sh
-run scripts/ci/check-public-api.sh
-run python3 -X utf8 scripts/ci/check-forbid-unsafe.py
-run python3 -X utf8 scripts/ci/check-boundaries.py
-run python3 -X utf8 scripts/ci/check-no-hardcoded-endpoints.py
-run python3 -X utf8 scripts/ci/check-stack.py
-run python3 -X utf8 scripts/ci/check-lint-escapes.py
-run python3 -X utf8 scripts/ci/check-test-tempdirs.py
-run python3 -X utf8 scripts/ci/check-dev-exposure.py
-run python3 -X utf8 scripts/ci/check-containers.py
-run python3 -X utf8 scripts/ci/check-file-size.py
-run python3 -X utf8 scripts/ci/check-engine-reuse.py
-run python3 -X utf8 scripts/ci/test_ci_checks.py
-run python3 -X utf8 scripts/ci/check-acceptance.py
-run python3 -X utf8 scripts/ci/check-design-sources.py
-run python3 -X utf8 scripts/ci/check-hardcoded-values.py
-run python3 -X utf8 scripts/ci/check-test-time.py
-run python3 -X utf8 scripts/ci/check-prr.py
-run python3 -X utf8 scripts/ci/check-production-config.py
-run python3 -X utf8 scripts/ci/check-waivers.py
-run python3 -X utf8 scripts/ci/check-systemd-units.py
-run scripts/ci/db/check-db.sh
+run "$H/ci/check-security-tools.sh"
+run "$H/ci/check-public-api.sh"
+run python3 -X utf8 "$H/ci/check-forbid-unsafe.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-boundaries.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-no-hardcoded-endpoints.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-stack.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-lint-escapes.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-test-tempdirs.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-dev-exposure.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-containers.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-file-size.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-engine-reuse.py" "$PWD"
+run python3 -X utf8 "$H/ci/test_ci_checks.py"
+run python3 -X utf8 "$H/ci/check-acceptance.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-design-sources.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-hardcoded-values.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-test-time.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-prr.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-production-config.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-waivers.py" "$PWD"
+run python3 -X utf8 "$H/ci/check-systemd-units.py" "$PWD"
+run "$H/ci/db/check-db.sh"
 echo "== all checks passed"
