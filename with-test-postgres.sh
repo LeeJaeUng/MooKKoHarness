@@ -3,7 +3,8 @@
 #   scripts/dev/with-test-postgres.sh <명령...>
 # 이미지·주소 같은 설정은 scripts/dev/test-postgres.json에서만 읽습니다(코드에 두지 않음).
 # 명령에는 MOOKKO_TEST_POSTGRES(접속 JSON 경로)와 MOOKKO_REQUIRE_TEST_POSTGRES=1을 넘깁니다.
-# 데이터는 컨테이너 tmpfs에만 두고, 임시 파일은 ${TMPDIR:-/tmp}/mookko-test/mookko/<실행 번호>/ 아래에 두었다가 바로 지웁니다.
+# 데이터는 컨테이너 tmpfs에만 두고, 임시 파일은 ${TMPDIR:-/tmp}/mookko-test/mookko/<실행 번호>/ 아래에 둡니다. 명령이 성공하면
+# 이 실행이 만든 그 폴더만 바로 지우고, 실패하면 원인 확인용으로 남깁니다(CLAUDE.md › WSL 시험 임시 폴더 예외, 2026-11-02).
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -14,7 +15,9 @@ fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SETTINGS="$ROOT/scripts/dev/test-postgres.json"
 RUN_ID="pg-$(date +%Y%m%d%H%M%S)-$$"
-RUN_DIR="${TMPDIR:-/tmp}/mookko-test/mookko/$RUN_ID"
+TEST_ROOT="${TMPDIR:-/tmp}/mookko-test/mookko"
+RUN_DIR="$TEST_ROOT/$RUN_ID"
+RUN_DIR_MADE=""
 NAME="mookko-test-$RUN_ID"
 
 setting() {
@@ -22,13 +25,23 @@ setting() {
 }
 
 cleanup() {
+    local status=$?
     podman rm -f -t 2 "$NAME" >/dev/null 2>&1 || true
-    rm -rf "$RUN_DIR"
+    # 지우는 것은 이 실행이 mkdir로 직접 만든 RUN_DIR 하나뿐입니다(남이 만든 폴더·그 밖의 경로는 건드리지 않음).
+    if [ -z "$RUN_DIR_MADE" ]; then
+        return
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "FAILED (exit $status): test folder kept for diagnosis: $RUN_DIR" >&2
+        return
+    fi
+    rm -rf -- "$RUN_DIR"
 }
 trap cleanup EXIT
 
-mkdir -p "$RUN_DIR"
-chmod 700 "$RUN_DIR"
+mkdir -p "$TEST_ROOT"
+mkdir -m 700 "$RUN_DIR"
+RUN_DIR_MADE=1
 python3 -I -c 'import secrets; print(secrets.token_hex(24))' > "$RUN_DIR/password"
 chmod 600 "$RUN_DIR/password"
 
