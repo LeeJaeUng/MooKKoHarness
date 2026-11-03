@@ -1,0 +1,16 @@
+{
+  "image": "docker.io/clickhouse/clickhouse-server:26.8.36.3",
+  "bindHost": "127.0.0.1",
+  "containerHttpPort": 8123,
+  "database": "mookko_test",
+  "user": "mookko_test",
+  "tmpfsSize": "2g",
+  "readyTimeoutSeconds": 90,
+  "connection": {
+    "tls": { "mode": "disable" },
+    "connectTimeoutMs": 2000,
+    "maxConcurrentQueries": 8,
+    "maxResponseBytes": 67108864,
+    "workload": "test"
+  }
+}

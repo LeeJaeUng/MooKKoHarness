@@ -1,0 +1,17 @@
+{
+  "note": "PC 물리 메모리 관문(scripts/dev/memory-guard.py). 사용자 2026-11-03 \"램 90%이하로 만 먹어야해\"(PM 전달). 판정은 source: auto면 WSL 안에서는 Windows 전체 사용률(WSL VM 안 /proc/meminfo는 page cache 때문에 Windows가 보는 vmmemWSL 크기와 다름), WSL이 아닌 Linux(내부 시험 서버)에서는 그 기계 사용률. powershell.exe·wsl.exe 위치는 기계마다 달라 여기 적지 않고 환경 변수·data/dev-machine.json·PATH·드라이브 아래 기본 위치(underDrive) 순으로 찾음(memory-guard.py). softPercent 이상이면 WSL page cache를 비우고, 빌드 자리를 1개만 쓰고(PM 11-03), cargo 작업 수를 reducedJobs로 줄임. hardPercent 이상이면 resumePercent 아래로 내려갈 때까지 새 단계를 시작하지 않음(돌던 단계는 끝까지 둠). maxWaitMinutes를 넘기면 실패로 멈춤.",
+  "softPercent": 85,
+  "hardPercent": 90,
+  "resumePercent": 85,
+  "pollSeconds": 30,
+  "maxWaitMinutes": 180,
+  "reducedJobs": 2,
+  "dropCacheMinSeconds": 60,
+  "dropCacheStamp": "~/.local/state/mookko/memory-guard-drop-cache",
+  "source": "auto",
+  "windowsExe": {
+    "powershell": { "name": "powershell.exe", "underDrive": "Windows/System32/WindowsPowerShell/v1.0/powershell.exe" },
+    "wslExe": { "name": "wsl.exe", "underDrive": "Windows/System32/wsl.exe" }
+  },
+  "distro": "MooKKo-Linux"
+}

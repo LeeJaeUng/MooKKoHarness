@@ -1,0 +1,10 @@
+{
+  "note": "check-all 동시 실행 상한(빌드 자리). 2026-10-30 여러 세션이 동시에 빌드해 WSL 메모리(상한 12GB)와 Windows 메모리가 모자라 WSL 연결이 시간 초과로 끊긴 뒤 정함. 자리가 없으면 날 때까지 기다림.",
+  "count": 2,
+  "jobs": 4,
+  "pollSeconds": 10,
+  "maxWaitMinutes": 180,
+  "dir": "~/.local/state/mookko/build-slots",
+  "targetRoot": "~/target",
+  "targetNote": "빌드 캐시는 자리마다 하나(<targetRoot>/slot-<n>), worktree끼리 나눠 씀. check-all이 CARGO_TARGET_DIR를 이 값으로 바꾸고 CARGO_INCREMENTAL=0(2026-11-02 세션별 캐시 8개·약 100GB로 C 드라이브 바닥)."
+}

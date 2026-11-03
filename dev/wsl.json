@@ -1,0 +1,5 @@
+{
+  "note": "Windows 쪽에서 WSL을 부를 때의 설정(scripts/dev/wsl-run.sh·wsl-pause.sh). 2026-11-02 PM이 WSL 디스크(vhdx)를 압축하는 동안 다른 세션이 wsl을 불러 WSL이 다시 켜져 압축이 두 번 실패한 뒤 정함. pauseMarker 파일의 첫 낱말이 paused이면 wsl-run.sh는 WSL을 켜지 않고 75로 끝남(다시 시도하지 않음). 표지는 모든 worktree가 같이 보도록 본 체크아웃의 data\\(git 제외)에 둠. 경로는 본 체크아웃 기준 상대 경로(기계 전용 절대 경로를 커밋하지 않음, PM 2026-11-03).",
+  "distro": "MooKKo-Linux",
+  "pauseMarker": "data/wsl-pause.txt"
+}
