@@ -725,6 +725,20 @@ def column_types(sql: str, dialect: str, schema: str | None) -> list[tuple[str, 
     return out
 
 
+DROP_TABLE = re.compile(rf"^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?({QNAME}(?:\s*,\s*{QNAME})*)", re.I)
+
+
+def dropped_tables(directory: Path) -> set[str]:
+    """그 폴더 이관이 `DROP TABLE`로 지운 표(좁히기 contract). 지운 표는 덧붙이기만 지정·등급 대조에서 뺀다(links 0024 audit_records)."""
+    out: set[str] = set()
+    for path in sorted(directory.glob("*.sql")):
+        for st in sqltext.split(path.read_text(encoding="utf-8")).statements:
+            m = DROP_TABLE.match(st.text)
+            if m:
+                out.update(parse_qname(name)[1] for name in m.group(1).split(","))
+    return out
+
+
 def partitioned_parents(sql: str, schema: str | None) -> list[str]:
     """이관 글이 만드는 파티션 부모 표(`PARTITION BY`)."""
     lint = FileLint("", sqltext.split(sql), "postgres", schema, outside_transaction(sql))
@@ -1249,8 +1263,11 @@ def lint_embedded(root: Path, registry: dict | None = None) -> list[Finding]:
                         )
                     )
         schema = crate.name
+        dropped = dropped_tables(crate / "migrations")
         for path in files.values():
             for table in created_tables(path.read_text(encoding="utf-8"), "postgres", schema):
+                if table in dropped:
+                    continue  # 뒤 contract 이관이 지운 표: 이관기 append_only 목록에 두면 엔진 grant가 없는 표에 실패함
                 if APPEND_ONLY.search(table) and (f'"{table}"' not in all_text or "append_only" not in all_text):
                     findings.append(
                         Finding(path.relative_to(root).as_posix(), 1, "S-MONEY-2", f"덧붙이기만 하는 `{table}`을 서비스 이관기에서 `append_only`로 지정하지 않음(엔진 grant가 UPDATE·DELETE를 줌)")
