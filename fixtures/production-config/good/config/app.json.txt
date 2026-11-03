@@ -1,0 +1,10 @@
+{
+  "app": { "id": "x", "environment": "production" },
+  "server": { "security": { "staffSessions": { "absoluteLifetimeMs": 43200000, "idleTimeoutMs": 900000 } } },
+  "rpc": { "server": { "staffRecentMfa": { "windowMs": 600000, "futureSkewMs": 5000 } } },
+  "adapters": {
+    "keyVault": { "kind": "kms" },
+    "staffLogin": { "kind": "oidc", "requireMfa": true },
+    "databases": { "x": { "write": { "tls": { "mode": "verifyFull" } } } }
+  }
+}

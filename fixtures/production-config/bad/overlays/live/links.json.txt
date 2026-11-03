@@ -1,0 +1,1 @@
+{ "adapters": { "objects": { "kind": "file" }, "staffLogin": { "kind": "oidc", "requireMfa": false } } }

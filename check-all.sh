@@ -191,6 +191,7 @@ run python3 -X utf8 scripts/ci/check-design-sources.py
 run python3 -X utf8 scripts/ci/check-hardcoded-values.py
 run python3 -X utf8 scripts/ci/check-test-time.py
 run python3 -X utf8 scripts/ci/check-prr.py
+run python3 -X utf8 scripts/ci/check-production-config.py
 run python3 -X utf8 scripts/ci/check-waivers.py
 run python3 -X utf8 scripts/ci/check-systemd-units.py
 run scripts/ci/db/check-db.sh
