@@ -20,6 +20,9 @@
     (비밀값은 읽기 전용 파일로)
   - 컨테이너마다: image 다이제스트 고정, resources.requests·limits의 cpu·memory. 오래 도는 것(Deployment·StatefulSet·
     DaemonSet)의 containers는 readinessProbe·livenessProbe도
+  - 멀티 AZ(live-gap A5, deploy-containers §3): Deployment·StatefulSet은 topologySpreadConstraints에 topologyKey
+    topology.kubernetes.io/zone·maxSkew 1, spec.replicas를 적었으면 MIN_REPLICAS 이상. HorizontalPodAutoscaler는
+    minReplicas가 MIN_REPLICAS 이상(없으면 기본 1이라 실패). AZ 3개에 하나씩, AZ 하나를 잃어도 버티는 수
   - Service: type NodePort·LoadBalancer 금지(바깥은 라우터·Gateway만)
   - Namespace: 라벨 pod-security.kubernetes.io/enforce: restricted, 같은 저장소에 그 네임스페이스의 기본 차단
     NetworkPolicy(podSelector: {}, policyTypes에 Ingress·Egress, 허용 규칙 없음)
@@ -180,6 +183,8 @@ def _in_ports(body: list[tuple[int, str]], no: int) -> bool:
 
 WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"}
 LONG_RUNNING = {"Deployment", "StatefulSet", "DaemonSet"}
+ZONE_SPREAD = {"Deployment", "StatefulSet"}
+MIN_REPLICAS = 3  # AZ 3개에 하나씩(deploy-containers §3 멀티 AZ, PM 대행 2026-11-03)
 K8S_API_CLIENT = re.compile(r"mookko\.dev/kubernetes-api-client:\s*\"?true\"?")
 
 
@@ -295,6 +300,15 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         (r"^type:\s*Unconfined\b", "seccomp·AppArmor를 끄지 않습니다"),
         (r"^secretKeyRef:", "비밀값을 환경 변수로 넘기지 않습니다(읽기 전용 파일로)"),
     ]
+    if kind in ZONE_SPREAD:
+        spread = section(doc, "topologySpreadConstraints")
+        if not (re.search(r"topologyKey:\s*\"?topology\.kubernetes\.io/zone\b", spread)
+                and re.search(r"maxSkew:\s*1\b", spread)):
+            problems.append(f"{rel}:{start}: {label}에 zone 분산(topologySpreadConstraints topologyKey "
+                            f"topology.kubernetes.io/zone, maxSkew: 1)이 없습니다(멀티 AZ)")
+        m = re.search(r"^  replicas:\s*(\d+)", doc, re.MULTILINE)
+        if m and int(m.group(1)) < MIN_REPLICAS:
+            problems.append(f"{rel}:{start}: {label}: replicas {m.group(1)}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
     for offset, line in enumerate(lines):
         s = line.strip()
         for pattern, message in forbid:
@@ -330,6 +344,11 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         label = f"{kind} {name}"
         if kind in WORKLOADS:
             check_workload(rel, start, lines, kind, label, problems)
+        elif kind == "HorizontalPodAutoscaler":
+            m = re.search(r"^\s+minReplicas:\s*(\d+)", doc, re.MULTILINE)
+            if not m or int(m.group(1)) < MIN_REPLICAS:
+                found = m.group(1) if m else "없음(기본 1)"
+                problems.append(f"{where}: {label}: minReplicas {found}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
         elif kind == "Service":
             m = re.search(r"^\s+type:\s*\"?(NodePort|LoadBalancer)\b", doc, re.MULTILINE)
             if m:
