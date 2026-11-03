@@ -921,6 +921,71 @@ def service_doc_lines(root: Path, service: str | None) -> list[str]:
     return lines
 
 
+CHECK_OPEN = re.compile(r"\bCHECK\s*\(", re.I)
+SCHEMA_CALL = re.compile(rf"({IDENT})\s*\.\s*({IDENT})\s*\(")
+ONLY_ADD_CONSTRAINT = re.compile(rf"^ALTER\s+TABLE\s+ONLY\s+({QNAME})\s+ADD\s+CONSTRAINT\b", re.I)
+CREATE_FUNCTION = re.compile(rf"^CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+({QNAME})", re.I)
+ALTER_FUNCTION = re.compile(rf"^ALTER\s+FUNCTION\s+({QNAME})\s*\(", re.I)
+
+
+def check_bodies(text: str) -> list[str]:
+    """문장 안의 `CHECK (…)` 본문들."""
+    out: list[str] = []
+    for m in CHECK_OPEN.finditer(text):
+        body, _ = paren_body(text, m.end() - 1)
+        out.append(body)
+    return out
+
+
+def constraint_function_findings(root: Path, directory: Path, schema: str | None) -> list[Finding]:
+    """폴더 단위(앞 파일에서 만든 것도 봄):
+    - S-MIG-2: 파티션 부모 표에 `ALTER TABLE ONLY … ADD CONSTRAINT` 금지(PostgreSQL 18이 42P16으로 거부, database.md §7.2).
+    - S-BND-6: CHECK가 부르는 자기 스키마 함수는 이관에서 만든 것이고 `IMMUTABLE`·`SET search_path`가 있어야 함(행마다 같은 답이어야
+      제약이 뜻이 있고, search_path로 다른 함수를 끼워 넣지 못하게). 이미 커밋한 함수는 뒤 이관의 `ALTER FUNCTION … SET search_path`로
+      고칠 수 있으므로, 판정은 폴더 끝의 함수 상태로 한다."""
+    findings: list[Finding] = []
+    parents: set[str] = set()
+    functions: dict[str, tuple[bool, bool]] = {}
+    calls: list[tuple[str, int, str]] = []
+    own = {SCHEMA_PLACEHOLDER} | ({schema.lower()} if schema else set())
+    for path in sorted(p for p in directory.glob("*.sql") if FILE_NAME.match(p.name)):
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8")
+        for st in sqltext.split(text).statements:
+            fn = CREATE_FUNCTION.match(st.text)
+            if fn:
+                functions[parse_qname(fn.group(1))[1]] = (
+                    bool(re.search(r"\bIMMUTABLE\b", st.text, re.I)),
+                    bool(re.search(r"\bSET\s+search_path\b", st.text, re.I)),
+                )
+                continue
+            altered = ALTER_FUNCTION.match(st.text)
+            if altered:
+                name = parse_qname(altered.group(1))[1]
+                immutable, search_path = functions.get(name, (False, False))
+                functions[name] = (
+                    immutable or bool(re.search(r"\bIMMUTABLE\b", st.text, re.I)),
+                    search_path or bool(re.search(r"\bSET\s+search_path\b", st.text, re.I)),
+                )
+                continue
+            only = ONLY_ADD_CONSTRAINT.match(st.text)
+            if only and parse_qname(only.group(1))[1] in parents:
+                findings.append(Finding(rel, st.line, "S-MIG-2", f"파티션 부모 `{parse_qname(only.group(1))[1]}`에 `ALTER TABLE ONLY … ADD CONSTRAINT` — PostgreSQL 18이 거부(42P16), `ONLY` 없이 `… NOT VALID`로(database.md §7.2)"))
+            for body in check_bodies(st.text):
+                for call in SCHEMA_CALL.finditer(body):
+                    if call.group(1).lower() not in own:
+                        continue
+                    calls.append((rel, st.line, call.group(2)))
+        parents.update(partitioned_parents(text, schema))
+    for rel, line, name in calls:
+        immutable, search_path = functions.get(name, (False, False))
+        if name not in functions:
+            findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 부르는 `{name}`을 이 폴더 이관이 만들지 않음"))
+        elif not (immutable and search_path):
+            findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 부르는 함수 `{name}`은 `IMMUTABLE`과 `SET search_path = pg_catalog`(자기 스키마 이름은 붙여 씀)가 있어야 함 — 커밋한 함수는 뒤 이관에서 `ALTER FUNCTION … SET search_path`"))
+    return findings
+
+
 def validate_deploy_findings(root: Path, directory: Path) -> list[Finding]:
     """S-MIG-4 예외(같은 배포의 VALIDATE): 바로 앞 `expand` 파일이 `NOT VALID`로 건 제약을 `VALIDATE`만 하는 `migrate` 파일은
     어느 배포에 싣는지와 근거를 적는다 — 파일 머리 `-- mookko:validate-deploy same <옛 판이 어길 수 없는 이유>`(또는 `next`),
@@ -990,6 +1055,7 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
             findings += key_table_findings(rel, rel_dir, lint)
     if dialect == "postgres":
         findings += validate_deploy_findings(root, directory)
+        findings += constraint_function_findings(root, directory, default_schema(rel_dir))
     for expected, actual in enumerate(sorted(numbers), start=1):
         if expected != actual:
             findings.append(Finding(rel_dir.as_posix(), 1, "S-MIG-1", f"번호가 0001부터 빠짐없이 이어지지 않음(기대 {expected:04d}, 실제 {actual:04d})"))
@@ -1224,7 +1290,11 @@ def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
 # 서비스 코드가 키 재료를 직접 다루는 엔진 API(S-SEC-10). 서비스는 `RowKeys::key_for_read`·`key_for_write`·`shred`처럼 키 DB
 # (`RowKeyStore`)를 거치는 도우미만 쓴다. 감싼 키(`WrappedKey`)를 손에 쥐면 서비스 DB 아무 열(이름·형식·설계서 등급과 상관없이)에
 # 쓸 수 있으므로, 설계서 등급을 거짓으로 적는 틈(§9.8)을 코드 쪽에서 막는다.
-KEY_MATERIAL_API = re.compile(r"\b(WrappedKey|DataKey|generate_data_key|unwrap_data_key)\b")
+KEY_MATERIAL_API = re.compile(r"\b(WrappedKey|DataKey|generate_data_key|unwrap_data_key|insert_or_get|insert_for_write)\b")
+# 감싼 키를 바이트로 꺼내는 유일한 길(`WrappedKey::to_bytes`, QA c63b644 보통 D1: `RowKeyStore::get`·`shred`·`reapply_shreds`가
+# 감싼 키를 돌려주므로 형 이름 없이도 꺼낼 수 있음). 글로는 형을 모르므로 서비스·실행 파일 `src/`의 `.to_bytes()`는 모두 막는다
+# (시험 코드의 HTTP 본문 `Collected::to_bytes`는 둠). 엔진이 E-DB-18로 형을 닫으면 줄임.
+KEY_BYTES_CALL = re.compile(r"\.\s*to_bytes\s*\(")
 KEY_MATERIAL_CODE_SKIP = ("crates/apps/mookko-runtime/",)  # 금고 어댑터를 고르고 엮는 곳(엔진 쪽 실행 틀)
 
 
@@ -1242,6 +1312,9 @@ def lint_key_material_code(root: Path) -> list[Finding]:
         text = strip_rust_comments(path.read_text(encoding="utf-8"))
         for match in KEY_MATERIAL_API.finditer(text):
             findings.append(Finding(rel, text.count("\n", 0, match.start()) + 1, "S-SEC-10", f"서비스 코드가 키 재료 API `{match.group(1)}`를 씀 — 감싼 키는 엔진 `RowKeys::key_for_*`·`shred`로 키 DB에만(database.md §9.8)"))
+        if "src" in Path(rel).parts and "tests" not in Path(rel).parts:
+            for match in KEY_BYTES_CALL.finditer(text):
+                findings.append(Finding(rel, text.count("\n", 0, match.start()) + 1, "S-SEC-10", "서비스 코드의 `.to_bytes()` 금지 — 감싼 키(`WrappedKey::to_bytes`)를 꺼내 서비스 DB에 쓰는 길(형을 글로 가릴 수 없음, 엔진 E-DB-18 전까지)"))
     return findings
 
 

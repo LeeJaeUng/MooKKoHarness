@@ -1,4 +1,14 @@
 {
   "_doc": "DB 규약(2026-10-30) 전에 들어온 파일. 기한까지 담당이 고치면 지움. 기한이 지나면 check-db가 실패. 규칙: scripts/ci/db/pending.py",
-  "pending": []
+  "pending": [
+    {
+      "path": "crates/services/operations/migrations/0009_role_permission_resources_items.sql",
+      "owner": "operations",
+      "until": "2026-11-10",
+      "rules": [
+        "S-BND-6"
+      ],
+      "reason": "CHECK가 부르는 resources_valid에 SET search_path가 없음(규칙은 DB 11-03 새로 둠). 커밋한 이관이라 다음 이관에서 ALTER FUNCTION __SCHEMA__.resources_valid(text[]) SET search_path = pg_catalog"
+    }
+  ]
 }
