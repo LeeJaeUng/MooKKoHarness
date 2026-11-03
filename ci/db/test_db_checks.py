@@ -575,6 +575,34 @@ class DroppedStillRead(unittest.TestCase):
         self.assertEqual(found, [], [str(f) for f in found])
 
 
+class ExpectedBaseline(unittest.TestCase):
+    """S-MIG-12 기준 커밋(expectedCheckSince): 그 커밋에 있던 이관의 S-MIG-12만 빼고, git을 못 읽으면 빼지 않음."""
+
+    def findings(self) -> list:
+        F = migration_lint.Finding
+        return [F("crates/services/svc/migrations/0001_old.sql", 3, "S-MIG-12", "x"),
+                F("crates/services/svc/migrations/0002_new.sql", 3, "S-MIG-12", "x"),
+                F("crates/services/svc/migrations/0001_old.sql", 4, "S-MIG-5", "x")]
+
+    def run_with(self, listing: str | None, locks: dict) -> list:
+        import migration_lock
+
+        saved = migration_lock.git
+        migration_lock.git = lambda root, *args: listing
+        try:
+            return migration_lint.expected_baseline(Path("."), locks, self.findings(), migration_lock.LIST)
+        finally:
+            migration_lock.git = saved
+
+    def test_files_before_base_are_skipped_only_for_s_mig_12(self) -> None:
+        got = self.run_with("crates/services/svc/migrations/0001_old.sql\n", {"expectedCheckSince": "abc"})
+        self.assertEqual([(f.path.rsplit("/", 1)[1], f.rule) for f in got], [("0002_new.sql", "S-MIG-12"), ("0001_old.sql", "S-MIG-5")])
+
+    def test_unreadable_git_or_no_base_keeps_everything(self) -> None:
+        self.assertEqual(len(self.run_with(None, {"expectedCheckSince": "abc"})), 3)
+        self.assertEqual(len(self.run_with("crates/services/svc/migrations/0001_old.sql\n", {})), 3)
+
+
 class NameChecks(unittest.TestCase):
     """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
 

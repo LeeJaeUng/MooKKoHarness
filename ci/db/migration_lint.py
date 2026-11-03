@@ -1519,6 +1519,20 @@ def history_findings(root: Path, locks: dict, lock_file: Path) -> list[tuple[str
     return problems + migration_lock.shrink_findings(versions) + migration_lock.rewrite_findings(commits, launched, allowed, exempt)
 
 
+def expected_baseline(root: Path, locks: dict, findings: list[Finding], lock_file: Path) -> list[Finding]:
+    """S-MIG-12는 기준 커밋(migration-lock.json `expectedCheckSince`) 뒤에 들어온 이관만 본다(DB 담당 요청 2026-11-04: 이미 커밋한
+    이관은 앞으로만 원칙상 머리를 고칠 수 없음). 기준 커밋에 이미 있던 파일의 S-MIG-12만 뺀다. git을 못 읽으면 빼지 않는다(닫힌 쪽)."""
+    since = locks.get("expectedCheckSince")
+    if not since or lock_file.resolve() != migration_lock.LIST.resolve():
+        return findings  # 기준이 없거나 시험용 목록
+    out = migration_lock.git(root, "ls-tree", "-r", "--name-only", since, "--", "crates")
+    if out is None:
+        print(f"  S-MIG-12 기준 커밋 {since}를 읽지 못해 그 전 이관도 판정함")
+        return findings
+    before = set(out.split())
+    return [f for f in findings if not (f.rule == "S-MIG-12" and f.path in before)]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
@@ -1570,6 +1584,7 @@ def main(argv: list[str] | None = None) -> int:
     problems += name_problems
     rust_findings += name_rules.lint_name_checks(root, name_kinds)
     findings += rust_findings
+    findings = expected_baseline(root, locks, findings, args.lock_file)
     for line in time_rules.timezone_warnings(root):
         print(f"  경고: {line}")
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path, f.rule))]
