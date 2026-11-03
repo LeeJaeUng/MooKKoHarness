@@ -4,7 +4,7 @@
   "hardPercent": 90,
   "resumePercent": 85,
   "pollSeconds": 30,
-  "maxWaitMinutes": 60,
+  "maxWaitMinutes": 180,
   "reducedJobs": 2,
   "dropCacheMinSeconds": 60,
   "dropCacheStamp": "~/.local/state/mookko/memory-guard-drop-cache",
