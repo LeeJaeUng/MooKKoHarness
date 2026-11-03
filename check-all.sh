@@ -10,6 +10,21 @@ if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
 
+# Windows에서 만든 worktree는 .git 파일이 C:/… 경로를 가리켜 WSL의 git이 읽지 못합니다(2026-11-03 links: 보안 관문
+# git ls-files가 exit 128). 그 경로를 /mnt/<드라이브>/… 로 바꿔 GIT_DIR·GIT_WORK_TREE로 넘깁니다. 저장소 파일은 고치지 않습니다.
+if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
+    gitdir="$(sed -n 's/^gitdir: //p' .git | tr -d '\r')"
+    case "$gitdir" in
+        [A-Za-z]:/*)
+            drive="$(printf '%s' "${gitdir%%:*}" | tr '[:upper:]' '[:lower:]')"
+            export GIT_DIR="/mnt/$drive/${gitdir#?:/}"
+            export GIT_WORK_TREE="$PWD"
+            git rev-parse --git-dir >/dev/null
+            echo "== Windows worktree: GIT_DIR=$GIT_DIR"
+            ;;
+    esac
+fi
+
 # 빌드 자리: 여러 세션이 동시에 돌리면 WSL 메모리가 모자라 연결이 끊깁니다(2026-10-30). scripts/dev/build-slots.json의
 # 자리 수만큼만 동시에 돌고 나머지는 기다립니다. 잠금은 이 프로세스와 자식(시험용 DB 감싸기 포함)이 끝나면 풀립니다.
 if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
@@ -21,10 +36,14 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     SLOT_POLL="$(slot_setting pollSeconds)"
     SLOT_DEADLINE=$(( $(date +%s) + $(slot_setting maxWaitMinutes) * 60 ))
     export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(slot_setting jobs)}"
+    export MOOKKO_BASE_JOBS="$CARGO_BUILD_JOBS"
     mkdir -p "$SLOT_DIR"
     announced=""
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
-        for i in $(seq 1 "$SLOT_COUNT"); do
+        # PC 메모리 관문(사용자 2026-11-03 "램 90%이하로 만 먹어야해"): Windows 전체 사용률이 hard 이상이면 내려갈 때까지
+        # 기다리고, soft 이상이면 자리를 1개만 씁니다(scripts/dev/memory-guard.json).
+        usable="$(python3 -X utf8 scripts/dev/memory-guard.py slots "$SLOT_COUNT")"
+        for i in $(seq 1 "$usable"); do
             exec {slot_fd}>"$SLOT_DIR/slot-$i"
             if flock -n "$slot_fd"; then
                 export MOOKKO_BUILD_SLOT="$i"
@@ -83,8 +102,16 @@ if [ -z "${MOOKKO_TEST_POSTGRES:-}" ]; then
 fi
 export MOOKKO_REQUIRE_TEST_POSTGRES=1
 
+# 빌드 중에는 메모리 사용률을 30초마다 기록하고 soft 이상이면 WSL page cache를 비웁니다. 끝날 때 최고값을 남깁니다.
+python3 -X utf8 scripts/dev/memory-guard.py watch &
+MEMORY_WATCH=$!
+trap 'kill "$MEMORY_WATCH" 2>/dev/null || true; wait "$MEMORY_WATCH" 2>/dev/null || true' EXIT
+
+# 단계마다 시작 전에 메모리를 봅니다: hard 이상이면 내려갈 때까지 기다리고, soft 이상이면 cargo 작업 수를 줄입니다.
 run() {
-    echo "== $*"
+    CARGO_BUILD_JOBS="$(python3 -X utf8 scripts/dev/memory-guard.py step "$1" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
+    export CARGO_BUILD_JOBS
+    echo "== $* (jobs $CARGO_BUILD_JOBS)"
     "$@"
 }
 
@@ -101,6 +128,7 @@ run python3 -X utf8 scripts/ci/check-no-hardcoded-endpoints.py
 run python3 -X utf8 scripts/ci/check-stack.py
 run python3 -X utf8 scripts/ci/check-lint-escapes.py
 run python3 -X utf8 scripts/ci/check-test-tempdirs.py
+run python3 -X utf8 scripts/ci/check-dev-exposure.py
 run python3 -X utf8 scripts/ci/check-waivers.py
 run python3 -X utf8 scripts/ci/check-systemd-units.py
 run scripts/ci/db/check-db.sh
