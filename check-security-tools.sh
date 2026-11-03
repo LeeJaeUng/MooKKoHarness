@@ -70,14 +70,25 @@ git ls-files -z -co --exclude-standard \
     | tar --null -T - -cf - | tar -xf - -C "$SRC"
 cd "$SRC"
 
+# 도구가 스스로 찾아 읽는 예외 파일은 옆길이라 두지 않습니다(QA 6b8bdab T3). 예외는 scripts/ci/gitleaks.toml 하나뿐입니다.
+side_doors="$(find . -type f \( -name .gitleaksignore -o -name '.trivyignore*' -o -name 'trivy.yaml' -o -name 'trivy.yml' \
+    -o -name 'osv-scanner.toml' \) -print)"
+if [ -n "$side_doors" ]; then
+    echo "보안 도구 예외 파일은 두지 않습니다. 예외는 scripts/ci/gitleaks.toml에 사유와 함께 적으세요:" >&2
+    printf '%s\n' "$side_doors" >&2
+    exit 1
+fi
+
 echo "-- gitleaks"
-"${TOOL[gitleaks]}" dir . --config "$ROOT/scripts/ci/gitleaks.toml" --no-banner --redact --exit-code 1 --log-level warn
+# 코드 안 gitleaks:allow 주석도 예외 옆길이라 무시합니다.
+"${TOOL[gitleaks]}" dir . --config "$ROOT/scripts/ci/gitleaks.toml" --ignore-gitleaks-allow --no-banner --redact \
+    --exit-code 1 --log-level warn
 
 echo "-- osv-scanner"
 "${TOOL[osv-scanner]}" scan source --recursive --format table .
 
 echo "-- trivy"
-"${TOOL[trivy]}" fs --quiet --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 .
+"${TOOL[trivy]}" fs --quiet --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignorefile "" --exit-code 1 .
 
 echo "-- cargo-cyclonedx"
 "${TOOL[cargo-cyclonedx]}" cyclonedx -q --format json --all-features --spec-version 1.5

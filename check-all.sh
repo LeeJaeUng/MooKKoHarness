@@ -38,27 +38,50 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(slot_setting jobs)}"
     export MOOKKO_BASE_JOBS="$CARGO_BUILD_JOBS"
     mkdir -p "$SLOT_DIR"
+    # scripts/dev/build-slots.sh close가 자리를 닫는 중이거나 닫았으면 새로 잡지 않습니다(QA 6b8bdab T4).
+    slots_closing() {
+        local word pid
+        read -r word pid _ < "$SLOT_DIR/close-state" 2>/dev/null || return 1
+        [ "$word" = "closing" ] || [ "$word" = "closed" ] || return 1
+        [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+    }
     announced=""
+    wait_round=0
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
         # PC 메모리 관문(사용자 2026-11-03 "램 90%이하로 만 먹어야해"): Windows 전체 사용률이 hard 이상이면 내려갈 때까지
         # 기다리고, soft 이상이면 자리를 1개만 씁니다(scripts/dev/memory-guard.json).
         usable="$(python3 -X utf8 scripts/dev/memory-guard.py slots "$SLOT_COUNT")"
-        for i in $(seq 1 "$usable"); do
-            exec {slot_fd}>"$SLOT_DIR/slot-$i"
-            if flock -n "$slot_fd"; then
-                export MOOKKO_BUILD_SLOT="$i"
-                break
-            fi
-            exec {slot_fd}>&-
-        done
+        if ! slots_closing; then
+            for i in $(seq 1 "$usable"); do
+                exec {slot_fd}>"$SLOT_DIR/slot-$i"
+                if flock -n "$slot_fd"; then
+                    export MOOKKO_BUILD_SLOT="$i"
+                    break
+                fi
+                exec {slot_fd}>&-
+            done
+        fi
         if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
             if [ "$(date +%s)" -ge "$SLOT_DEADLINE" ]; then
                 echo "build slot wait timed out: 빌드 자리를 기다리다 기한을 넘겼습니다($SLOT_DIR). 통합 담당에 알리세요." >&2
                 exit 1
             fi
-            [ -z "$announced" ] && echo "== 빌드 자리 기다림(동시 ${SLOT_COUNT}개)"
+            [ -z "$announced" ] && echo "== 빌드 자리 기다림(지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
             announced=1
-            sleep "$SLOT_POLL"
+            if slots_closing; then
+                sleep "$SLOT_POLL"
+                continue
+            fi
+            # 자리 하나에 막고 기다립니다. 막고 기다리는 쪽은 자리가 풀리면 바로 깨어나므로, 15초마다 엿보던 때처럼
+            # 늦게 온 실행이 먼저 가져가는 일이 줄어듭니다(2026-11-03 통합 check-all이 50분 넘게 자리를 못 잡음).
+            wait_round=$((wait_round + 1))
+            i=$(( (wait_round - 1) % usable + 1 ))
+            exec {slot_fd}>"$SLOT_DIR/slot-$i"
+            if flock -w "$SLOT_POLL" "$slot_fd" && ! slots_closing; then
+                export MOOKKO_BUILD_SLOT="$i"
+            else
+                exec {slot_fd}>&-
+            fi
         fi
     done
     # 빌드 캐시는 자리마다 하나(targetRoot/slot-<n>)를 worktree끼리 나눠 씁니다. 같은 자리는 위 잠금으로 한 번에 하나만 씁니다.
@@ -129,6 +152,7 @@ run python3 -X utf8 scripts/ci/check-stack.py
 run python3 -X utf8 scripts/ci/check-lint-escapes.py
 run python3 -X utf8 scripts/ci/check-test-tempdirs.py
 run python3 -X utf8 scripts/ci/check-dev-exposure.py
+run python3 -X utf8 scripts/ci/test_ci_checks.py
 run python3 -X utf8 scripts/ci/check-waivers.py
 run python3 -X utf8 scripts/ci/check-systemd-units.py
 run scripts/ci/db/check-db.sh

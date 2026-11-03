@@ -1,0 +1,15 @@
+podman run -d -p 5432:5432 img
+podman run -d \
+   --publish=0.0.0.0:80:80 img
+docker run -P img
+podman run --network host img
+podman run --net=host img
+podman pod create -p 8080:80 --name p
+podman run -p5432:5432 img
+podman run -dP img
+podman run --network="host" img
+podman container run -p 80:80 img
+"$PODMAN" run -p 81:81 img
+sudo podman run -p 82:82 img
+podman run --network pasta:-t,8080 img
+podman run -dp 83:83 img

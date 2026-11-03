@@ -22,8 +22,14 @@ from pathlib import Path
 
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 LOOPBACK = {"127.0.0.1", "::1"}
-CONTAINER_CMD = re.compile(r"\b(podman|docker)\s+(run|create|pod\s+create)\b")
-PUBLISH_OK = re.compile(r'^(127\.0\.0\.1:|\[::1\]:|"?\$\{?BIND_HOST\b)')
+# podman·docker·"$PODMAN" 같은 변수, sudo, `container run`, `pod create`를 모두 봅니다(QA 1c3fef2 T6).
+CONTAINER_CMD = re.compile(
+    r"(?:^|[\s;&|(`])(?:sudo\s+)?(?:podman|docker|\"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\"?)\s+"
+    r"(?:container\s+)?(?:run|create)\b"
+    r"|\b(?:podman|docker)\s+pod\s+create\b"
+)
+PUBLISH_OK = re.compile(r"^(127\.0\.0\.1:|\[::1\]:|\$\{?BIND_HOST\b)")
+PASTA_FORWARD = ("-t", "-u", "-T", "-U", "--tcp-ports", "--udp-ports")
 
 
 def files(root: Path, base: Path, pattern: str):
@@ -57,23 +63,34 @@ def check_shell(rel: Path, text: str, problems: list[str]) -> None:
             continue
         where = f"{rel.as_posix()}:{no}"
         try:
-            words = shlex.split(line, comments=True, posix=False)
+            words = shlex.split(line, comments=True, posix=True)
         except ValueError:
-            words = line.split()
+            words = [w.strip("\"'") for w in line.split()]
         for i, word in enumerate(words):
+            following = words[i + 1] if i + 1 < len(words) else ""
             value = None
-            if word in ("-p", "--publish") and i + 1 < len(words):
-                value = words[i + 1]
+            if word in ("-p", "--publish"):
+                value = following
             elif word.startswith("--publish="):
                 value = word.split("=", 1)[1]
+            elif re.fullmatch(r"-p\S+", word):
+                value = word[2:]
+            elif re.fullmatch(r"-[A-Za-z]+", word) and word.endswith("p"):
+                value = following
             if value is not None and not PUBLISH_OK.match(value):
                 problems.append(f"{where}: 컨테이너 포트는 127.0.0.1(또는 \"$BIND_HOST\")에만 묶어야 합니다: {value}")
-            if word in ("-P", "--publish-all"):
-                problems.append(f"{where}: {word}는 모든 주소에 엽니다")
-            if word in ("--network=host", "--net=host") or (
-                word in ("--network", "--net") and i + 1 < len(words) and words[i + 1].strip("\"'") == "host"
-            ):
-                problems.append(f"{where}: 호스트 네트워크(--network host)는 쓰지 않습니다")
+            if word in ("--publish-all", "--publish-all=true") or (re.fullmatch(r"-[A-Za-z]+", word) and "P" in word):
+                problems.append(f"{where}: {word}(-P, --publish-all)는 모든 주소에 엽니다")
+            network = None
+            if word in ("--network", "--net"):
+                network = following
+            elif word.startswith(("--network=", "--net=")):
+                network = word.split("=", 1)[1]
+            if network is not None:
+                if network == "host":
+                    problems.append(f"{where}: 호스트 네트워크(--network host)는 쓰지 않습니다")
+                elif network.startswith("pasta") and any(opt in re.split(r"[:,=\s]", network) for opt in PASTA_FORWARD):
+                    problems.append(f"{where}: pasta 포트 전달 옵션은 쓰지 않습니다. -p 127.0.0.1:…을 쓰세요: {network}")
 
 
 def check_json(rel: Path, text: str, problems: list[str]) -> None:
