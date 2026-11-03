@@ -36,13 +36,15 @@
     NetworkPolicy(podSelector: {}, policyTypes에 Ingress·Egress, 허용 규칙 없음)
   - PersistentVolume은 persistentVolumeReclaimPolicy: Retain, StorageClass는 reclaimPolicy: Retain(DB PV를 지워도 데이터가
     남게, deploy-containers.md §7′. 칸이 없으면 기본값 Delete라 실패)
-- 보안 등록부(제품 docs/policy/, 보안 담당 정본, conventions/security.md SC-*, 관문 SEC-02·SEC-04). Dockerfile·Compose·Kubernetes
-  매니페스트가 하나라도 있으면 등록부 셋이 다 있어야 한다(없으면 실패 — 등록부를 지워 검사를 끄지 못하게, mookko-rust-qa 11-04).
-  매니페스트가 없으면 빠진 등록부를 `경고:`로만 알린다.
+- 보안 등록부(제품 docs/policy/, 보안 담당 정본, conventions/security.md SC-*, 관문 SEC-02·SEC-04). 닫힌 쪽(SC-REG-1·2):
+  node-pools.json·privileged-allowlist.json은 늘 있어야 하고(빈 목록이면 아무것도 허용하지 않음), image-registries.json은
+  Dockerfile·Compose·Kubernetes 매니페스트가 하나라도 있으면 있어야 한다. 없으면 실패(등록부를 지워 검사를 끄지 못하게).
+  보안 규칙(풀·샌드박스)은 YAML을 실제로 풀어(PyYAML safe_load, Linux python3-yaml) 읽는다 — 흐름 모양·따옴표도 같게 봄(SC-SBX-1).
+  PyYAML이 없으면 실패한다.
   - node-pools.json(SC-NODE-2): 풀마다 {name, key, value, namespaces}. 워크로드의 tolerations·nodeSelector·nodeAffinity가
     전용 풀(key·value)을 가리키면 네임스페이스가 그 풀의 namespaces에 있어야 하고, 그 namespaces의 워크로드는
     nodeAffinity requiredDuringSchedulingIgnoredDuringExecution으로 자기 풀을 골라야 함(taint만으로는 막히지 않음)
-  - 라벨 mookko.io/input: untrusted(블록·흐름 모양 모두, SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
+  - 라벨 mookko.io/input: untrusted(metadata·파드 틀 labels, SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
     secret 볼륨·serviceAccountToken 투영·serviceAccountName(default 빼고)·Kubernetes API 예외 주석 없음
   - privileged-allowlist.json(SC-PRIV-1): 항목마다 {image(다이제스트), reason, owner, reviewed}. 네임스페이스 mookko-security의
     워크로드는 모든 이미지가 여기 있을 때만 특권·호스트 공유·hostPath와 컨테이너 권한 칸 예외를 받음(이미지·자원·probe·
@@ -50,7 +52,6 @@
   - image-registries.json(SC-VULN-4): {registries: [접두어…]}. 접두어는 `/`로 끝나야 함(경로 마디 경계 — `…/mookko`가
     `…/mookko-evil/`을 통과시키지 않게). Dockerfile FROM(빌드 단계 별칭 빼고)·Compose image·컨테이너 image가 이 접두어 중
     하나로 시작해야 함(바깥 레지스트리에서 바로 끌지 않음)
-  - 풀 칸(tolerations·nodeSelector·affinity·nodeAffinity·nodeSelectorTerms)의 흐름 모양은 읽지 못하므로 실패(들여쓰기로만 읽는 근사)
 YAML 해석기 없이 들여쓰기로만 읽는다(표준 라이브러리만, tools.md). 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
 사용: python3 -X utf8 ci/check-containers.py [저장소 루트]
@@ -64,10 +65,14 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    import yaml  # 보안 규칙만 YAML을 풀어 읽음(SC-SBX-1). 하네스 CI(Linux)는 python3-yaml이 있음
+except ImportError:  # 없으면 load_security가 실패로 알림(조용히 꺼지지 않게)
+    yaml = None
+
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 SECRET_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|API_KEY)", re.IGNORECASE)
-# 블록(`mookko.io/input: untrusted`)·흐름(`labels: {mookko.io/input: untrusted}`)·따옴표 키 모두(mookko-rust-qa 11-04 지적 3)
-UNTRUSTED = re.compile(r"[\"']?\bmookko\.io/input[\"']?\s*:\s*[\"']?untrusted\b")
+UNTRUSTED_LABEL = ("mookko.io/input", "untrusted")  # SC-SBX-1 바깥 입력 작업자 표시
 PRIV_NAMESPACE = "mookko-security"  # 특권 예외를 받는 단 하나의 네임스페이스(conventions/security.md SC-PRIV-1)
 PRIVATE_BIND = re.compile(r"^(\$\{[^}]+\}|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|127\.\d+\.\d+\.\d+|\[::1\]):")
 
@@ -217,8 +222,7 @@ WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod", 
 LONG_RUNNING = {"Deployment", "StatefulSet", "DaemonSet", "Rollout"}
 ZONE_SPREAD = {"Deployment", "StatefulSet", "Rollout"}
 # 흐름 모양(`key: [ … ]`·`key: { … }`)은 이 검사가 안을 읽지 못하므로 보안 칸에는 쓰지 못하게 한다(mookko-rust-qa 11-03).
-FLOW_FORBIDDEN = re.compile(r"^\s*(-\s*)?(containers|initContainers|securityContext|capabilities|volumes|env|envFrom|"
-                            r"tolerations|nodeSelector|affinity|nodeAffinity|nodeSelectorTerms):\s*[\[{]")
+FLOW_FORBIDDEN = re.compile(r"^\s*(-\s*)?(containers|initContainers|securityContext|capabilities|volumes|env|envFrom):\s*[\[{]")
 TRUE = r"(?i:true|yes|on)"
 FALSE = r"(?i:false|no|off)"
 MIN_REPLICAS = 3  # AZ 3개에 하나씩(deploy-containers §3 멀티 AZ, PM 대행 2026-11-03)
@@ -410,43 +414,88 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
             problems.append(f"{rel}:{start}: {label}: replicas {replicas}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
 
 
-def refers(text: str, pool: dict) -> bool:
-    """tolerations·nodeSelector·nodeAffinity 글이 풀의 key와 value를 함께 가리키는지(들여쓰기로만 읽는 근사)."""
-    return bool(text and re.search(rf"(?<![\w./-]){re.escape(pool['key'])}(?![\w./-])", text)
-                and re.search(rf"(?<![\w./-]){re.escape(pool['value'])}(?![\w./-])", text))
+def pod_template(obj: dict) -> tuple[dict, list[dict]]:
+    """풀어 읽은 워크로드에서 (파드 spec, labels 묶음들). Pod·Deployment류·Job·CronJob."""
+    labels = [(obj.get("metadata") or {}).get("labels") or {}]
+    spec = obj.get("spec") or {}
+    if obj.get("kind") == "Pod":
+        return spec, labels
+    if obj.get("kind") == "CronJob":
+        spec = ((spec.get("jobTemplate") or {}).get("spec")) or {}
+    template = spec.get("template") or {}
+    labels.append((template.get("metadata") or {}).get("labels") or {})
+    return template.get("spec") or {}, labels
+
+
+def pool_used(pod: dict, pool: dict) -> bool:
+    """파드가 tolerations·nodeSelector·nodeAffinity로 그 풀을 고르는지."""
+    key, value = pool["key"], pool["value"]
+    for tol in pod.get("tolerations") or []:
+        if isinstance(tol, dict) and tol.get("key") == key and (tol.get("operator") == "Exists" or str(tol.get("value")) == value):
+            return True
+    if str((pod.get("nodeSelector") or {}).get(key)) == value:
+        return True
+    affinity = ((pod.get("affinity") or {}).get("nodeAffinity")) or {}
+    terms = list(((affinity.get("requiredDuringSchedulingIgnoredDuringExecution") or {}).get("nodeSelectorTerms")) or [])
+    terms += [p.get("preference") or {} for p in affinity.get("preferredDuringSchedulingIgnoredDuringExecution") or [] if isinstance(p, dict)]
+    return any(isinstance(e, dict) and e.get("key") == key and value in [str(v) for v in e.get("values") or []]
+               for term in terms if isinstance(term, dict) for e in term.get("matchExpressions") or [])
+
+
+def pool_required(pod: dict, pool: dict) -> bool:
+    """required nodeAffinity의 모든 term이 key In [value]만 고르는지(taint만으로는 막히지 않음)."""
+    affinity = ((pod.get("affinity") or {}).get("nodeAffinity")) or {}
+    terms = ((affinity.get("requiredDuringSchedulingIgnoredDuringExecution") or {}).get("nodeSelectorTerms")) or []
+    return bool(terms) and all(
+        isinstance(term, dict) and any(
+            isinstance(e, dict) and e.get("key") == pool["key"] and e.get("operator") == "In"
+            and [str(v) for v in e.get("values") or []] == [pool["value"]]
+            for e in term.get("matchExpressions") or [])
+        for term in terms)
 
 
 def check_security(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
                    problems: list[str]) -> None:
-    """보안 등록부 규칙(SEC-02): 노드 풀 대응표, 바깥 입력 샌드박스."""
+    """보안 등록부 규칙(SEC-02): 노드 풀 대응표, 바깥 입력 샌드박스. YAML을 풀어 읽는다(SC-SBX-1)."""
     pools = sec.get("pools")
     where = f"{rel}:{start}"
-    if pools is not None:
-        affinity = section(doc, "nodeAffinity")
-        used_text = "\n".join((section(doc, "tolerations"), section(doc, "nodeSelector"), affinity))
-        required = section(affinity, "requiredDuringSchedulingIgnoredDuringExecution")
-        for pool in pools:
-            if refers(used_text, pool) and ns not in pool["namespaces"]:
-                problems.append(f"{where}: {label}: 네임스페이스 {ns}는 {pool['name']} 풀을 쓸 수 없습니다"
-                                f"(docs/policy/node-pools.json, SC-NODE-2)")
-            if ns in pool["namespaces"] and not refers(required, pool):
-                problems.append(f"{where}: {label}: {pool['name']} 풀 네임스페이스의 워크로드는 nodeAffinity "
-                                f"requiredDuringSchedulingIgnoredDuringExecution으로 {pool['key']}={pool['value']}만 골라야 합니다(SC-NODE-2)")
-    if not UNTRUSTED.search(doc):
+    if yaml is None:
+        return  # load_security가 이미 실패로 알림
+    try:
+        obj = yaml.safe_load(doc)
+    except yaml.YAMLError as e:
+        problems.append(f"{where}: {label}: YAML을 풀지 못했습니다({str(e).splitlines()[0]})")
         return
-    if not re.search(r"^\s*runtimeClassName:\s*[\"']?gvisor[\"']?\s*$", doc, re.MULTILINE):
+    if not isinstance(obj, dict):
+        return
+    pod, label_maps = pod_template(obj)
+    if not isinstance(pod, dict):
+        return
+    for pool in pools or []:
+        if pool_used(pod, pool) and ns not in pool["namespaces"]:
+            problems.append(f"{where}: {label}: 네임스페이스 {ns}는 {pool['name']} 풀을 쓸 수 없습니다"
+                            f"(docs/policy/node-pools.json, SC-NODE-2)")
+        if ns in pool["namespaces"] and not pool_required(pod, pool):
+            problems.append(f"{where}: {label}: {pool['name']} 풀 네임스페이스의 워크로드는 nodeAffinity "
+                            f"requiredDuringSchedulingIgnoredDuringExecution으로 {pool['key']} In [{pool['value']}]만 골라야 합니다(SC-NODE-2)")
+    key, want = UNTRUSTED_LABEL
+    if not any(isinstance(m, dict) and str(m.get(key)) == want for m in label_maps):
+        return
+    if pod.get("runtimeClassName") != "gvisor":
         problems.append(f"{where}: {label}: mookko.io/input: untrusted이면 runtimeClassName: gvisor여야 합니다(SC-SBX-1)")
     sandbox = next((p for p in pools or [] if p["name"] == "sandbox"), None)
     if sandbox and ns not in sandbox["namespaces"]:
         problems.append(f"{where}: {label}: mookko.io/input: untrusted 워크로드는 sandbox 풀 네임스페이스에 둡니다(지금 {ns}, SC-SBX-1)")
-    for offset, line in enumerate(lines):
-        s = line.strip()
-        if re.match(r"^(-\s*)?secret:", s):
-            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 비밀값 볼륨을 붙이지 않습니다(SC-SBX-3)")
-        elif re.match(r"^(-\s*)?serviceAccountToken:", s):
-            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 서비스 계정 토큰을 넣지 않습니다(SC-SBX-3)")
-        elif re.match(r"^serviceAccountName:\s*[\"']?(?!default[\"']?\s*$)\S", s):
-            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 서비스 계정(Workload Identity 권한)을 붙이지 않습니다(SC-SBX-3)")
+    for volume in pod.get("volumes") or []:
+        if not isinstance(volume, dict):
+            continue
+        if "secret" in volume:
+            problems.append(f"{where}: {label}: 샌드박스 작업자에 비밀값 볼륨({volume.get('name')})을 붙이지 않습니다(SC-SBX-3)")
+        sources = ((volume.get("projected") or {}).get("sources")) or []
+        if any(isinstance(s, dict) and ("serviceAccountToken" in s or "secret" in s) for s in sources):
+            problems.append(f"{where}: {label}: 샌드박스 작업자에 서비스 계정 토큰·비밀값을 투영하지 않습니다(SC-SBX-3)")
+    if pod.get("serviceAccountName") not in (None, "default"):
+        problems.append(f"{where}: {label}: 샌드박스 작업자에 서비스 계정(Workload Identity 권한)을 붙이지 않습니다(SC-SBX-3)")
     if api_client(lines):
         problems.append(f"{where}: {label}: 샌드박스 작업자는 Kubernetes API 예외 주석을 쓰지 않습니다(SC-SBX-3)")
 
@@ -470,6 +519,8 @@ def load_security(root: Path, problems: list[str]) -> dict:
             return {}
 
     sec: dict = {"pools": None, "privileged": None, "registries": None}
+    if yaml is None:
+        problems.append("docs/policy/node-pools.json:1: PyYAML(python3-yaml)이 없어 보안 규칙을 볼 수 없습니다(하네스 CI 환경 확인)")
     pools = read("node-pools.json")
     if pools is not None:
         sec["pools"] = []
@@ -503,15 +554,16 @@ def load_security(root: Path, problems: list[str]) -> dict:
 
 
 REGISTERS = {"pools": "node-pools.json", "privileged": "privileged-allowlist.json", "registries": "image-registries.json"}
+ALWAYS = {"pools", "privileged"}  # SC-REG-1: 늘 있어야 함. image-registries는 매니페스트가 있을 때만
 
 
 def missing_registers(sec: dict, manifests: int, problems: list[str]) -> list[str]:
-    """빠진 등록부: 매니페스트가 있으면 실패(problems), 없으면 경고 줄로 돌려줌."""
+    """빠진 등록부(SC-REG-1): 늘 있어야 하는 것과 매니페스트가 있을 때의 image-registries는 실패, 그 밖은 경고 줄."""
     warnings = []
     for key, name in REGISTERS.items():
         if sec[key] is None:
-            line = f"docs/policy/{name}:1: 보안 등록부가 없습니다(보안 담당이 만듦, conventions/security.md)"
-            (problems if manifests else warnings).append(line)
+            line = f"docs/policy/{name}:1: 보안 등록부가 없습니다(보안 담당이 만듦, conventions/security.md SC-REG-1)"
+            (problems if key in ALWAYS or manifests else warnings).append(line)
     return warnings
 
 

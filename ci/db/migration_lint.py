@@ -731,14 +731,21 @@ def column_types(sql: str, dialect: str, schema: str | None) -> list[tuple[str, 
 DROP_TABLE = re.compile(rf"^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?({QNAME}(?:\s*,\s*{QNAME})*)", re.I)
 
 
+CREATE_TABLE = re.compile(rf"^CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?({QNAME})", re.I)
+
+
 def dropped_tables(directory: Path) -> set[str]:
-    """그 폴더 이관이 `DROP TABLE`로 지운 표(좁히기 contract). 지운 표는 덧붙이기만 지정·등급 대조에서 뺀다(links 0024 audit_records)."""
+    """그 폴더 이관이 `DROP TABLE`로 지우고 그 뒤에 다시 만들지 않은 표(좁히기 contract). 지운 표는 덧붙이기만 지정·등급 대조에서
+    뺀다(links 0024 audit_records). 파일·문장 순서대로 보므로 지운 뒤 같은 이름으로 다시 만든 표는 빼지 않는다(qa-design D4-1)."""
     out: set[str] = set()
     for path in sorted(directory.glob("*.sql")):
         for st in sqltext.split(path.read_text(encoding="utf-8")).statements:
             m = DROP_TABLE.match(st.text)
             if m:
                 out.update(parse_qname(name)[1] for name in m.group(1).split(","))
+            created = CREATE_TABLE.match(st.text)
+            if created:
+                out.discard(parse_qname(created.group(1))[1])
     return out
 
 

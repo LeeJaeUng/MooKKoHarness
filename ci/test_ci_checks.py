@@ -60,11 +60,13 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 # containers-sec bad(보안 등록부 docs/policy/ 셋이 있음): 다른 네임스페이스가 control 풀 1, control 네임스페이스인데 required
 #   nodeAffinity 없음 1, untrusted인데 gvisor 없음 1·secret 볼륨 1·serviceAccountName 1, untrusted가 sandbox 네임스페이스 밖 1,
 #   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1,
-#   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 tolerations 1·흐름 모양 라벨의 untrusted(gvisor 없음) 1(합 13).
+#   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 라벨의 untrusted(gvisor 없음) 1(보안 규칙은 YAML을 풀어 읽어 흐름 모양
+#   tolerations도 읽음, 합 12). 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
-# vuln-register bad: 빠진 칸 1, id 겹침 1, 같은 cve 다시 열어 30일 넘음 1, 기한 지남 1, 날짜 모양 1, 연 날보다 먼저 닫음 1,
-#   기다리기만 하는 완화 1, 기한 절반 뒤에 엶 1, reviewBy 범위 밖 1, 닫았는데 fixedIn 없음 1, 객체 아님 1, severity 1(합 12,
-#   reviewBy 지남은 경고만). good: 열린 항목, 닫은 항목, 같은 cve를 30일 넘어 다시 열었지만 userDecision 있음.
+# vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
+#   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
+#   객체 아님 1, id 꼴 1, affects 접두어 1(합 15, reviewBy 지남은 경고만). good: 열린 항목, 닫은 GHSA 항목(detect만이어도 닫았으면 됨),
+#   userDecision으로 30일을 넘긴 항목. 기준 판 대조는 표본 폴더가 git 최상위가 아니라 건너뜀.
 # design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1, TBD 1(넓힌 모양 ID·정한 값 표는 경고만). good: 출처·해당 없음, 결정 아닌 표는 안 봄.
 # hardcoded bad(enforce true): DUR 1, NUM 3(비교식·호출 인자·const fn 몸통), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
 #   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
@@ -102,8 +104,8 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 60,
-    "containers-sec": 13,
-    "vuln-register": 12,
+    "containers-sec": 12,
+    "vuln-register": 15,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,
