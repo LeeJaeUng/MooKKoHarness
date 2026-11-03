@@ -1,0 +1,11 @@
+pub fn stamp() -> std::time::SystemTime {
+    std::time::SystemTime::now()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fixed() {
+        let _ = 1;
+    }
+}
