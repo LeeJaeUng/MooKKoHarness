@@ -1221,6 +1221,30 @@ def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
     return findings
 
 
+# 서비스 코드가 키 재료를 직접 다루는 엔진 API(S-SEC-10). 서비스는 `RowKeys::key_for_read`·`key_for_write`·`shred`처럼 키 DB
+# (`RowKeyStore`)를 거치는 도우미만 쓴다. 감싼 키(`WrappedKey`)를 손에 쥐면 서비스 DB 아무 열(이름·형식·설계서 등급과 상관없이)에
+# 쓸 수 있으므로, 설계서 등급을 거짓으로 적는 틈(§9.8)을 코드 쪽에서 막는다.
+KEY_MATERIAL_API = re.compile(r"\b(WrappedKey|DataKey|generate_data_key|unwrap_data_key)\b")
+KEY_MATERIAL_CODE_SKIP = ("crates/apps/mookko-runtime/",)  # 금고 어댑터를 고르고 엮는 곳(엔진 쪽 실행 틀)
+
+
+def lint_key_material_code(root: Path) -> list[Finding]:
+    """서비스·실행 파일 crate(`crates/services/*`, `crates/apps/*`, 시험 포함, `mookko-runtime` 뺌)에서 키 재료 API를 쓰면 실패(S-SEC-10).
+    주석 안의 낱말은 세지 않는다."""
+    findings: list[Finding] = []
+    sources: list[Path] = []
+    for base in (root / "crates" / "services", root / "crates" / "apps"):
+        sources += walk(base, lambda name: name.endswith(".rs"))
+    for path in sources:
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(KEY_MATERIAL_CODE_SKIP):
+            continue
+        text = strip_rust_comments(path.read_text(encoding="utf-8"))
+        for match in KEY_MATERIAL_API.finditer(text):
+            findings.append(Finding(rel, text.count("\n", 0, match.start()) + 1, "S-SEC-10", f"서비스 코드가 키 재료 API `{match.group(1)}`를 씀 — 감싼 키는 엔진 `RowKeys::key_for_*`·`shred`로 키 DB에만(database.md §9.8)"))
+    return findings
+
+
 def lint_rust(root: Path) -> tuple[list[Finding], int]:
     """Rust 문자열 안의 `SELECT *`·`RETURNING *`(S-Q-2)."""
     findings: list[Finding] = []
@@ -1337,6 +1361,7 @@ def main(argv: list[str] | None = None) -> int:
     rust_findings, rust_files = lint_rust(root)
     rust_findings += lint_embedded(root)
     rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
+    rust_findings += lint_key_material_code(root)
     rust_findings += engine_fixed_tests(root, json.loads(args.engine_generated.read_text(encoding="utf-8")))
     rust_findings += lint_partitioned(root)
     findings += rust_findings
