@@ -14,7 +14,7 @@
 > - **DBDES-01 설계 승인은 다시 합니다.** 앞으로 스키마를 바꾸는 커밋은 qa-design이 그 설계서를 `design:approved`로 판정한 뒤에 통합합니다. 승인 없이 통합된 설계서 5개(운영툴·모니터링·로그·links·엔진 표)는 고칠 점이 닫히면 그때 승인합니다. 아직 승인되지 않은 설계서에 이관을 더하는 커밋은 판정에서 `fail`이 아니라 "보통(연결 전 필수: 운영 DB에 이관 적용 전)"으로 봅니다. 승인을 기다리느라 개발을 세우지는 않습니다. qa-design은 설계서를 받은 뒤 **한 영업일 안에** 승인하거나 고칠 점을 냅니다(PM 대행 2026-11-03).
 > - 자동 검사(lint·시험·deny·audit·경계·주소·스택·규칙 끄기)는 처음부터 줄이지 않았습니다.
 
-목록·적용 경로의 정본은 `gates.json`입니다. QA는 영수증마다 모든 관문을 하나씩 `pass | fail | na | waived`로 판정하고, 후보의 변경 경로에 적용되는 관문은 `na`로 넘길 수 없습니다. `pass`에는 그 관문 경로 안의 파일·줄 근거가 필요합니다. `waived`는 이 저장소의 ADR과 만료일이 있는 예외 등록부 항목이 있어야 합니다(일반 예외는 `docs/policy/waivers.json`, DB S-BND-7은 `scripts/ci/db/exceptions.json`, 규칙 끄기는 `lint-exceptions.json`; 기한이 지나면 check-all 실패). 기준은 "가장 높은 수준"입니다(사용자 2026-10-20: 알리페이·알리바바급 속도·보안·안전, 99.99%). 낮은 목표를 임의로 두지 않습니다.
+목록·적용 경로의 정본은 `gates.json`입니다. QA는 영수증마다 모든 관문을 하나씩 `pass | fail | na | waived`로 판정하고, 후보의 변경 경로에 적용되는 관문은 `na`로 넘길 수 없습니다. `pass`에는 그 관문 경로 안의 파일·줄 근거가 필요합니다. `waived`는 이 저장소의 ADR과 만료일이 있는 예외 등록부 항목이 있어야 합니다(일반 예외는 `docs/policy/waivers.json`, DB S-BND-7은 `docs/policy/db/exceptions.json`, 규칙 끄기는 `lint-exceptions.json`; 기한이 지나면 check-all 실패). 기준은 "가장 높은 수준"입니다(사용자 2026-10-20: 알리페이·알리바바급 속도·보안·안전, 99.99%). 낮은 목표를 임의로 두지 않습니다.
 
 ## QA의 목표: 대용량 대기업 서비스처럼 라이브에 내도 되나
 
@@ -113,9 +113,9 @@
 
 - 정본: `docs/policy/conventions/`(Rust `rust.md`, 프론트엔드 `frontend.md`, SQL `sql.md`, Protobuf `proto.md`, 도구 `tools.md`). 목표 순서 안정성 → 속도 → 모듈화 → 재사용.
 - 바뀐 파일의 언어 규약을 규칙 번호로 판정합니다. **[lint]·[deny]·[검사]** 규칙은 하네스가 돌린 실행 결과로, **[QA]** 규칙은 파일·줄 근거로 `pass`를 적습니다.
-- 규칙 끄기(`#[allow]`·`#[expect]`·`eslint-disable`·`@ts-ignore` 등)는 `docs/policy/lint-exceptions.json`에 이유·만료일로 등록된 것만 허용합니다(`scripts/ci/check-lint-escapes.py`).
-- 개발·시험 컨테이너 포트는 루프백에만 엽니다(`-p`는 127.0.0.1·[::1]·"$BIND_HOST", `-P`·`--network host` 금지, `scripts/dev/*.json`의 bindHost는 루프백, `scripts/ci/check-dev-exposure.py`). WSL이 mirrored라 모든 주소에 열면 PC 밖에서 보입니다.
-- 시험 임시 폴더는 `$TMPDIR/mookko-test/...` 아래에만 만들고, 지울 때는 그 실행이 만든 폴더만, 실패한 시험의 폴더는 남깁니다(`scripts/ci/check-test-tempdirs.py`, tools.md T-SH-3).
+- 규칙 끄기(`#[allow]`·`#[expect]`·`eslint-disable`·`@ts-ignore` 등)는 `docs/policy/lint-exceptions.json`에 이유·만료일로 등록된 것만 허용합니다(하네스 `ci/check-lint-escapes.py`).
+- 개발·시험 컨테이너 포트는 루프백에만 엽니다(`-p`는 127.0.0.1·[::1]·"$BIND_HOST", `-P`·`--network host` 금지, 하네스 `config/dev/*.json`의 bindHost는 루프백, 하네스 `ci/check-dev-exposure.py`). WSL이 mirrored라 모든 주소에 열면 PC 밖에서 보입니다.
+- 시험 임시 폴더는 `$TMPDIR/mookko-test/...` 아래에만 만들고, 지울 때는 그 실행이 만든 폴더만, 실패한 시험의 폴더는 남깁니다(하네스 `ci/check-test-tempdirs.py`, tools.md T-SH-3).
 - 규약을 약하게 바꾸는 변경(lint 끄기, 상한 올리기, 금지 목록 줄이기)은 사용자 결정 없이는 `fail`입니다.
 
 ## HOST-01 운영 실행 환경
@@ -128,7 +128,7 @@
   - GitOps: 승인된 판만 설정 저장소에 커밋, 되돌리기는 이전 판 커밋, 비상 경로(break-glass)
 - **노드·패치 기준**: [`docs/architecture/host-security.md`](../architecture/host-security.md) §0(COS에서 지키는 법)·§1(패치 기한: KEV·실제 공격 48시간, 치명 7일)·§5(앞단 방어)·§6(공급망)·§7(침입 감지)
 - **내부 시험 서버는 따로 봅니다**: Ubuntu 24.04 LTS 기준(host-security §0·§2~§4, H-1·H-9, `docs/coordination/internal-test-server-plan.md`)입니다. 시험 클러스터에도 deploy-containers §3·§4를 그대로 겁니다(§11). 운영과 다른 점(노드 수·영역 수·디스크·CDN 없음)은 시험 결과에 적습니다.
-- **자동 근거**: `scripts/ci/check-containers.py`(Dockerfile·매니페스트·Compose, check-all). 내부 시험 서버의 `*.service`가 저장소에 있으면 `scripts/ci/check-systemd-units.py`도 그대로 봅니다. 예외는 `waivers.json`에 `rule`이 HOST-01인 기한 있는 항목만 받습니다.
+- **자동 근거**: 하네스 `ci/check-containers.py`(Dockerfile·매니페스트·Compose, check-all). 내부 시험 서버의 `*.service`가 저장소에 있으면 하네스 `ci/check-systemd-units.py`도 그대로 봅니다. 예외는 `waivers.json`에 `rule`이 HOST-01인 기한 있는 항목만 받습니다.
 - **QA 판단**: 매니페스트가 서비스의 실제 의존(DB·캐시·다른 서비스)과 맞는 NetworkPolicy를 갖는지, probe가 진짜 준비 상태를 보는지, 비상 경로가 문서와 훈련 기록으로 있는지.
 - 기준을 약하게 바꾸는 변경(보안 설정 빼기, 분산·최소 수 줄이기, 기한 늘리기, 서명 확인 끄기)은 사용자 결정 없이는 `fail`입니다.
 
@@ -186,7 +186,7 @@
 - 기능마다 킬 스위치(끄는 설정)가 있습니다. 위험한 새 기능은 기본 꺼짐입니다.
 - 지표·로그·추적이 나옵니다(`docs/spec/observability/README.md`). 경보에 쓸 지표 이름은 코드와 문서가 같습니다.
 - 서버를 다시 켜지 않고 설정을 다시 읽습니다(서버별, 읽은 판을 지표로 냄).
-- **자동 근거**: `scripts/ci/check-hardcoded-values.py`(`docs/policy/hardcoded-values.json` 기준), `scripts/ci/check-no-hardcoded-endpoints.py`. 설정 목록과 코드의 설정 키 대조, 지표 이름 대조 → **하네스에 요청**.
+- **자동 근거**: 하네스 `ci/check-hardcoded-values.py`(`docs/policy/hardcoded-values.json` 기준), 하네스 `ci/check-no-hardcoded-endpoints.py`. 설정 목록과 코드의 설정 키 대조, 지표 이름 대조 → **하네스에 요청**.
 - **QA 판단**: 설정 이름·범위·기본값이 운영자가 쓸 수 있는 모양인지, 킬 스위치가 실제로 그 기능을 끄는지.
 
 ## DEPLOY-01 배포 안전 (1차)
@@ -220,7 +220,7 @@
 
 - 운영·인프라 결정 표에 "표준 출처" 칸이 있고 채워져 있습니다. 표준과 다르면 이유·출처·PM 확인 날짜가 있습니다.
 - 공용 기능(인증·MFA·시계·이름 검사·감사 원장·저장소 틀·권한·멱등 영수증 등)은 엔진에만 있고, 서비스는 엔진 것을 씁니다.
-- **자동 근거**: `scripts/ci/check-design-sources.py`(`docs/policy/design-sources.json`), `scripts/ci/check-engine-reuse.py`.
+- **자동 근거**: 하네스 `ci/check-design-sources.py`(`docs/policy/design-sources.json`), 하네스 `ci/check-engine-reuse.py`.
 - **QA 판단**: 적힌 출처가 실제로 그 결정을 뒷받침하는지(출처만 붙인 것이 아닌지).
 
 ## XC-01 서비스 사이 일관성 (2차)

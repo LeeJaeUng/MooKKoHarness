@@ -77,7 +77,7 @@
       "\\.timer$",
       "^docs/architecture/(deploy-containers|host-security)\\.md$",
       "^docs/coordination/internal-test-server-plan\\.md$",
-      "^scripts/ci/check-(containers|systemd-units)\\.py$"
+      "^harness\\.lock$"
     ],
     "PRR-01": [
       "^crates/apps/",
