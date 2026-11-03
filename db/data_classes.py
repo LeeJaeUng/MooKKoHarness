@@ -378,6 +378,7 @@ def migration_coverage(root: Path) -> list[Problem]:
         classified = service_classification(root, service)
         protection, exceptions = service_protection(root, service)
         key_db = migration_lint.is_key_dir(directory.relative_to(root))
+        dropped = migration_lint.dropped_tables(directory)  # 뒤 이관이 지운 표는 설계서 대조에서 뺌
         for path in sorted(directory.glob("*.sql")):
             rel = path.relative_to(root).as_posix()
             schema = migration_lint.default_schema(directory.relative_to(root))
@@ -397,6 +398,8 @@ def migration_coverage(root: Path) -> list[Problem]:
                     if prot != "해시" and (table, column) not in exceptions:
                         problems.append(Problem(rel, 1, "S-SEC-10", f"`{table}.{column}`(bytea, 이름에 key)이 설계서에서 보호 `해시`가 아님(지금 `{prot or '없음'}`) — 키 재료면 키 DB로, 아니면 `해시`나 `이름 예외: 이유`"))
             for table, columns in migration_lint.created_tables(text, "postgres", schema).items():
+                if table in dropped:
+                    continue
                 known = classified.get(table)
                 if known is None:
                     problems.append(Problem(rel, 1, "S-SEC-1", f"이관이 만드는 `{table}`의 열 등급 표가 `{service}` 설계서에 없음"))
