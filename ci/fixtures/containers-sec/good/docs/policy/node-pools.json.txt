@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "note": "표본",
+  "pools": [
+    {
+      "name": "control",
+      "key": "mookko.io/pool",
+      "value": "control",
+      "namespaces": [
+        "mookko-operations"
+      ]
+    },
+    {
+      "name": "keys",
+      "key": "mookko.io/pool",
+      "value": "keys",
+      "namespaces": [
+        "mookko-keys"
+      ]
+    },
+    {
+      "name": "sandbox",
+      "key": "sandbox.gke.io/runtime",
+      "value": "gvisor",
+      "namespaces": [
+        "mookko-sandbox"
+      ]
+    }
+  ]
+}

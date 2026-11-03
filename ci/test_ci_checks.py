@@ -34,6 +34,8 @@ CHECKS = {
     "forbid-unsafe": HARNESS / "ci" / "check-forbid-unsafe.py",
     "systemd-units": HARNESS / "ci" / "check-systemd-units.py",
     "containers": HARNESS / "ci" / "check-containers.py",
+    "containers-sec": HARNESS / "ci" / "check-containers.py",
+    "vuln-register": HARNESS / "ci" / "check-vuln-register.py",
     "design-sources": HARNESS / "ci" / "check-design-sources.py",
     "hardcoded": HARNESS / "ci" / "check-hardcoded-values.py",
     "hardcoded-warn": HARNESS / "ci" / "check-hardcoded-values.py",
@@ -54,6 +56,12 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
+# containers-sec bad(보안 등록부 docs/policy/ 셋이 있음): 다른 네임스페이스가 control 풀 1, control 네임스페이스인데 required
+#   nodeAffinity 없음 1, untrusted인데 gvisor 없음 1·secret 볼륨 1·serviceAccountName 1, untrusted가 sandbox 네임스페이스 밖 1,
+#   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1(합 10).
+#   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
+# vuln-register bad: 빠진 칸 1, id 겹침 1, 30일 넘음 1, 기한 지남 1, 날짜 모양 1, 연 날보다 먼저 닫음 1(reviewBy 지남은 경고만).
+#   good: 열린 항목, 닫은 항목(기한 지남이어도 닫았으면 안 봄).
 # design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1, TBD 1(넓힌 모양 ID·정한 값 표는 경고만). good: 출처·해당 없음, 결정 아닌 표는 안 봄.
 # hardcoded bad(enforce true): DUR 1, NUM 3(비교식·호출 인자·const fn 몸통), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
 #   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
@@ -61,7 +69,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
 # production-config bad: 세션 절대·유휴 2, rpc staffRecentMfa 없음 1, 파일 KEK 1, devLocal 1, 평문 HTTP 1, tls disable 1, requireMfa 없음 1, 덮어쓰기의 파일 객체 저장소 1·requireMfa false 1. good: 운영 값, development 설정은 안 봄.
-# prr bad(enforce true): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), runbook 링크 없음 1, 링크 대상 없음 1. good: 미정 칸, 앵커 붙은 링크.
+# prr bad(enforce true): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), runbook 링크 없음 1, 링크 대상 없음 1,
+#   훈련 표의 탁상 훈련 줄 없음 1·기술 훈련 날짜 "-" 1·기록 링크 대상 없음 1. good: 미정 칸, 앵커 붙은 링크, 훈련 표.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
 # lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
 #   acceptance/ 아래 #[allow] 1.
@@ -90,11 +99,13 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 57,
+    "containers-sec": 10,
+    "vuln-register": 6,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,
     "test-time": 5,
-    "prr": 6,
+    "prr": 9,
     "production-config": 10,
     "harness-copies": 5,
     "folder-layout": 5,
