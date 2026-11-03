@@ -17,14 +17,15 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 - `DO` 블록, `CREATE OR REPLACE FUNCTION|PROCEDURE|TRIGGER`, 이관 최상위 `SELECT`·`CALL`·`WITH` 금지 — 함수는 새 이름으로 만들고 옮긴다(S-MIG-9).
 - 이관을 `include_str!`로 넣으면 ID = 파일 이름, 폴더 파일은 모두 목록에, transaction off 파일은 `.add()`로 넣지 않음(S-MIG-10). 덧붙이기만 표는 서비스 이관기에 `append_only`로 지정하고, 막기 트리거를 끄거나 REPLICA·ALWAYS로 바꾸지 않음(S-MONEY-2).
 - 모든 테이블에 기본 키, 새 ID는 UUIDv7(S-MIG-3). 파티션 표의 기본 키·UNIQUE에는 파티션 열을 넣고(S-PART-1), 기본(`DEFAULT`) 파티션은 두지 않는다(S-PART-2). 이관은 부모만 만들고 달 파티션(`PARTITION OF`)은 쓰지 않으며, 부모는 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly("표", 키).keep_days(n))`로 적는다 — 만들기·떼기는 엔진 유지보수 단계(S-PART-3).
-- 형식: `timestamptz`(맨 `timestamp` 금지), `text` + `CHECK`(`varchar` 금지, 통화 `char(3)`만), `jsonb`, enum 금지 → `text` + `CHECK IN`, `serial` 금지 → identity·UUIDv7, 이름 63바이트 이하 snake_case(S-TYPE-*).
+- 형식: `timestamptz`(맨 `timestamp` 금지), `text` + `CHECK`(`varchar` 금지, 통화 `char(3)`만), `jsonb`, enum 금지 → `text` + `CHECK IN`, `serial` 금지 → identity·UUIDv7, 이름 63바이트 이하 snake_case(S-TYPE-*). 시각을 날짜·달·글자로 바꿀 땐 `AT TIME ZONE 'UTC'`.
+- 시각·ID: 서비스 SQL에 `now()`·`clock_timestamp()`·`current_timestamp`·`uuidv7()`·`gen_random_uuid()`를 쓰지 않고 엔진 Clock의 `$now`·앱 `TimeOrderedId`를 바인딩한다. DB 시계는 트리거 함수의 하한과 엔진 DDL 기본값만(S-TIME-1).
 - 돈: `bigint` 최소 단위 + `char(3)` 통화, `numeric`·실수·`money` 금지(S-MONEY-1). `ledger`·`journal`·`audit` 테이블은 같은 파일에 `BEFORE UPDATE OR DELETE`·`BEFORE TRUNCATE` 막기 트리거, 앱 계정엔 `INSERT`·`SELECT`만, 멱등 키는 `UNIQUE`(파티션 표면 파티션 열과 함께), 분할 키(`user_id`·계좌·가맹점)를 처음부터 열로(S-MONEY-2). 사슬·구간 머리(`…_head(s)`, 분할 키당 한 행)는 지금 상태 표라 제외. 돈 판단은 주 DB에서 직렬화 또는 명시 잠금, 두 분할 키에 걸치면 outbox + 멱등(2PC 금지)(S-MONEY-3).
 - 같은 배포 VALIDATE(S-MIG-4 예외): 바로 앞 넓히기가 건 NOT VALID 제약을 VALIDATE만 하는 파일은 머리 `-- mookko:validate-deploy same <이유>|next`(또는 설계서 이관 표 줄). 기한 안에 못 끝나면 다음 배포로.
 - 경계: 자기 스키마·`pg_catalog`만, `dblink`·`fdw` 금지, `CREATE ROLE/EXTENSION/DATABASE`·`ALTER SYSTEM` 금지, `GRANT`는 자기 서비스 계정(`<서비스>_owner`·`_migrate`·`_app`·`_ro`·`_recon`·`_maint`(예약)·`_audit_reader`)에게만(`PUBLIC`·`ALL` 금지), `SECURITY DEFINER`엔 `SET search_path`, 스키마·DB `CREATE` 권한을 주지 않음(S-BND-*). DB 안 암호화(`pgcrypto`) 금지(S-SEC-7).
 
 ## 이름 (S-NAME-1)
 
-테이블·열은 `snake_case`, 테이블은 복수형, 외래 키 `<대상>_id`, 시각 `timestamptz` + `_at`, 불리언 `is_`·`has_`, blind index `<열>_bidx`·`<열>_bidx_kid`.
+테이블·열은 `snake_case`, 테이블은 복수형, 외래 키 `<대상>_id`, 시각 `timestamptz` + `_at`, 불리언 `is_`·`has_`, blind index `<열>_bidx`·`<열>_bidx_kid`. 직원 ID·행위자·`*_by`·동작·슬러그·영수증 키 열의 CHECK는 엔진 `NameKind::sql_check` 글 그대로(등록부 `name-checks.json`, S-NAME-2).
 
 ## 설계서를 쓸 때 (S-SEC-*, sql.md §11 형식)
 
@@ -34,7 +35,7 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 - 같은 값 찾기·유일이 필요하면 `암호+색인` + 엔진 `BlindIndex::compute("서비스/테이블/열", &Normalized::email|phone(..)?)`의 값을 `<열>_bidx bytea`(32바이트 CHECK, UNIQUE 또는 색인)와 `<열>_bidx_kid text`(키 ID, `CHECK (… ~ '^[A-Za-z0-9_-]{1,32}$')`, 같이 차거나 같이 빔)에. 값 종류가 적은 열엔 blind index 금지. 키 교체 중 찾기는 모든 키 값으로 `= ANY`, 유일 확인은 advisory 잠금(database.md §9.3).
 - `개인` 이상 값과 SQL 바인딩 값은 로그·추적·지표·오류에 넣지 않는다(S-SEC-5).
 - 읽기 계정 기본은 닫힘: 여는 것은 `reader_all_tables()` 또는 `const READER_TABLES`→`reader_table`. 연 표 중 `개인` 이상 열이 있는 표는 감춘다: 이관기 파일에 `const READER_HIDDEN`(표째) 또는 `const READER_COLUMNS`(`개인` 미만 열만)를 두고 같은 파일에서 `reader_hidden`·`reader_columns`로 넘긴다(S-SEC-9). 대사 계정(`_recon`, 돈 DB만)은 이관이 만든 보기(`개인` 이상 열을 쓰지 않음)만 읽고, `const RECON_VIEWS`를 `recon_view`로 넘긴다.
-- 키 파기(`RowKeys`)의 감싼 키는 서비스 DB가 아니라 키 DB(`crates/services/<서비스>/keys/migrations/`, 스키마 `<서비스>_keys`, 백업 4일, Q-DB-4 결정)의 `row_keys(subject_id, purpose, wrapped_key bytea, created_at)`에만. `dek`·`row_key`·`data_key` 같은 다른 이름으로도 서비스 DB에 두지 않고, 서비스 DB의 `bytea`는 설계서 보호 `해시`·`평문`만, `bytea` key 열은 `해시`(아니면 `이름 예외`). 키 DB에는 그 모양의 키 표만, 계정은 owner·migrate·app, 앱은 SELECT·INSERT·DELETE만, `wrapped_key`는 `비밀`·`암호`, 파기 기록은 서비스 DB에. 서비스 코드는 `WrappedKey`·`generate_data_key`·`unwrap_data_key`·`RowKeyStore` 넣기와 `src/`의 `.to_bytes()`를 쓰지 않고 `RowKeys::key_for_*`·`shred`만(S-SEC-10, database.md §9.8).
+- 키 파기(`RowKeys`)의 감싼 키는 서비스 DB가 아니라 키 DB(`crates/services/<서비스>/keys/migrations/`, 스키마 `<서비스>_keys`, 백업 4일, Q-DB-4 결정)의 `row_keys(subject_id, purpose, wrapped_key bytea, created_at)`에만. `dek`·`row_key`·`data_key` 같은 다른 이름으로도 서비스 DB에 두지 않고, 서비스 DB의 `bytea`는 설계서 보호 `해시`·`평문`만, `bytea` key 열은 `해시`(아니면 `이름 예외`). 키 DB에는 그 모양의 키 표만, 계정은 owner·migrate·app, 앱은 SELECT·INSERT·DELETE만, `wrapped_key`는 `비밀`·`암호`, 파기 기록은 서비스 DB에. 서비스 코드는 `WrappedKey`·`generate_data_key`·`unwrap_data_key`·`RowKeyStore` 넣기와 `src/`의 `.to_bytes()`·`.ciphertext`·`.kek_id`·감싼 키 `{:?}`를 쓰지 않고 `RowKeys::key_for_*`·`shred`만(S-SEC-10, database.md §9.8).
 
 ## 쿼리를 쓸 때 (S-Q-*)
 
