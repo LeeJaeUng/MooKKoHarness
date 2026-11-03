@@ -8,22 +8,22 @@
 
 ## 1. 노드 풀·피해 범위 (SEC-02)
 
-- SC-NODE-1 신뢰 등급이 다른 워크로드를 같은 노드에 두지 않는다. 풀은 `system`·`general`·`sandbox`·`control`·`keys`·`db-money`·`db-general`(일반 DB를 뗀 뒤, security.md §2.2). 키 DB는 `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets는 `control`, 돈 DB는 `db-money`. 새 풀은 security.md를 먼저 고친다. **[QA]** **[검사]** `check-containers.py` 확장(하네스에 요청)
-- SC-NODE-2 `control`·`keys`·`db-money`·`db-general`·`sandbox` 풀의 toleration·nodeSelector·nodeAffinity는 그 풀에 정해진 네임스페이스만 쓴다. 정해진 네임스페이스의 워크로드는 반드시 `requiredDuringScheduling…` nodeAffinity로 자기 풀만 고른다(taint만으로는 막히지 않음). 클러스터에서는 ValidatingAdmissionPolicy로 다시 막는다. 대응표는 제품 `docs/policy/node-pools.json`(하네스에 요청). **[검사]** `check-containers.py` 확장(하네스에 요청)
+- SC-NODE-1 신뢰 등급이 다른 워크로드를 같은 노드에 두지 않는다. 풀은 `system`·`general`·`sandbox`·`control`·`keys`·`db-money`·`db-general`(일반 DB를 뗀 뒤, security.md §2.2). 키 DB는 `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets는 `control`, 돈 DB는 `db-money`. 새 풀은 security.md를 먼저 고친다. **[QA]**(어느 워크로드가 어느 풀인지) **[검사]** SC-NODE-2와 같은 `ci/check-containers.py` 대응표 검사(네임스페이스 → 풀)
+- SC-NODE-2 `control`·`keys`·`db-money`·`db-general`·`sandbox` 풀의 toleration·nodeSelector·nodeAffinity는 그 풀에 정해진 네임스페이스만 쓴다. 정해진 네임스페이스의 워크로드는 반드시 `requiredDuringScheduling…` nodeAffinity로 자기 풀만 고른다(taint만으로는 막히지 않음). 클러스터에서는 ValidatingAdmissionPolicy로 다시 막는다. 대응표는 제품 `docs/policy/node-pools.json`(`{"schema":1,"pools":[{"name","key","value","namespaces":[…]}]}`, `sandbox`는 key `sandbox.gke.io/runtime`·value `gvisor`). **[검사]** `ci/check-containers.py` (정책 파일이 있을 때만 켜짐, bacb580)
 - SC-NODE-3 노드 풀마다 전용 노드 서비스 계정(최소 역할 `roles/container.defaultNodeServiceAccount` + 레지스트리 읽기), Workload Identity(`GKE_METADATA`), Shielded·보안 부팅·무결성 모니터링, 사설 노드, 자동 업그레이드·자동 복구, kubelet 읽기 전용 포트 끔. Compute 기본 서비스 계정 금지. **[검사]** OpenTofu plan 정책(IaC 저장소가 생기면, 하네스에 요청) **[QA]**
 - SC-NODE-4 Kubernetes 서비스 계정 하나에 Workload Identity 주체 하나, 권한은 그 서비스가 실제로 부르는 것만. 여러 서비스가 한 IAM 서비스 계정을 함께 쓰지 않는다. **[QA]**
 - SC-NODE-5 제어부는 사설 끝점 + 승인된 네트워크. 사람의 kubectl·콘솔 쓰기는 비상 경로(두 사람·경보·감사)뿐. **[QA]**
 
 ## 2. 바깥 입력 샌드박스 (SEC-02)
 
-- SC-SBX-1 바깥이 고른 바이트를 복잡한 파서(이미지·영상·문서·압축·폰트)로 다루는 Pod, 바깥이 고른 주소로 나가는 연결을 여는 Pod는 `runtimeClassName: gvisor`로 `sandbox` 풀에서 돈다. 그 Deployment에 라벨 `mookko.io/input: untrusted`를 단다. **[검사]** `check-containers.py` 확장(라벨이 있으면 gvisor 필수, 하네스에 요청) **[QA]**(라벨을 달아야 할 Deployment에 빠졌는지)
+- SC-SBX-1 바깥이 고른 바이트를 복잡한 파서(이미지·영상·문서·압축·폰트)로 다루는 Pod, 바깥이 고른 주소로 나가는 연결을 여는 Pod는 `runtimeClassName: gvisor`로 `sandbox` 풀에서 돈다. 그 Deployment에 라벨 `mookko.io/input: untrusted`를 단다. **[검사]** `ci/check-containers.py`(라벨이 있으면 `runtimeClassName: gvisor` + `sandbox` 풀 네임스페이스, node-pools.json이 있을 때) **[QA]**(라벨을 달아야 할 Deployment에 빠졌는지)
 - SC-SBX-2 샌드박스 대상 일은 그 일만 하는 Deployment로 뗀다(서비스 본체에 파서·가져오기를 두지 않음). 엔진 포트(예: `ImageSanitizer`)의 원격 어댑터로 부른다. **[QA]**
-- SC-SBX-3 샌드박스 작업자는 비밀값 파일·DB 접속·Workload Identity 권한·Kubernetes 서비스 계정 토큰을 갖지 않는다. 나가기는 NetworkPolicy로 막고, 바깥 주소 가져오기는 나가기 프록시만(사설·링크 로컬·메타데이터·내부 DNS 거부, 이름 풀이 뒤 주소 다시 확인). **[검사]** `check-containers.py` 확장(라벨 있는 Deployment에 secret 볼륨·`serviceAccountName` 권한 없음, 하네스에 요청) **[QA]**
+- SC-SBX-3 샌드박스 작업자는 비밀값 파일·DB 접속·Workload Identity 권한·Kubernetes 서비스 계정 토큰을 갖지 않는다. 나가기는 NetworkPolicy로 막고, 바깥 주소 가져오기는 나가기 프록시만(사설·링크 로컬·메타데이터·내부 DNS 거부, 이름 풀이 뒤 주소 다시 확인). **[검사]** `ci/check-containers.py`(라벨 있는 워크로드에 secret 볼륨·serviceAccountToken·`default` 밖 `serviceAccountName`·API 예외 주석이 있으면 실패) **[QA]**
 - SC-SBX-4 공개 Node.js SSR의 샌드박스 여부는 출시 전 부하 시험 결과로 보안 담당이 정한다(security.md §3.1). 정하기 전에는 샌드박스 없는 판을 라이브에 내지 않는다(L4 `fail`). **[QA]**
 
 ## 3. 특권·예외 (SEC-02·SEC-03)
 
-- SC-PRIV-1 PSS `privileged`는 네임스페이스 `mookko-security` 하나만이고, 그 안의 이미지는 제품 `docs/policy/privileged-allowlist.json`(이미지·다이제스트·이유·담당·검토일)에 있는 것만. 다른 특권 예외는 없다. **[검사]** `check-containers.py` 확장(하네스에 요청)
+- SC-PRIV-1 PSS `privileged`는 네임스페이스 `mookko-security` 하나만이고, 그 안의 이미지는 제품 `docs/policy/privileged-allowlist.json`(`{"images":[{"image"(다이제스트),"reason","owner","reviewed"}]}`)에 있는 것만. 다른 특권 예외는 없다. 면제는 특권·host 공유·컨테이너 권한 칸뿐이고 이미지·자원·probe·비밀 환경 변수 규칙은 그대로다. **[검사]** `ci/check-containers.py` (정책 파일이 있을 때만 켜짐, bacb580)
 - SC-PRIV-2 Binary Authorization·admission 우회(break-glass)와 비상 계정 사용은 사고 선언(SEV2-SEC 이상)과 감사 기록이 짝이다. 훈련은 미리 공지한다. **[QA]**
 
 ## 4. 탐지 (SEC-03)
@@ -36,15 +36,15 @@
 ## 5. 대응 (SEC-03)
 
 - SC-IR-1 사고 등급·역할·플레이북은 `incident-response.md` 하나가 정본이다. 서비스 runbook은 그것을 가리키고 따로 등급을 만들지 않는다. PRR-01의 당번·사후 검토도 같은 문서를 본다. **[QA]**
-- SC-IR-2 출시 관문(L4) 전에 탁상 훈련 1회 + 노드 격리·버리기·비밀값 교체 기술 훈련 1회(내부 서버 시험 클러스터)의 기록이 있다. 그 뒤 분기마다. **[검사]** `check-prr.py` 확장(훈련 기록 칸, 하네스에 요청) **[QA]**
+- SC-IR-2 출시 관문(L4) 전에 탁상 훈련 1회 + 노드 격리·버리기·비밀값 교체 기술 훈련 1회(내부 서버 시험 클러스터)의 기록이 있다. 그 뒤 분기마다. **[검사]** `ci/check-prr.py`(`prr.md`의 `## 사고 대응 훈련` 표 `| 훈련 | 날짜 | 기록 |`에 탁상·기술 훈련 줄, 날짜 YYYY-MM-DD, 기록은 저장소 안 링크; prr.json enforce 전에는 경고) **[QA]**
 - SC-IR-3 새 비밀값·키·인증서를 들일 때는 "탈취 때 어떻게 바꾸나"(교체 방법·담당·걸리는 시간)를 그 설계서에 함께 적는다. incident-response §5.1 교체 표에 없는 것은 그 표에 더한다. **[QA]**
 
 ## 6. 취약점·패치 지연 (SEC-04)
 
-- SC-VULN-1 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)을 벤더 때문에 못 맞추면 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json`에 항목을 연다: `id`(CVE), `affects`(노드 풀·이미지·내부 서버), `exposure`(노출 경로 판단), `mitigations`(노출 끊기·격리·감지), `opened`, `reviewBy`(매일 다시 봄), `expires`(최대 30일), `owner`. **[검사]** 기록부 형식·기한 검사(waivers와 같은 방식, 기한 지나면 실패, 하네스에 요청)
+- SC-VULN-1 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)을 벤더 때문에 못 맞추면 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json`에 항목을 연다: `id`(CVE), `affects`(노드 풀·이미지·내부 서버), `exposure`(노출 경로 판단), `mitigations`(노출 끊기·격리·감지), `opened`, `reviewBy`(매일 다시 봄), `expires`(최대 30일), `owner`. **[검사]** `ci/check-vuln-register.py`(check-all: 칸·`expires` ≤ opened+30일·id 겹침, 닫지 않은 항목 `expires`가 지나면 실패·`reviewBy`가 지나면 경고)
 - SC-VULN-2 완화 순서는 host-security §1.1: 기록 → 노출 끊기 → 워크로드 격리 → 감지 강화 → (못 막으면) 다른 이미지 → 30일 넘으면 사용자 결정. 완화 없이 기다리기만 하는 항목은 받지 않는다. **[QA]**
 - SC-VULN-3 고친 판이 나오면 그날부터 §1 기한을 다시 세고, 올린 뒤 항목을 닫는다(지우지 않고 `closed`와 날짜). **[QA]**
-- SC-VULN-4 기반 이미지·제3자 이미지(Envoy·Argo·CNPG·Falco 등)도 같은 기록부다. 바깥 레지스트리에서 바로 끌지 않고 우리 레지스트리로 가져와 검사·서명 뒤에만 쓴다. **[검사]** `check-containers.py`(이미지 출처가 우리 레지스트리, 하네스에 요청) **[QA]**
+- SC-VULN-4 기반 이미지·제3자 이미지(Envoy·Argo·CNPG·Falco 등)도 같은 기록부다. 바깥 레지스트리에서 바로 끌지 않고 우리 레지스트리로 가져와 검사·서명 뒤에만 쓴다. **[검사]** `ci/check-containers.py`(Dockerfile FROM·Compose·컨테이너 image가 제품 `docs/policy/image-registries.json` `{"registries":[접두어]}`로 시작, 정책 파일이 있을 때만 켜짐, bacb580) **[QA]**
 
 ## 7. 보안 설계 검토
 

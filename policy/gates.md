@@ -102,7 +102,7 @@
 - 전용 풀의 toleration·nodeSelector·nodeAffinity는 정해진 네임스페이스만 쓰고(SC-NODE-2), 노드 풀마다 전용 노드 서비스 계정·Workload Identity·Shielded·사설 노드(SC-NODE-3), Kubernetes SA 하나 = IAM 주체 하나(SC-NODE-4).
 - 바깥 바이트 파서·바깥 주소 가져오기는 gVisor 샌드박스의 그 일만 하는 Deployment(SC-SBX-1~3). 공개 Node.js SSR은 부하 시험 뒤 보안 담당이 정하고, 정하기 전에는 L4 `fail`(SC-SBX-4).
 - 특권은 `mookko-security` 네임스페이스의 등록 이미지만(SC-PRIV-1).
-- **자동 근거**: `ci/check-containers.py` 확장 — 풀 toleration·nodeAffinity 대응표(`docs/policy/node-pools.json`), `mookko.io/input: untrusted` 라벨이면 `runtimeClassName: gvisor`·비밀값·SA 권한 없음, 특권은 `docs/policy/privileged-allowlist.json`만 → **하네스에 요청**. 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**.
+- **자동 근거**: `ci/check-containers.py`(bacb580, 제품 정책 파일이 있을 때만 켜짐) — 풀 toleration·nodeAffinity 대응표(`docs/policy/node-pools.json`), `mookko.io/input: untrusted` 라벨이면 `runtimeClassName: gvisor`·`sandbox` 풀 네임스페이스·비밀값·SA 토큰 없음, 특권은 `mookko-security` 네임스페이스의 `docs/policy/privileged-allowlist.json` 이미지만. 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**.
 - **QA 판단**: 라벨을 달아야 할 Deployment에 빠지지 않았는지(실제 바깥 입력 경로와 대조), Workload Identity 권한이 실제 호출과 맞는지, 풀 배치가 security.md 표와 맞는지.
 - HOST-01과 나누기: 워크로드 하나하나의 위생(PSS restricted·NetworkPolicy·자원·서명)은 HOST-01, 워크로드끼리 같은 노드에 둘지(피해 범위)는 SEC-02입니다.
 
@@ -112,7 +112,7 @@
 
 - **런타임 감지는 출시 전 필수**입니다: Falco는 모든 노드 풀, Tetragon은 `keys`·`control`(host-security §7.1, SC-DET-1). 규칙마다 ATT&CK 번호·등급·runbook, 끄기는 보안 담당 확인 + 두 사람 승인(SC-DET-2), 에이전트 끊김은 경보(SC-DET-3), 감사 로그는 보안 등급·WORM(SC-DET-4).
 - **사고 대응 절차서**(`docs/architecture/incident-response.md`)가 하나만 있고(SC-IR-1), 출시 전 탁상 훈련 1회 + 노드 격리·버리기·비밀값 교체 기술 훈련 1회 기록(SC-IR-2), 새 비밀값·키·인증서는 교체 방법을 함께 적음(SC-IR-3).
-- **자동 근거**: 감지 매니페스트가 모든 풀을 덮는지, 규칙 파일의 칸(기법·등급·runbook), `check-prr.py` 확장(훈련 기록 칸) → **하네스에 요청**.
+- **자동 근거**: `ci/check-prr.py`의 `## 사고 대응 훈련` 표(prr.json enforce 전에는 경고). 감지 매니페스트가 모든 풀을 덮는지, 규칙 파일의 칸(기법·등급·runbook) → **하네스에 요청**(규칙 파일이 생기면).
 - **QA 판단**: 가짜 공격 시험(예: falco event-generator)에서 경보가 사람에게 닿았는지, 훈련에 걸린 시간이 incident-response §5.1 목표 안인지, 교체 표가 실제 비밀값 목록과 맞는지.
 - PRR-01과 나누기: 당번·호출·사후 검토 틀은 PRR-01과 같은 문서(incident-response)를 봅니다. 보안 사고(`SEV<n>-SEC`)의 조사·증거·신고·런타임 감지는 SEC-03입니다.
 
@@ -122,7 +122,7 @@
 
 - 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)은 HOST-01이 봅니다. SEC-04는 **기한을 벤더 때문에 못 맞출 때**입니다(계기: CVE-2026-98432, Ubuntu 고친 판 늦음).
 - 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json` 항목(SC-VULN-1), 완화 순서는 host-security §1.1(기록 → 노출 끊기 → 격리 → 감지 → 다른 이미지 → 30일 넘으면 사용자 결정, SC-VULN-2), 고친 판이 나오면 기한을 다시 세고 닫음(SC-VULN-3), 기반·제3자 이미지도 같음(SC-VULN-4).
-- **자동 근거**: 기록부 형식·기한 검사(`expires` 최대 30일, 지나면 실패, waivers와 같은 방식), 이미지 출처가 우리 레지스트리인지(`check-containers.py`) → **하네스에 요청**.
+- **자동 근거**: `ci/check-vuln-register.py`(check-all, `expires` 최대 30일·지나면 실패), 이미지 출처가 우리 레지스트리인지 `ci/check-containers.py`(제품 `docs/policy/image-registries.json`이 있을 때만 켜짐).
 - **QA 판단**: 노출 경로 판단이 맞는지(실제 망 구성과 대조), 완화가 기다리기만이 아닌지.
 
 ## 보안 설계 검토 (SEC-01~04 공통)
