@@ -13,6 +13,9 @@
     "ACC-01",
     "DBDES-01",
     "SEC-01",
+    "SEC-02",
+    "SEC-03",
+    "SEC-04",
     "FINOPS-01",
     "WEB-01",
     "CONV-01",
@@ -57,6 +60,24 @@
       "(?i)(^|/)[^/]*(auth|login|token|session|oauth|oidc|crypto|secret|hsm|pkcs|password|credential)[^/]*",
       "^docs/policy/",
       "(^|/)threat-model\\.md$"
+    ],
+    "SEC-02": [
+      "(^|/)deploy/",
+      "(?i)(^|/)[^/]*\\.tf$",
+      "^docs/architecture/(security|deploy-containers)\\.md$",
+      "^docs/policy/(node-pools|privileged-allowlist)\\.json$"
+    ],
+    "SEC-03": [
+      "^docs/architecture/(incident-response|host-security)\\.md$",
+      "(?i)(^|/)[^/]*(falco|tetragon)[^/]*",
+      "^docs/incidents/",
+      "^docs/spec/[^/]+/runbooks?(\\.md$|/)",
+      "^docs/policy/privileged-allowlist\\.json$"
+    ],
+    "SEC-04": [
+      "^docs/policy/vuln-register\\.json$",
+      "^docs/architecture/host-security\\.md$",
+      "(?i)(^|/)(Dockerfile|Containerfile)[^/]*$"
     ],
     "FINOPS-01": [
       "(?i)(^|/)(pay|payment|wallet|settlement|reconciliation|ledger|money|billing)(/|[-_.])"
@@ -138,6 +159,9 @@
     "ACC-01": "docs/policy/gates.md 'ACC-01 인수 시험' — 외부 계약만 검사, 대상 주소는 JSON 설정, Rust 판에서 통과한 실행 기록(C# 판에서는 돌리지 않음)",
     "DBDES-01": "docs/policy/gates.md 'DBDES-01 DB 설계' — 설계서 <crate>/docs/data-model.md를 qa-design이 먼저 승인(design:approved, 2026-11-03 재개, 한 영업일 안), 이관은 되돌릴 수 있게",
     "SEC-01": "docs/policy/gates.md 'SEC-01 보안' — 인증·인가·비밀값·토큰 수명·감사 기록·개인정보, C# 판보다 약해지지 않음. 보강(2차): 기능마다 STRIDE 위협 모델·OWASP ASVS L2(돈·키·인증 L3), SAST·DAST 근거",
+    "SEC-02": "docs/policy/gates.md 'SEC-02 피해 범위·격리' — 신뢰 등급별 노드 풀(키 DB·운영툴·Argo CD 전용), 전용 풀 toleration은 정해진 네임스페이스만, 노드 SA 최소·Workload Identity·Shielded·사설 노드, 바깥 입력은 gVisor 샌드박스, 특권은 mookko-security 등록 이미지만(conventions/security.md SC-NODE·SC-SBX·SC-PRIV)",
+    "SEC-03": "docs/policy/gates.md 'SEC-03 탐지·대응' — Falco(모든 풀)·Tetragon(keys·control) 출시 전 필수, 규칙마다 ATT&CK·등급·runbook, 감사 로그 WORM, 사고 대응 절차서 하나(NIST 800-61r3·IMAG), 출시 전 훈련 기록(SC-DET·SC-IR)",
+    "SEC-04": "docs/policy/gates.md 'SEC-04 취약점·패치 지연' — 벤더 패치가 기한을 못 맞추면 vuln-register.json 기록·완화(노출 끊기·격리·감지)·최대 30일 뒤 사용자 결정, 기반·제3자 이미지 포함(SC-VULN)",
     "FINOPS-01": "docs/policy/gates.md 'FINOPS-01 돈' — 정수 최소 단위, 복식부기, 멱등 키, 대사, 마감, 이중 승인, 감사",
     "WEB-01": "docs/policy/gates.md 'WEB-01 웹 화면' — pnpm-lock 고정(--frozen-lockfile), pnpm audit, 라이선스 허용 목록, 레지스트리 출처 제한, tsc 타입 검사, eslint, 빌드 통과, 새 패키지의 필요·대안·라이선스 근거, 화면에 비밀값·주소 하드코딩 없음. 보강(2차): WCAG 2.2 AA 접근성, Core Web Vitals 예산(LCP 2.5s·INP 200ms·CLS 0.1, p75)",
     "CONV-01": "docs/policy/conventions/<언어>.md — 바뀐 파일의 언어 규약을 규칙 번호(R-*/F-*/S-*/P-*/T-*)로 판정. [lint]·[deny]·[검사] 규칙은 실행 결과로, [QA] 규칙은 파일·줄 근거로. 규칙 끄기는 lint-exceptions.json 등록분만",
@@ -165,7 +189,10 @@
       "TEST-01",
       "ARCH-01",
       "XC-01",
-      "PRIV-01"
+      "PRIV-01",
+      "SEC-02",
+      "SEC-03",
+      "SEC-04"
     ],
     "firstWave": [
       "PRR-01",
@@ -181,6 +208,11 @@
       "PRIV-01",
       "SEC-01+",
       "WEB-01+"
+    ],
+    "thirdWave": [
+      "SEC-02",
+      "SEC-03",
+      "SEC-04"
     ],
     "launchGate": "출시 관문(L4): 처음 라이브에 열 때와 큰 변경(새 서비스·새 바깥 입구, 하위 호환을 깨는 API·DB 좁히기, 클러스터·영역·DB 배치 변경, 돈·키·인증 기능). 그 밖은 DEPLOY-01 카나리 관문"
   }

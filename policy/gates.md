@@ -30,6 +30,7 @@
 |---|---|---|---|
 | 1차(바로) | PRR-01, PERF-01, OPS-01, DEPLOY-01 | 경고(`warn`)로 판정 | `fail`로 셈 |
 | 2차 | REL-01, TEST-01, ARCH-01, XC-01, PRIV-01, SEC-01·WEB-01 보강 | 경고(`warn`)로 판정 | `fail`로 셈 |
+| 3차(보안 담당 2026-11-04) | SEC-02, SEC-03, SEC-04 | 경고(`warn`)로 판정 | `fail`로 셈 |
 
 - 경고 단계에서도 판정은 관문마다 `pass | warn | na | waived`로 남깁니다. `warn`은 고칠 점이 있다는 뜻이고 통합을 막지 않습니다. 같은 지적은 출시 관문에서 `fail`이 됩니다.
 - **출시 관문(L4)**은 서비스를 처음 라이브에 열 때와 **큰 변경** 때입니다(PM 대행 2026-11-03). 큰 변경은 아래입니다.
@@ -82,6 +83,7 @@
 
 ## SEC-01 보안
 
+- **범위(2026-11-04 정리)**: SEC-01은 **앱·기능 보안**(인증·세션·인가·입력·암호·쿠키·비밀값 다루기, ASVS·STRIDE)입니다. 그 아래 플랫폼 층은 SEC-02(피해 범위·격리)·SEC-03(탐지·대응)·SEC-04(취약점·패치 지연)가 보고, 워크로드 기본 위생은 HOST-01이 봅니다. 기준 정본은 보안 전문 담당의 [`docs/architecture/security.md`](../architecture/security.md)와 규약 [`conventions/security.md`](conventions/security.md)(SC-*)입니다.
 - 인증·인가(OpenIddict 대응), 소셜 로그인 5종, 토큰 수명·회전·폐기, 비밀값 보관(HSM/Pkcs11 대응), 감사 기록, 개인정보 최소화.
 - C# 판에 있던 보안 수준보다 약해지면 안 됩니다(기능 파악용 참고). **약해지는 변경은 사용자 결정 없이는 `fail`입니다**(규칙 문서 `docs/policy/`를 약하게 바꾸는 것도 포함).
 - 쿠키는 모두 `__Host-` 접두어(Secure, Path=/, `Domain` 없음). 상위 도메인(`Domain=mookko.com`) 쿠키는 금지입니다(사용자 콘텐츠 하위 도메인과 분리). 서버(엔진 BFF)와 화면 모두 해당합니다.
@@ -90,6 +92,42 @@
   - 기능마다 **ASVS 수준**을 적고, 그 수준의 해당 장(인증 V2, 세션 V3, 접근 제어 V4, 입력 V5, 암호 V6, 오류·로그 V7, 데이터 보호 V8, 통신 V9)을 판정합니다. 돈·키·인증 기능은 L3입니다.
   - **자동 근거**: SAST(Semgrep 규칙 묶음), gitleaks·trivy(이미 check-all), DAST(내부 시험 서버의 OWASP ZAP 기준 검사) 결과. Semgrep·DAST는 **하네스에 요청**.
   - **QA 판단**: 위협 모델이 실제 경계와 맞는지, 막는 장치가 코드·시험에 있는지(파일:줄).
+
+## SEC-02 피해 범위·격리 (3차)
+
+표준 출처: CIS GKE Benchmark(노드 서비스 계정·Workload Identity·메타데이터 숨김·Shielded 노드·사설 클러스터·GKE Sandbox 항목), MITRE ATT&CK for Containers(T1611 Escape to Host, T1068, T1190), GKE 강화 안내서·GKE Sandbox 문서, Kubernetes ValidatingAdmissionPolicy.
+
+- 노드 root를 얻어도 피해가 그 풀의 워크로드에 묶이게 합니다. 신뢰 등급별 노드 풀(`system`·`general`·`sandbox`·`control`·`keys`·`db-money`)이고, **키 DB·운영툴·Argo CD는 처음부터 전용 풀**입니다(security.md §2, SC-NODE-1).
+- 전용 풀의 toleration·nodeSelector·nodeAffinity는 정해진 네임스페이스만 쓰고(SC-NODE-2), 노드 풀마다 전용 노드 서비스 계정·Workload Identity·Shielded·사설 노드(SC-NODE-3), Kubernetes SA 하나 = IAM 주체 하나(SC-NODE-4).
+- 바깥 바이트 파서·바깥 주소 가져오기는 gVisor 샌드박스의 그 일만 하는 Deployment(SC-SBX-1~3). 공개 Node.js SSR은 부하 시험 뒤 보안 담당이 정하고, 정하기 전에는 L4 `fail`(SC-SBX-4).
+- 특권은 `mookko-security` 네임스페이스의 등록 이미지만(SC-PRIV-1).
+- **자동 근거**: `ci/check-containers.py` 확장 — 풀 toleration·nodeAffinity 대응표(`docs/policy/node-pools.json`), `mookko.io/input: untrusted` 라벨이면 `runtimeClassName: gvisor`·비밀값·SA 권한 없음, 특권은 `docs/policy/privileged-allowlist.json`만 → **하네스에 요청**. 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**.
+- **QA 판단**: 라벨을 달아야 할 Deployment에 빠지지 않았는지(실제 바깥 입력 경로와 대조), Workload Identity 권한이 실제 호출과 맞는지, 풀 배치가 security.md 표와 맞는지.
+- HOST-01과 나누기: 워크로드 하나하나의 위생(PSS restricted·NetworkPolicy·자원·서명)은 HOST-01, 워크로드끼리 같은 노드에 둘지(피해 범위)는 SEC-02입니다.
+
+## SEC-03 탐지·대응 (3차)
+
+표준 출처: NIST SP 800-61 Rev. 3(CSF 2.0 기반 사고 대응), Google "Incident Management Guide"(IMAG)·SRE 책 14·15장, CNCF Falco, Cilium Tetragon, MITRE ATT&CK for Containers, ISMS-P 2.11(사고 예방 및 대응).
+
+- **런타임 감지는 출시 전 필수**입니다: Falco는 모든 노드 풀, Tetragon은 `keys`·`control`(host-security §7.1, SC-DET-1). 규칙마다 ATT&CK 번호·등급·runbook, 끄기는 보안 담당 확인 + 두 사람 승인(SC-DET-2), 에이전트 끊김은 경보(SC-DET-3), 감사 로그는 보안 등급·WORM(SC-DET-4).
+- **사고 대응 절차서**(`docs/architecture/incident-response.md`)가 하나만 있고(SC-IR-1), 출시 전 탁상 훈련 1회 + 노드 격리·버리기·비밀값 교체 기술 훈련 1회 기록(SC-IR-2), 새 비밀값·키·인증서는 교체 방법을 함께 적음(SC-IR-3).
+- **자동 근거**: 감지 매니페스트가 모든 풀을 덮는지, 규칙 파일의 칸(기법·등급·runbook), `check-prr.py` 확장(훈련 기록 칸) → **하네스에 요청**.
+- **QA 판단**: 가짜 공격 시험(예: falco event-generator)에서 경보가 사람에게 닿았는지, 훈련에 걸린 시간이 incident-response §5.1 목표 안인지, 교체 표가 실제 비밀값 목록과 맞는지.
+- PRR-01과 나누기: 당번·호출·사후 검토 틀은 PRR-01과 같은 문서(incident-response)를 봅니다. 보안 사고(`SEV<n>-SEC`)의 조사·증거·신고·런타임 감지는 SEC-03입니다.
+
+## SEC-04 취약점·패치 지연 (3차)
+
+표준 출처: CISA BOD 22-01(KEV 기한), NIST SP 800-40 Rev. 4(엔터프라이즈 패치 관리), ISMS-P 2.10.8(패치관리), CIS GKE Benchmark(노드 자동 업그레이드·릴리스 채널).
+
+- 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)은 HOST-01이 봅니다. SEC-04는 **기한을 벤더 때문에 못 맞출 때**입니다(계기: CVE-2026-98432, Ubuntu 고친 판 늦음).
+- 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json` 항목(SC-VULN-1), 완화 순서는 host-security §1.1(기록 → 노출 끊기 → 격리 → 감지 → 다른 이미지 → 30일 넘으면 사용자 결정, SC-VULN-2), 고친 판이 나오면 기한을 다시 세고 닫음(SC-VULN-3), 기반·제3자 이미지도 같음(SC-VULN-4).
+- **자동 근거**: 기록부 형식·기한 검사(`expires` 최대 30일, 지나면 실패, waivers와 같은 방식), 이미지 출처가 우리 레지스트리인지(`check-containers.py`) → **하네스에 요청**.
+- **QA 판단**: 노출 경로 판단이 맞는지(실제 망 구성과 대조), 완화가 기다리기만이 아닌지.
+
+## 보안 설계 검토 (SEC-01~04 공통)
+
+- 새 바깥 입구·바깥 주소 가져오기, 돈·키·인증·MFA·세션·비밀값·서명, 풀·네임스페이스·RBAC·Workload Identity·NetworkPolicy 넓히기, 특권·샌드박스 예외·감지 규칙 끄기는 설계서·명세에 보안 담당의 `security:reviewed <날짜> <세션>` 줄이 있어야 출시 관문(L4)을 넘습니다(SC-REV-1). 개발·통합은 막지 않습니다. 보안 담당은 한 영업일 안에 검토합니다(SC-REV-2).
+- 판정 분야는 QAManager가 정합니다. 보안 담당 제안: 매니페스트·IaC·기록부 검사 대조는 mookko-rust-qa(HOST-01과 함께), 대응 절차·훈련 기록은 qa-services(PRR-01과 함께).
 
 ## FINOPS-01 돈
 
@@ -129,6 +167,7 @@
 - **노드·패치 기준**: [`docs/architecture/host-security.md`](../architecture/host-security.md) §0(COS에서 지키는 법)·§1(패치 기한: KEV·실제 공격 48시간, 치명 7일)·§5(앞단 방어)·§6(공급망)·§7(침입 감지)
 - **내부 시험 서버는 따로 봅니다**: Ubuntu 24.04 LTS 기준(host-security §0·§2~§4, H-1·H-9, `docs/coordination/internal-test-server-plan.md`)입니다. 시험 클러스터에도 deploy-containers §3·§4를 그대로 겁니다(§11). 운영과 다른 점(노드 수·영역 수·디스크·CDN 없음)은 시험 결과에 적습니다.
 - **자동 근거**: 하네스 `ci/check-containers.py`(Dockerfile·매니페스트·Compose, check-all). 내부 시험 서버의 `*.service`가 저장소에 있으면 하네스 `ci/check-systemd-units.py`도 그대로 봅니다. 예외는 `waivers.json`에 `rule`이 HOST-01인 기한 있는 항목만 받습니다.
+- **SEC-02·SEC-04와 나누기**(2026-11-04): 노드 풀 나누기·샌드박스·특권 예외는 SEC-02, 벤더 패치가 늦을 때의 완화·기록부는 SEC-04입니다. 패치 기한 자체와 워크로드 위생은 그대로 HOST-01입니다.
 - **QA 판단**: 매니페스트가 서비스의 실제 의존(DB·캐시·다른 서비스)과 맞는 NetworkPolicy를 갖는지, probe가 진짜 준비 상태를 보는지, 비상 경로가 문서와 훈련 기록으로 있는지.
 - 기준을 약하게 바꾸는 변경(보안 설정 빼기, 분산·최소 수 줄이기, 기한 늘리기, 서명 확인 끄기)은 사용자 결정 없이는 `fail`입니다.
 
@@ -143,7 +182,7 @@
 | SLO·SLI | 사용자에게 보이는 SLI(가용성·지연·정확성)와 SLO 값, 측정 지점, 오류 예산 정책 |
 | 경보 | 다중 창 소진율(burn rate) 경보(SRE 워크북 5장). 원인 경보보다 증상 경보 |
 | runbook | 경보마다 runbook 링크(확인할 것·조치·되돌리기·올릴 곳) |
-| 당번 | 호출 대상·순번·올리는 단계, 사후 검토(postmortem) 양식 |
+| 당번 | 호출 대상·순번·올리는 단계, 사후 검토(postmortem) 양식. 등급·역할·사후 검토 틀은 `docs/architecture/incident-response.md` 하나를 씀(서비스가 따로 만들지 않음, SEC-03과 같은 문서) |
 | 용량 | 예상 부하와 여유분, 근거는 PERF-01 부하 시험 결과 |
 | 의존 장애 | 의존 서비스·DB·캐시가 죽거나 느릴 때의 동작(REL-01 결과) |
 | 되돌리기 | 되돌리기 시험 기록(DEPLOY-01) |
