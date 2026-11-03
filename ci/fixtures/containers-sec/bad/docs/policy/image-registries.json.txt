@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "registries": [
-    "registry.example/"
+    "registry.example/",
+    "registry.example/mookko"
   ]
 }

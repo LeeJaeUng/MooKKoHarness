@@ -2,13 +2,19 @@
   "schema": 1,
   "entries": [
     {
-      "id": "CVE-2026-0001",
+      "id": "VR-001",
+      "cve": "CVE-2026-0001",
+      "severity": "kev",
+      "published": "@@TODAY-4@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-3@@",
       "reviewBy": "@@TODAY+1@@",
@@ -16,19 +22,69 @@
       "owner": "보안"
     },
     {
-      "id": "CVE-2026-0002",
+      "id": "VR-002",
+      "cve": "CVE-2026-0002",
+      "severity": "critical",
+      "published": "@@TODAY-63@@",
       "affects": [
         "general 풀 노드 이미지"
       ],
       "exposure": "바깥에서 닿지 않음",
       "mitigations": [
-        "노출 끊기"
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
       ],
       "opened": "@@TODAY-60@@",
-      "reviewBy": "@@TODAY-40@@",
+      "reviewBy": "@@TODAY-50@@",
       "expires": "@@TODAY-35@@",
       "owner": "보안",
-      "closed": "@@TODAY-40@@"
+      "closed": "@@TODAY-40@@",
+      "fixedIn": "노드 이미지 1.2.3"
+    },
+    {
+      "id": "VR-003",
+      "cve": "CVE-2026-0003",
+      "severity": "kev",
+      "published": "@@TODAY-41@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-40@@",
+      "reviewBy": "@@TODAY-20@@",
+      "expires": "@@TODAY-11@@",
+      "owner": "보안",
+      "closed": "@@TODAY-12@@",
+      "fixedIn": "벤더 판 2"
+    },
+    {
+      "id": "VR-004",
+      "cve": "CVE-2026-0003",
+      "severity": "kev",
+      "published": "@@TODAY-41@@",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        {
+          "kind": "isolate",
+          "what": "sandbox 풀로 옮김"
+        }
+      ],
+      "opened": "@@TODAY-12@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+10@@",
+      "owner": "보안",
+      "userDecision": "일일보고서 2026-11-xx 사용자 결정"
     }
   ]
 }
