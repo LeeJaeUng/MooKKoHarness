@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: side
+  namespace: mookko-bad
+spec:
+  replicas: 3
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+      initContainers:
+        - name: init
+          image: registry.example/init@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: False
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+      containers:
+        - name: main
+          image: registry.example/main@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+          readinessProbe:
+            grpc: {port: 8443}
+          livenessProbe:
+            grpc: {port: 8443}
+        - name: sidecar
+          image: registry.example/sidecar@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+          readinessProbe:
+            grpc: {port: 9000}
+          livenessProbe:
+            grpc: {port: 9000}
+--- # 다음 문서
+apiVersion: argoproj.io/v1alpha1
+kind: 'Rollout'
+metadata:
+  name: roll
+  namespace: mookko-bad
+spec:
+  replicas: 3
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: app
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext: {privileged: true}
+          ports:
+            - containerPort: 8443
+              hostPort: 8443
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+          readinessProbe:
+            grpc: {port: 8443}
+          livenessProbe:
+            grpc: {port: 8443}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: side
+  namespace: mookko-bad
+spec:
+  scaleTargetRef:
+    name: side
+  minReplicas: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: roll
+  namespace: mookko-bad
+spec:
+  scaleTargetRef:
+    name: roll
+  minReplicas: 3
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: side
+  namespace: mookko-bad
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: roll
+  namespace: mookko-bad
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: rs
+  namespace: mookko-bad
+spec:
+  template:
+    spec:
+      containers:
+        - name: x
+          image: registry.example/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+apiVersion: v1
+kind: List
+items: []

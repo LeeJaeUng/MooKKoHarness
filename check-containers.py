@@ -13,11 +13,16 @@
     cap_add, 다이제스트 없는 image
   - ports: 묶는 주소가 사설·루프백(10., 172.16~31., 192.168., 127.)이거나 변수(${…})여야 함. 주소 없는 포트·0.0.0.0 금지.
 - Kubernetes 매니페스트(apiVersion·kind가 맨 앞 칸에 있는 *.y(a)ml, `---`로 나눈 문서마다, §3)
-  - 워크로드(Deployment·StatefulSet·DaemonSet·Job·CronJob·Pod): runAsNonRoot: true, allowPrivilegeEscalation: false,
-    readOnlyRootFilesystem: true, capabilities.drop [ALL], seccompProfile RuntimeDefault, automountServiceAccountToken: false
-    (Kubernetes API를 부르는 운영툴 배포기만 주석 `mookko.dev/kubernetes-api-client: "true"`로 예외)
-  - 워크로드 금지: privileged·hostNetwork·hostPID·hostIPC: true, hostPath, capabilities.add, runAsUser 0, Unconfined, secretKeyRef
-    (비밀값은 읽기 전용 파일로)
+  - 워크로드(Deployment·StatefulSet·DaemonSet·Job·CronJob·Pod·Argo Rollout): **컨테이너마다**(initContainer 포함)
+    runAsNonRoot: true·seccompProfile RuntimeDefault(파드 기본값 물려받음), allowPrivilegeEscalation: false,
+    readOnlyRootFilesystem: true, capabilities.drop [ALL]. 파드에 automountServiceAccountToken: false(Kubernetes API를 부르는
+    운영툴 배포기만 맨 앞 metadata.annotations의 `mookko.dev/kubernetes-api-client: "true"`로 예외). Rollout이 workloadRef로
+    Deployment를 가리키면 파드 칸은 그 Deployment에서 보고, 짝(HPA·PDB)은 Rollout이 가짐(mookko-rust-qa 11-03)
+  - 보안 칸의 흐름 모양(`containers: [ … ]`·`securityContext: { … }`), kind List, template·containers가 있는 모르는 종류는
+    검사하지 못하므로 실패
+  - 워크로드 금지: privileged·hostNetwork·hostPID·hostIPC: true, hostPath, hostPort, capabilities.add, runAsUser 0,
+    반대 값(runAsNonRoot: false·allowPrivilegeEscalation: true·readOnlyRootFilesystem: false), Unconfined,
+    secretKeyRef·envFrom secretRef(비밀값은 읽기 전용 파일로). true·false는 대소문자·yes/no를 함께 봄
   - 컨테이너마다: image 다이제스트 고정, resources.requests·limits의 cpu·memory. 오래 도는 것(Deployment·StatefulSet·
     DaemonSet)의 containers는 readinessProbe·livenessProbe도
   - 멀티 AZ(live-gap A5, deploy-containers §3): Deployment·StatefulSet은 topologySpreadConstraints에 topologyKey
@@ -184,9 +189,13 @@ def _in_ports(body: list[tuple[int, str]], no: int) -> bool:
     return key == "ports"
 
 
-WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"}
-LONG_RUNNING = {"Deployment", "StatefulSet", "DaemonSet"}
-ZONE_SPREAD = {"Deployment", "StatefulSet"}
+WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod", "Rollout"}
+LONG_RUNNING = {"Deployment", "StatefulSet", "DaemonSet", "Rollout"}
+ZONE_SPREAD = {"Deployment", "StatefulSet", "Rollout"}
+# 흐름 모양(`key: [ … ]`·`key: { … }`)은 이 검사가 안을 읽지 못하므로 보안 칸에는 쓰지 못하게 한다(mookko-rust-qa 11-03).
+FLOW_FORBIDDEN = re.compile(r"^\s*(-\s*)?(containers|initContainers|securityContext|capabilities|volumes|env|envFrom):\s*[\[{]")
+TRUE = r"(?i:true|yes|on)"
+FALSE = r"(?i:false|no|off)"
 MIN_REPLICAS = 3  # AZ 3개에 하나씩(deploy-containers §3 멀티 AZ, PM 대행 2026-11-03)
 K8S_API_CLIENT = re.compile(r"mookko\.dev/kubernetes-api-client:\s*\"?true\"?")
 
@@ -195,7 +204,7 @@ def documents(text: str):
     """`---`로 나눈 문서마다 (시작 줄 번호, 줄 목록)."""
     start, lines = 1, []
     for no, line in enumerate(text.splitlines(), 1):
-        if line.rstrip() == "---":
+        if re.match(r"^---\s*(#.*)?$", line.rstrip()):
             if lines:
                 yield start, lines
             start, lines = no + 1, []
@@ -207,7 +216,7 @@ def documents(text: str):
 
 def top_value(lines: list[str], key: str) -> str | None:
     for line in lines:
-        m = re.match(rf"^{key}:\s*\"?([^\"#\s]+)", line)
+        m = re.match(rf"^[\"']?{key}[\"']?:\s*[\"']?([^\"'#\s]+)", line)
         if m:
             return m.group(1)
     return None
@@ -281,47 +290,47 @@ def section(block: str, key: str) -> str:
     return ""
 
 
+def pod_level(lines: list[str], start: int) -> str:
+    """컨테이너 항목을 뺀 나머지(파드 수준 칸)."""
+    inside = {no for _, cstart, body in container_items(lines, start) for no in range(cstart, cstart + len(body))}
+    return "\n".join(line for i, line in enumerate(lines) if start + i not in inside)
+
+
 def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str, problems: list[str]) -> None:
     doc = "\n".join(lines)
-    need = [
-        (r"^\s*runAsNonRoot:\s*true\b", "runAsNonRoot: true"),
-        (r"^\s*allowPrivilegeEscalation:\s*false\b", "allowPrivilegeEscalation: false"),
-        (r"^\s*readOnlyRootFilesystem:\s*true\b", "readOnlyRootFilesystem: true"),
-        (r"^\s*drop:\s*\[\s*\"?ALL\"?\s*\]|^\s*drop:\s*\n\s*-\s*\"?ALL\"?\s*$", "capabilities.drop: [ALL]"),
-        (r"seccompProfile:\s*\n\s*type:\s*RuntimeDefault\b", "seccompProfile.type: RuntimeDefault"),
-    ]
-    if not K8S_API_CLIENT.search(doc):
-        need.append((r"^\s*automountServiceAccountToken:\s*false\b", "automountServiceAccountToken: false"))
-    for pattern, what in need:
-        if not re.search(pattern, doc, re.MULTILINE):
-            problems.append(f"{rel}:{start}: {label}에 {what}이 없습니다")
-    forbid = [
-        (r"^(privileged|hostNetwork|hostPID|hostIPC):\s*true\b", "특권·호스트 네트워크·pid·ipc를 쓰지 않습니다"),
-        (r"^(-\s*)?hostPath:", "hostPath를 붙이지 않습니다"),
-        (r"^add:", "capability를 더하지 않습니다"),
-        (r"^runAsUser:\s*0\b", "root(UID 0)로 돌리지 않습니다"),
-        (r"^type:\s*Unconfined\b", "seccomp·AppArmor를 끄지 않습니다"),
-        (r"^secretKeyRef:", "비밀값을 환경 변수로 넘기지 않습니다(읽기 전용 파일로)"),
-    ]
-    if kind in ZONE_SPREAD:
-        spread = section(doc, "topologySpreadConstraints")
-        if not (re.search(r"topologyKey:\s*\"?topology\.kubernetes\.io/zone\b", spread)
-                and re.search(r"maxSkew:\s*1\b", spread)):
-            problems.append(f"{rel}:{start}: {label}에 zone 분산(topologySpreadConstraints topologyKey "
-                            f"topology.kubernetes.io/zone, maxSkew: 1)이 없습니다(멀티 AZ)")
-        m = re.search(r"^  replicas:\s*(\d+)", doc, re.MULTILINE)
-        if m and int(m.group(1)) < MIN_REPLICAS:
-            problems.append(f"{rel}:{start}: {label}: replicas {m.group(1)}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
     for offset, line in enumerate(lines):
-        s = line.strip()
-        for pattern, message in forbid:
-            if re.search(pattern, s):
-                problems.append(f"{rel}:{start + offset}: {label}: {message}")
-    for ckind, cstart, body in container_items(lines, start):
+        if FLOW_FORBIDDEN.search(line):
+            problems.append(f"{rel}:{start + offset}: {label}: 흐름 모양({line.strip()[:40]})은 검사하지 못합니다. 블록 모양으로 쓰세요")
+    if kind == "Rollout" and re.search(r"^\s+workloadRef:", doc, re.MULTILINE) and not re.search(r"^\s+template:", doc, re.MULTILINE):
+        return  # 파드 틀은 가리키는 Deployment에 있고, 그쪽에서 검사함(짝·zone은 Rollout 이름으로)
+    pod = pod_level(lines, start)
+    pod_sc = section(section(pod, "spec") or pod, "securityContext")
+    items = list(container_items(lines, start))
+    if not items:
+        problems.append(f"{rel}:{start}: {label}에 containers가 없습니다(검사할 수 없음)")
+    if not re.search(r"^\s*automountServiceAccountToken:\s*" + FALSE + r"\b", pod, re.MULTILINE) and not api_client(lines):
+        problems.append(f"{rel}:{start}: {label}에 automountServiceAccountToken: false가 없습니다")
+    for ckind, cstart, body in items:
         block = "\n".join(body)
-        cname = re.search(r"name:\s*\"?([^\"#\s]+)", block)
+        cname = re.search(r"name:\s*[\"']?([^\"'#\s]+)", block)
         clabel = f"{label}의 {ckind[:-1]} {cname.group(1) if cname else '?'}"
-        image = re.search(r"^\s*(-\s*)?image:\s*\"?([^\"#\s]+)", block, re.MULTILINE)
+        sc = section(block, "securityContext")
+        # 파드 기본값을 물려받는 칸(runAsNonRoot·seccompProfile)과 컨테이너에만 있는 칸
+        if not re.search(r"^\s*runAsNonRoot:\s*" + TRUE + r"\b", sc or pod_sc, re.MULTILINE) and not (
+                not sc_has(sc, "runAsNonRoot") and re.search(r"^\s*runAsNonRoot:\s*" + TRUE + r"\b", pod_sc, re.MULTILINE)):
+            problems.append(f"{rel}:{cstart}: {clabel}에 runAsNonRoot: true가 없습니다(파드 기본값 포함)")
+        seccomp = section(sc, "seccompProfile") if sc_has(sc, "seccompProfile") else section(pod_sc, "seccompProfile")
+        if not re.search(r"^\s*type:\s*RuntimeDefault\b", seccomp, re.MULTILINE):
+            problems.append(f"{rel}:{cstart}: {clabel}에 seccompProfile.type: RuntimeDefault가 없습니다(파드 기본값 포함)")
+        if not re.search(r"^\s*allowPrivilegeEscalation:\s*" + FALSE + r"\b", sc, re.MULTILINE):
+            problems.append(f"{rel}:{cstart}: {clabel}에 allowPrivilegeEscalation: false가 없습니다")
+        if not re.search(r"^\s*readOnlyRootFilesystem:\s*" + TRUE + r"\b", sc, re.MULTILINE):
+            problems.append(f"{rel}:{cstart}: {clabel}에 readOnlyRootFilesystem: true가 없습니다")
+        drop = section(section(sc, "capabilities"), "drop")
+        if not (re.search(r"^\s*drop:\s*\[\s*[\"']?ALL[\"']?\s*\]", section(sc, "capabilities") , re.MULTILINE)
+                or re.search(r"^\s*-\s*[\"']?ALL[\"']?\s*$", drop, re.MULTILINE)):
+            problems.append(f"{rel}:{cstart}: {clabel}에 capabilities.drop: [ALL]이 없습니다")
+        image = re.search(r"^\s*(-\s*)?image:\s*[\"']?([^\"'#\s]+)", block, re.MULTILINE)
         if not image or "@sha256:" not in image.group(2):
             problems.append(f"{rel}:{cstart}: {clabel}: image는 다이제스트(@sha256:…)로 고정해야 합니다")
         resources = section(block, "resources")
@@ -334,6 +343,56 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
             for probe in ("readinessProbe", "livenessProbe"):
                 if not re.search(rf"^\s*{probe}:", block, re.MULTILINE):
                     problems.append(f"{rel}:{cstart}: {clabel}: {probe}가 없습니다")
+    forbid = [
+        (r"^(privileged|hostNetwork|hostPID|hostIPC):\s*" + TRUE + r"\b", "특권·호스트 네트워크·pid·ipc를 쓰지 않습니다"),
+        (r"^(-\s*)?hostPath:", "hostPath를 붙이지 않습니다"),
+        (r"^(-\s*)?hostPort:", "hostPort를 쓰지 않습니다"),
+        (r"^add:", "capability를 더하지 않습니다"),
+        (r"^runAsUser:\s*0\b", "root(UID 0)로 돌리지 않습니다"),
+        (r"^runAsNonRoot:\s*" + FALSE + r"\b", "runAsNonRoot를 끄지 않습니다"),
+        (r"^allowPrivilegeEscalation:\s*" + TRUE + r"\b", "권한 상승을 허용하지 않습니다"),
+        (r"^readOnlyRootFilesystem:\s*" + FALSE + r"\b", "루트 파일 시스템을 쓰기로 열지 않습니다"),
+        (r"^type:\s*Unconfined\b", "seccomp·AppArmor를 끄지 않습니다"),
+        (r"^(-\s*)?secretKeyRef:|^(-\s*)?secretRef:", "비밀값을 환경 변수로 넘기지 않습니다(읽기 전용 파일로)"),
+    ]
+    for offset, line in enumerate(lines):
+        s = line.strip()
+        for pattern, message in forbid:
+            if re.search(pattern, s):
+                problems.append(f"{rel}:{start + offset}: {label}: {message}")
+    if kind in ZONE_SPREAD:
+        spread = section(doc, "topologySpreadConstraints")
+        if not (re.search(r"topologyKey:\s*[\"']?topology\.kubernetes\.io/zone\b", spread)
+                and re.search(r"maxSkew:\s*1\b", spread)):
+            problems.append(f"{rel}:{start}: {label}에 zone 분산(topologySpreadConstraints topologyKey "
+                            f"topology.kubernetes.io/zone, maxSkew: 1)이 없습니다(멀티 AZ)")
+        replicas = child_value(section(doc, "spec"), "replicas")
+        if replicas is not None and (not replicas.isdigit() or int(replicas) < MIN_REPLICAS):
+            problems.append(f"{rel}:{start}: {label}: replicas {replicas}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
+
+
+def sc_has(sc: str, key: str) -> bool:
+    return bool(re.search(rf"^\s*{key}:", sc, re.MULTILINE))
+
+
+def child_value(block: str, key: str) -> str | None:
+    """block의 첫 들여쓰기 단계에 있는 key 값(더 깊은 칸은 보지 않음)."""
+    indent = None
+    for line in block.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        level = len(line) - len(line.lstrip())
+        indent = level if indent is None else indent
+        m = re.match(rf"^{key}:\s*[\"']?([^\"'#\s]+)", line.strip())
+        if level == indent and m:
+            return m.group(1)
+    return None
+
+
+def api_client(lines: list[str]) -> bool:
+    """Kubernetes API를 부르는 운영툴 배포기 표시: 맨 앞 metadata.annotations 안에 있을 때만 인정."""
+    meta = section("\n".join(l for l in lines), "metadata")
+    return bool(K8S_API_CLIENT.search(section(meta, "annotations")))
 
 
 def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[str, str], deny: set[str],
@@ -349,8 +408,15 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         label = f"{kind} {name}"
         if kind in WORKLOADS:
             check_workload(rel, start, lines, kind, label, problems)
+            ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", section(doc, "workloadRef"), re.MULTILINE)
+            if kind == "Rollout" and ref:
+                pairs["refs"].add((ns, ref.group(1)))
             if kind in ZONE_SPREAD:
                 pairs["workloads"][(ns, name)] = (where, label)
+        elif kind == "List":
+            problems.append(f"{where}: kind List는 검사하지 못합니다. 문서를 `---`로 나눠 쓰세요")
+        elif re.search(r"^\s+template:", doc, re.MULTILINE) and re.search(r"^\s+(-\s*)?containers:", doc, re.MULTILINE):
+            problems.append(f"{where}: {label}: 모르는 워크로드 종류라 검사하지 못합니다(검사에 종류를 더하세요)")
         elif kind == "PodDisruptionBudget":
             pairs["pdb"].add((ns, name))
             for value in re.findall(r"[\w./-]+:\s*\"?([\w.-]+)", section(doc, "matchLabels")):
@@ -391,7 +457,7 @@ def main() -> int:
     counts = {"dockerfile": 0, "compose": 0, "kubernetes": 0}
     namespaces: dict[str, str] = {}
     deny: set[str] = set()
-    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set()}
+    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set()}
     for kind, path, rel in files(root):
         counts[kind] += 1
         text = path.read_text(encoding="utf-8")
@@ -402,6 +468,8 @@ def main() -> int:
         else:
             check_compose(rel.as_posix(), text, problems)
     for key, (where, label) in sorted(pairs["workloads"].items()):
+        if key in pairs["refs"]:
+            continue  # Argo Rollout이 workloadRef로 가리키는 Deployment: 짝은 Rollout이 가짐
         if key not in pairs["hpa"]:
             problems.append(f"{where}: {label}에 짝 HorizontalPodAutoscaler(scaleTargetRef.name: {key[1]})가 없습니다")
         if key not in pairs["pdb"]:

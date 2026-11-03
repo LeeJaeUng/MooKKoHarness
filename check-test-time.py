@@ -78,47 +78,7 @@ def scan(root: Path) -> list[tuple[str, str, int, str]]:
 
 
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    flags = {a for a in sys.argv[1:] if a.startswith("--")}
-    root = Path(args[0]).resolve() if args else HERE.parents[1]
-    policy_path = root / "docs" / "policy" / "test-time.json"
-    try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        enforce, baseline, expires = policy["enforce"], policy["baseline"], policy["expires"]
-        expired = datetime.date.fromisoformat(expires) < datetime.date.today()
-    except (OSError, ValueError, KeyError) as e:
-        print(f"docs/policy/test-time.json:1: 읽지 못했습니다: {e}")
-        return 1
-    hits = scan(root)
-    found = hardcoded.counts(hits)
-    if "--write-baseline" in flags:
-        policy["baseline"] = found
-        policy_path.write_text(json.dumps(policy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-        print(f"baseline을 다시 썼습니다({len(found)} 파일, {len(hits)} 건)")
-        return 0
-    if "--list" in flags:
-        for rel, rule, no, text in hits:
-            print(f"{rel}:{no}: [{rule}] {text}")
-    problems: list[str] = []
-    for rel in sorted(set(found) | set(baseline)):
-        for rule in sorted(set(found.get(rel, {})) | set(baseline.get(rel, {}))):
-            now, allowed = found.get(rel, {}).get(rule, 0), baseline.get(rel, {}).get(rule, 0)
-            if now > allowed:
-                problems.extend(f"{r}:{n}: {RULE_TEXT[k]} ({k}, 기준 {allowed}건, 지금 {now}건): {t[:120]}"
-                                for r, k, n, t in hits if r == rel and k == rule)
-            elif now < allowed:
-                problems.append(f"docs/policy/test-time.json:1: {rel} {rule}가 {allowed}건에서 {now}건으로 줄었습니다. 기준을 낮추세요")
-            elif now and expired:
-                problems.append(f"{rel}:1: {rule} {now}건이 기한 {expires}을 넘겨 남아 있습니다. 옮기세요")
-    for p in problems:
-        print(p if enforce else f"경고: {p}")
-    summary = ", ".join(f"{k} {sum(1 for h in hits if h[1] == k)}" for k in RULE_TEXT)
-    if problems and enforce:
-        print(f"test time check failed ({len(problems)} problems; {summary})")
-        return 1
-    mode = "enforce" if enforce else "warn only"
-    print(f"test time check passed ({summary}; {len(problems)} warnings, baseline {len(baseline)} files, {mode})")
-    return 0
+    return hardcoded.ratchet_main("test time", "docs/policy/test-time.json", scan, RULE_TEXT)
 
 
 if __name__ == "__main__":

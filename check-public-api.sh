@@ -18,11 +18,24 @@ for p in meta["packages"]:
         print(p["name"])
 ')
 
+if [ -z "$crates" ]; then
+    echo "public API check failed: 엔진 crate를 하나도 찾지 못했습니다(cargo metadata 확인)"
+    exit 1
+fi
+
+# cargo public-api 오류를 버리지 않고 받아 두었다가 실패하면 끝 몇 줄을 냅니다(mookko-rust-qa 11-03: 출력 없이 끝남).
+mkdir -p "${TMPDIR:-/tmp}/mookko-test"
+err="$(mktemp "${TMPDIR:-/tmp}/mookko-test/public-api.XXXXXX")"
+trap 'rm -f "$err"' EXIT
 status=0
 for crate in $crates; do
     dir="crates/engine/$crate"
     snapshot="$dir/public-api.txt"
-    current=$(cargo public-api -p "$crate" -ss --all-features 2>/dev/null)
+    if ! current=$(cargo public-api -p "$crate" -ss --all-features 2>"$err"); then
+        echo "public API check failed: cargo public-api -p $crate 이 실패했습니다:"
+        tail -n 20 "$err"
+        exit 1
+    fi
     if [ "${MOOKKO_BLESS_PUBLIC_API:-}" = "1" ]; then
         printf '%s\n' "$current" > "$snapshot"
         echo "blessed $snapshot"

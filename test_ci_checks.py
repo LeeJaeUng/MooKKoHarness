@@ -36,6 +36,7 @@ CHECKS = {
     "containers": ROOT / "scripts" / "ci" / "check-containers.py",
     "design-sources": ROOT / "scripts" / "ci" / "check-design-sources.py",
     "hardcoded": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
+    "hardcoded-warn": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
     "test-time": ROOT / "scripts" / "ci" / "check-test-time.py",
     "prr": ROOT / "scripts" / "ci" / "check-prr.py",
 }
@@ -47,12 +48,13 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
-#   Kubernetes 27(짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
+#   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
-# design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1. good: 출처·해당 없음, 결정 아닌 표는 안 봄.
-# hardcoded bad(enforce true): DUR 1, NUM 2(비교식·호출 인자), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
+# design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1, TBD 1(넓힌 모양 ID·정한 값 표는 경고만). good: 출처·해당 없음, 결정 아닌 표는 안 봄.
+# hardcoded bad(enforce true): DUR 1, NUM 3(비교식·호출 인자·const fn 몸통), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
 #   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
+# hardcoded-warn(enforce false): bad 기준보다 늘어 경고 모드여도 실패(그 파일 줄 2), good 줄어듦은 경고만.
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
 # prr bad(enforce true): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), runbook 링크 없음 1, 링크 대상 없음 1. good: 미정 칸, 앵커 붙은 링크.
@@ -83,9 +85,10 @@ EXPECTED_BAD = {
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 46,
-    "design-sources": 3,
-    "hardcoded": 8,
+    "containers": 57,
+    "design-sources": 4,
+    "hardcoded": 9,
+    "hardcoded-warn": 2,
     "test-time": 5,
     "prr": 6,
 }
