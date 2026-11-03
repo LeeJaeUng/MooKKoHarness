@@ -120,10 +120,20 @@ def in_use(exclude: set[str] | None = None) -> set[Path]:
     return used
 
 
+def in_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
 def headroom(host: dict) -> tuple[int, int] | None:
     """(여유 바이트, 가상 디스크 안 빈 곳 바이트). 이 PC가 아니면(경로 없음) None."""
     host_path, vhdx = Path(host["path"]), Path(host["vhdx"])
     if not host_path.exists() or not vhdx.exists():
+        if in_wsl():  # WSL 안인데 가상 디스크를 못 찾으면 C 드라이브 검사를 말없이 건너뛰지 않음(mookko-rust-qa 11-03)
+            print(f"disk guard: 알림 가상 디스크를 찾지 못해 Windows 드라이브 남은 공간을 보지 못했습니다: {vhdx} "
+                  f"(data/dev-machine.json의 diskGuard.vhdx를 확인하세요)")
         return None
     linux_used = shutil.disk_usage("/").used
     slack = max(0, vhdx.stat().st_size - linux_used)

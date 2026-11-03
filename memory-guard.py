@@ -48,6 +48,9 @@ def log(text: str) -> None:
 
 
 def in_wsl() -> bool:
+    """WSL 안인지. /proc/version을 못 읽어도 WSL 표지(환경 변수·interop)가 있으면 WSL로 본다(닫힌 쪽: Windows 판정)."""
+    if os.environ.get("WSL_DISTRO_NAME") or Path("/proc/sys/fs/binfmt_misc/WSLInterop").exists():
+        return True
     try:
         return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
     except OSError:
@@ -95,18 +98,23 @@ def windows_percent(cfg: dict) -> float:
     그래도 못 읽으면 100%로 봅니다(못 잰 채로 빌드를 늘리지 않음). 실패는 기록에 남깁니다."""
     error = ""
     for attempt in range(3):
-        result = subprocess.run(
-            [
-                windows_exe(cfg, "powershell", "MOOKKO_POWERSHELL"),
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "$o=Get-CimInstance Win32_OperatingSystem; \"{0} {1}\" -f $o.TotalVisibleMemorySize,$o.FreePhysicalMemory",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    windows_exe(cfg, "powershell", "MOOKKO_POWERSHELL"),
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "$o=Get-CimInstance Win32_OperatingSystem; \"{0} {1}\" -f $o.TotalVisibleMemorySize,$o.FreePhysicalMemory",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:  # 실행 파일 없음·시간 초과도 못 읽은 것으로(mookko-rust-qa 11-03)
+            error = f"{type(e).__name__}: {e}"
+            time.sleep(2 * (attempt + 1))
+            continue
         out = result.stdout.split()
         if result.returncode == 0 and len(out) == 2 and out[0].isdigit() and out[1].isdigit():
             total, free = int(out[0]), int(out[1])
@@ -138,12 +146,16 @@ def drop_cache(cfg: dict) -> None:
         pass
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
-    result = subprocess.run(
-        [windows_exe(cfg, "wslExe", "MOOKKO_WSL_EXE"), "-d", cfg["distro"], "-u", "root", "-e", "sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            [windows_exe(cfg, "wslExe", "MOOKKO_WSL_EXE"), "-d", cfg["distro"], "-u", "root", "-e", "sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"page cache 비우기 실패({type(e).__name__}: {e})")
+        return
     if result.returncode != 0:
         log(f"page cache 비우기 실패(rc={result.returncode}): {result.stderr.strip()[:200]}")
     else:

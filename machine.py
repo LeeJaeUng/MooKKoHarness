@@ -17,10 +17,13 @@ from pathlib import Path
 
 def main_root(start: Path | None = None) -> Path:
     """이 저장소 본 체크아웃의 최상위 폴더."""
-    root = (start or Path(__file__)).resolve()
-    root = root if root.is_dir() else root.parent
+    here = (start or Path(__file__)).resolve()
+    here = here if here.is_dir() else here.parent
+    root = here
     while not (root / ".git").exists() and root.parent != root:
         root = root.parent
+    if not (root / ".git").exists():  # git 밖(압축본 등): 이 파일 기준 저장소 최상위(scripts/dev의 두 단계 위)
+        return Path(__file__).resolve().parents[2]
     if root.parent.name == "worktrees" and root.parent.parent.name == ".claude":
         return root.parents[2]
     return root
