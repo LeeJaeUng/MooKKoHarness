@@ -37,6 +37,7 @@ CHECKS = {
     "design-sources": ROOT / "scripts" / "ci" / "check-design-sources.py",
     "hardcoded": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
     "test-time": ROOT / "scripts" / "ci" / "check-test-time.py",
+    "prr": ROOT / "scripts" / "ci" / "check-prr.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -54,6 +55,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
+# prr bad(enforce true): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), runbook 링크 없음 1, 링크 대상 없음 1. good: 미정 칸, 앵커 붙은 링크.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
 # lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
 #   acceptance/ 아래 #[allow] 1.
@@ -85,6 +87,7 @@ EXPECTED_BAD = {
     "design-sources": 3,
     "hardcoded": 8,
     "test-time": 5,
+    "prr": 6,
 }
 PROBLEM_LINE = re.compile(r"^(?:\s*-\s+)?\S+:\d+: ")
 # 줄 번호 없이 `  - …`로 문제를 내는 검사
