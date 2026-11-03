@@ -16,4 +16,4 @@
 
 - T-SH-1 맨 위 `set -euo pipefail`, 변수는 따옴표로 감싼다. **[QA]**
 - T-SH-2 Linux에서 돈다(제품 검사는 Linux 기준). Windows 전용 명령을 쓰지 않는다. **[QA]**
-- T-SH-3 임시 파일은 `%TEMP%\mookko-test\<앱>\<실행>`(Linux는 `$TMPDIR/mookko-test/...`)에 만들고 끝나면 지운다. Linux에서 바로 지우는 것은 그 실행이 직접 만든 폴더 하나뿐이고, 시험이 실패하면 원인 확인용으로 남긴다(Bash는 종료 코드, Rust `Drop`은 `std::thread::panicking()`으로 가림). **[검사]** `check-test-tempdirs.py`(Rust `temp_dir()` 뒤 첫 `.join("mookko-test")`, 지우는 `Drop`의 실패 시 남기기, Bash `rm -r` 대상이 mookko-test 아래 변수인지)
+- T-SH-3 임시 파일은 `${TMPDIR:-/tmp}/mookko-test/<앱>/<실행>`에 만들고 끝나면 지운다. Linux에서 바로 지우는 것은 그 실행이 직접 만든 폴더 하나뿐이고, 시험이 실패하면 원인 확인용으로 남긴다(Bash는 종료 코드, Rust `Drop`은 `std::thread::panicking()`으로 가림). **[검사]** `check-test-tempdirs.py`(Rust `temp_dir()` 뒤 첫 `.join("mookko-test")`, 지우는 `Drop`의 실패 시 남기기, Bash `rm -r` 대상이 mookko-test 아래 변수인지)

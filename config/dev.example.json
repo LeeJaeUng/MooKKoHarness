@@ -1,5 +1,5 @@
 {
-  "appId": "rustdev",
+  "appId": "harness",
   "listen": {"host": "127.0.0.1", "fallbackPort": 5292},
   "hub": {"baseUrl": "http://127.0.0.1:5280", "timeoutMs": 2000},
   "telemetry": {"filter": "info", "format": "json"}

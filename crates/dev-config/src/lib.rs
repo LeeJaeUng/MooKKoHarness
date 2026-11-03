@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn config_is_strict() {
         let good = include_str!("../tests/fixtures/dev.json");
-        assert_eq!(parse_json(good, "t").unwrap().app_id, "rustdev");
+        assert_eq!(parse_json(good, "t").unwrap().app_id, "harness");
         let extra = good.replace("\"telemetry\"", "\"extra\":1,\"telemetry\"");
         assert!(parse_json(&extra, "t").is_err());
     }

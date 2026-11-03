@@ -1,7 +1,7 @@
 """모든 crate 대상 루트에 `#![forbid(unsafe_code)]`가 있는지 검사 (RUST-01).
 
 cargo metadata의 모든 대상(lib·bin·test·bench·example·build script)의 루트 파일을 본다.
-공식 CI(하네스 MooKKoDev)도 같은 검사를 한다. 이 스크립트는 커밋 전 로컬 확인용이다.
+하네스(MooKKoHarness) check-all이 제품 저장소에 돌린다.
 """
 
 from __future__ import annotations

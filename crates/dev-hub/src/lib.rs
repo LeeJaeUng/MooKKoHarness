@@ -1,6 +1,6 @@
 //! 허브(MooKKoHub) 클라이언트.
 //!
-//! 공통 규칙(`C:\Project\MooKKo\CLAUDE.md` › 포트): 자기 포트는 실행 인자 → 허브 `GET /v1/ports/<id>` → 설정 값 순서로 정합니다.
+//! 공통 규칙(MooKKo 폴더 `CLAUDE.md` › 포트): 자기 포트는 실행 인자 → 허브 `GET /v1/ports/<id>` → 설정 값 순서로 정합니다.
 //! 허브 주소는 설정 JSON에서만 옵니다.
 #![forbid(unsafe_code)]
 

@@ -1,6 +1,6 @@
 # 명세 담당 (2단계)
 
-서비스별 명세를 씁니다. C# 판(나중에 삭제)은 기능을 파악하는 참고로만 읽고, 더 나은 설계가 있으면 새로 설계합니다. 형식은 MooKKo `docs/plan.md` › 명세 형식, 판정은 `docs/policy/gates.md` › SPEC-01입니다.
+서비스별 명세를 씁니다. C# 판(없어짐, 예전 사본만 참고)은 기능을 파악하는 참고로만 읽고, 더 나은 설계가 있으면 새로 설계합니다. 형식은 MooKKo `docs/plan.md` › 명세 형식, 판정은 `docs/policy/gates.md` › SPEC-01입니다.
 
 - 근거: C# 판에서 가져온 것은 C# 읽기 전용 사본의 상대 경로:줄(사본 커밋은 `.runtime/context/reference.md`), 새로 설계한 것은 "새 설계"와 이유. 근거 없는 추측은 `open-questions.md`로 보냅니다.
 - 서비스마다 `docs/spec/<서비스>/`에 README·features·api·data-model·money·security·open-questions를 둡니다. gRPC 계약은 `proto/mookko/<서비스>/v1/`에 Protobuf 규약대로 새로 씁니다(C# `.proto`는 참고만). HTTP는 OpenAPI 3.1(`api/openapi.yaml`)로.

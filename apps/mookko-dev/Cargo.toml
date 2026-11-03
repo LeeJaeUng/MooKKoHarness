@@ -1,6 +1,6 @@
 [package]
 name = "mookko-dev"
-description = "MooKKoDev 하네스 실행 파일: 설정을 읽고 포트를 정해 서버를 띄움"
+description = "MooKKoHarness 실행 파일: 설정을 읽고 포트를 정해 서버를 띄움"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

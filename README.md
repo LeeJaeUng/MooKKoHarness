@@ -1,23 +1,36 @@
-# MooKKoDev 하네스 (Rust 판)
+# MooKKoHarness
 
-공통 안내: `C:\Project\MooKKo\CLAUDE.md` · AI 매니저: `http://127.0.0.1:5290` (연동 안내 `C:\Project\MooKKo\MooKKoAIManager\docs\연동-안내.md`)
+공통 안내: MooKKo 폴더의 `CLAUDE.md`(이 저장소의 상위 폴더) · AI 매니저: 허브 `GET /v1/ports/<매니저 id>`로 주소를 읽음 (연동 안내 `MooKKoAIManager/docs/연동-안내.md`)
 
-MooKKo 제품(Rust 판)을 만드는 AI 워커를 관리하는 하네스입니다. **개발될 서비스들이 정해진 방식(공용 엔진, 모듈화, JSON 설정, React·TS·Tailwind 화면, Linux 빌드)대로만 개발되도록 강하게 잡는 것**이 역할입니다(`docs/design.md` › 강제하는 것). 담당·일감을 나누고, AI 매니저에서 자리를 빌려 워커를 돌리고, 다른 엔진의 QA와 CI를 통과한 커밋만 제품 `main`에 반영합니다. 2026-10-29 사용자 결정으로 MooKKoDev C# 복사판을 버리고 **Rust로 새로** 만듭니다. 이름에 Rust를 붙이지 않습니다.
+MooKKo 제품의 개발 하네스입니다. **개발될 서비스들이 정해진 방식대로만 개발되도록 강하게 잡는 것**이 역할입니다(`docs/design.md` › 강제하는 것). 정해진 방식은 공용 엔진, 모듈화, 설정 목록, React·TS·Tailwind 화면, Linux 빌드, Kubernetes 라이브입니다.
 
-- 설계: `docs/design.md` (역할, 강제하는 것, 구조, 운영 교훈, 단계 H1~H5, 정해야 할 것)
-- 운영 교훈 근거: `docs/reference/` (MooKKoDev C# 실행부 문서)
-- 담당 규칙(워커에게 넘김): `rules/` · 담당 구성 초안: `defaults/roles.json`
-- CI 도구: `tools/validate-rust.py`(제품 후보 커밋 검사), `tools/export-policy.py`(제품 관문 정책 내보내기), `tools/security_tools.py`
+검사·관문·규약·AI 스킬의 정본이 여기 있습니다. 제품은 `harness.lock`에 이 저장소의 커밋을 고정하고, 얇은 진입점(`scripts/ci/check-all.sh`)으로 그 판을 돌립니다.
+
+전에는 이름이 MooKKoRustDev였습니다. 2026-11-03 사용자 결정으로 바꾸고 제품의 검사를 여기로 모았습니다. 그 전 C# 하네스 MooKKoDev는 2026-10-30에 철거했습니다.
 
 | 항목 | 값 |
 |---|---|
-| 허브 앱 id | `rustdev` (포트는 허브 `GET /v1/ports/rustdev`) |
-| 서버 | Rust(axum, tokio). API와 실시간 알림(SSE)만, 화면 없음 |
-| 실행 데이터 | `data\` (git 제외): `runtime\`(설정·토큰·상태), `tools\`(검사 도구), `reference\`(C# 판 읽기 전용 사본), `legacy-csharp-copy\`(버린 C# 복사판, 참고용) |
+| 허브 앱 id | `harness` (포트는 허브 `GET /v1/ports/harness`, 전 id `rustdev`) |
+| 서버 | Rust(axum, tokio). API와 실시간 알림(SSE)만, 화면 없음. 지금은 H1 뼈대 |
+| 원격 | `LeeJaeUng/MooKKoHarness`(비공개, 만들면 PM이 처음 push) |
+| 실행 데이터 | `data/` (git 제외) |
 
-## 남은 것 (10-29)
+## 폴더
 
-- AI 매니저 승인(사용자): 프로그램 `prg_da8511696f19b9a2`, 매니저 화면 **프로그램** 탭.
-- 제품 GitHub 원격(사용자): 없으면 main 반영이 실패합니다.
-- 호스트 검사 도구(Trivy·OSV-Scanner·Semgrep)를 `data\tools`에: 없으면 QA 영수증이 없습니다.
-- `docs/design.md` › 정해야 할 것: 하네스 실행 위치, 워커 격리 위치.
+| 폴더 | 무엇 |
+|---|---|
+| `docs/` | 설계(`design.md`), 옛 판 기록(`reference/`) |
+| `policy/` | 관문(`gates.md`·`gates.json`), 언어별 규약(`conventions/`) |
+| `rules/` · `skills/` | 워커에게 주는 담당 규칙, 언어별 AI 스킬 |
+| `ci/` | `check-all.sh`와 검사 본체, 검사 표본 |
+| `dev/` | 개발 도구: 빌드 자리, 메모리·디스크 관문, 시험 DB, WSL 실행 |
+| `config/` | 하네스 서버 설정 예, 개발 도구 설정(`dev/`), 담당 구성 초안(`roles.json`) |
+| `apps/` · `crates/` | 하네스 서버(Rust) |
+
+## 검사를 바꾸려면
+
+1. 여기서 고치고 커밋합니다. 검사마다 잡아야 할 표본과 통과시켜야 할 표본이 `ci/fixtures/`에 있어야 합니다.
+2. 제품 `harness.lock`을 그 커밋으로 올리고, 제품 사본(`docs/policy/gates.*`·`docs/policy/conventions/`·`.claude/skills/`)을 맞춥니다.
+3. 제품 check-all을 통과시킵니다.
+
+판을 올리는 것은 제품 통합 담당만 합니다. 판을 내리거나 검사를 약하게 바꾸는 것은 사용자 결정 없이는 실패입니다.

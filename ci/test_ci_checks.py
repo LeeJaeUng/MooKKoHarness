@@ -40,6 +40,8 @@ CHECKS = {
     "test-time": HARNESS / "ci" / "check-test-time.py",
     "prr": HARNESS / "ci" / "check-prr.py",
     "production-config": HARNESS / "ci" / "check-production-config.py",
+    "harness-copies": HARNESS / "ci" / "check-harness-copies.py",
+    "folder-layout": HARNESS / "ci" / "check-folder-layout.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -94,7 +96,14 @@ EXPECTED_BAD = {
     "test-time": 5,
     "prr": 6,
     "production-config": 10,
+    "harness-copies": 5,
+    "folder-layout": 5,
 }
+# harness-copies bad: gates.md 다름 1, gates.json 정본 없음 1, 규약 b 사본 없음 1, 규약 c 정본에 없음 1, 스킬 다름 1.
+#   good: 같은 사본, 하네스 skills/README.md는 옮기지 않음. 하네스 쪽은 표본 안 harness/(EXTRA_ARGS).
+# folder-layout bad: 최상위 stray.py 1, 정하지 않은 tools/ 1, rules/ 안내 없음 1, rules/x.py 종류 1, config/a.yaml 종류 1.
+# 표본 폴더 뒤에 붙이는 인자(표본 안 경로). check-all이 내보낸 MOOKKO_HARNESS_DIR 대신 표본 안 하네스를 쓰게 함.
+EXTRA_ARGS = {"harness-copies": ["harness"]}
 PROBLEM_LINE = re.compile(r"^(?:\s*-\s+)?\S+:\d+: ")
 # 줄 번호 없이 `  - …`로 문제를 내는 검사
 _DASH = re.compile(r"^\s+-\s+\S")
@@ -119,7 +128,7 @@ def materialize(src: Path, dest: Path) -> None:
 
 def run(name: str, check: Path, repo: Path) -> tuple[int, list[str]]:
     result = subprocess.run(
-        [sys.executable, "-X", "utf8", str(check), str(repo)],
+        [sys.executable, "-X", "utf8", str(check), str(repo), *(str(repo / a) for a in EXTRA_ARGS.get(name, []))],
         capture_output=True,
         text=True,
         encoding="utf-8",

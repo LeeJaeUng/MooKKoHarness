@@ -234,6 +234,12 @@ def base_policy(root: Path, policy_rel: str) -> dict | None:
     """비교 기준 판(환경 변수 MOOKKO_BASELINE_REF, 없으면 foundation/engine)의 같은 정책 파일. git이나 그 판이 없으면 None."""
     ref = os.environ.get("MOOKKO_BASELINE_REF", "foundation/engine")
     try:
+        # 검사하는 폴더가 그 git의 최상위일 때만 비교합니다. Windows worktree에서 check-all이 GIT_DIR·GIT_WORK_TREE를
+        # 내보내면 git 밖 폴더(검사 표본)도 제품 저장소의 판을 읽기 때문입니다(2026-11-03 하네스 옮긴 뒤 표본 시험 실패).
+        top = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=30)
+        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
+            return None
         out = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{policy_rel}"],
                              capture_output=True, text=True, encoding="utf-8", timeout=30)
     except (OSError, subprocess.TimeoutExpired):

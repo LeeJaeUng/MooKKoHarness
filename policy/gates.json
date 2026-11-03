@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "note": "MooKKo QA 관문 정본. 바꾸면 하네스(MooKKoDev)로 정책을 다시 내보내야 영수증 판정에 들어갑니다. 판정 기준 전문은 docs/policy/gates.md.",
+  "requiredServices": [
+    "workspace"
+  ],
+  "gates": [
+    "RUST-01",
+    "RUST-02",
+    "ASYNC-01",
+    "DEPS-01",
+    "SPEC-01",
+    "ACC-01",
+    "DBDES-01",
+    "SEC-01",
+    "FINOPS-01",
+    "WEB-01",
+    "CONV-01",
+    "HOST-01",
+    "PRR-01",
+    "PERF-01",
+    "OPS-01",
+    "DEPLOY-01",
+    "REL-01",
+    "TEST-01",
+    "ARCH-01",
+    "XC-01",
+    "PRIV-01"
+  ],
+  "gatePaths": {
+    "RUST-01": [
+      "\\.rs$",
+      "(^|/)Cargo\\.toml$"
+    ],
+    "RUST-02": [
+      "\\.rs$"
+    ],
+    "ASYNC-01": [
+      "^crates/.*\\.rs$"
+    ],
+    "DEPS-01": [
+      "(^|/)Cargo\\.(toml|lock)$",
+      "^deny\\.toml$"
+    ],
+    "SPEC-01": [
+      "^docs/spec/",
+      "^proto/"
+    ],
+    "ACC-01": [
+      "^acceptance/"
+    ],
+    "DBDES-01": [
+      "(?i)(^|/)migrations?/",
+      "(?i)\\.sql$"
+    ],
+    "SEC-01": [
+      "(?i)(^|/)[^/]*(auth|login|token|session|oauth|oidc|crypto|secret|hsm|pkcs|password|credential)[^/]*",
+      "^docs/policy/",
+      "(^|/)threat-model\\.md$"
+    ],
+    "FINOPS-01": [
+      "(?i)(^|/)(pay|payment|wallet|settlement|reconciliation|ledger|money|billing)(/|[-_.])"
+    ],
+    "WEB-01": [
+      "^web/"
+    ],
+    "CONV-01": [
+      "\\.(rs|ts|tsx|js|jsx|sql|proto|py|sh)$",
+      "(^|/)(Cargo\\.toml|clippy\\.toml|package\\.json|tsconfig[^/]*\\.json|eslint[^/]*)$",
+      "^docs/policy/"
+    ],
+    "HOST-01": [
+      "(^|/)deploy/",
+      "(?i)(^|/)(Dockerfile|Containerfile)[^/]*$",
+      "(?i)(^|/)(compose|docker-compose)[^/]*\\.ya?ml$",
+      "\\.service$",
+      "\\.timer$",
+      "^docs/architecture/(deploy-containers|host-security)\\.md$",
+      "^docs/coordination/internal-test-server-plan\\.md$",
+      "^scripts/ci/check-(containers|systemd-units)\\.py$"
+    ],
+    "PRR-01": [
+      "^crates/apps/",
+      "(^|/)deploy/",
+      "^docs/spec/[^/]+/(prr|slo|runbooks?)(\\.md$|/)"
+    ],
+    "PERF-01": [
+      "^crates/.*\\.rs$",
+      "(^|/)benches/",
+      "^docs/spec/"
+    ],
+    "OPS-01": [
+      "^crates/.*\\.rs$",
+      "^docs/architecture/config-catalog\\.md$",
+      "^docs/policy/hardcoded-values\\.json$",
+      "(^|/)config/.*\\.json$",
+      "^docs/spec/observability/"
+    ],
+    "DEPLOY-01": [
+      "^proto/",
+      "(?i)(^|/)migrations?/",
+      "(^|/)deploy/",
+      "(?i)(^|/)(Dockerfile|Containerfile)[^/]*$"
+    ],
+    "REL-01": [
+      "^crates/.*\\.rs$",
+      "(^|/)deploy/"
+    ],
+    "TEST-01": [
+      "(^|/)tests?/",
+      "(^|/)fuzz/",
+      "^acceptance/",
+      "\\.rs$"
+    ],
+    "ARCH-01": [
+      "^docs/architecture/",
+      "^docs/spec/",
+      "^docs/policy/design-sources\\.json$",
+      "^crates/(services|apps)/"
+    ],
+    "XC-01": [
+      "^crates/(engine|adapters|services|apps)/.*\\.rs$",
+      "(?i)(^|/)migrations?/"
+    ],
+    "PRIV-01": [
+      "^docs/spec/",
+      "(?i)(^|/)migrations?/",
+      "(?i)(^|/)data-model\\.md$",
+      "(?i)(^|/)[^/]*(user|profile|privacy|consent|retention|upload|image|media)[^/]*"
+    ]
+  },
+  "gateCriteria": {
+    "RUST-01": "docs/policy/gates.md 'RUST-01 메모리 안전' — 모든 crate 루트 #![forbid(unsafe_code)], 워크스페이스 lint unsafe_code=forbid, unsafe를 쓰는 의존성은 DEPS-01 근거",
+    "RUST-02": "docs/policy/gates.md 'RUST-02 오류 처리' — unwrap·expect·panic!·todo!·dbg! 없음(시험 제외), 오류 형식과 경계에서의 변환",
+    "ASYNC-01": "docs/policy/gates.md 'ASYNC-01 비동기' — 요청 경로의 동기 대기·동기 I/O·전역 잠금 없음, 동시 실행 상한, 기한(timeout)",
+    "DEPS-01": "docs/policy/gates.md 'DEPS-01 의존성' — cargo-deny·cargo-audit 통과, 새 crate의 필요·대안·유지 상태·unsafe 여부 근거",
+    "SPEC-01": "docs/policy/gates.md 'SPEC-01 명세 근거' — 모든 기능·계약·스키마·돈·보안 항목에 근거(C# 판에서 가져온 것은 C# 사본 상대 경로:줄, 새로 설계한 것은 '새 설계'와 이유), 추측은 open-questions.md",
+    "ACC-01": "docs/policy/gates.md 'ACC-01 인수 시험' — 외부 계약만 검사, 대상 주소는 JSON 설정, Rust 판에서 통과한 실행 기록(C# 판에서는 돌리지 않음)",
+    "DBDES-01": "docs/policy/gates.md 'DBDES-01 DB 설계' — 설계서 <crate>/docs/data-model.md를 qa-design이 먼저 승인(design:approved, 2026-11-03 재개, 한 영업일 안), 이관은 되돌릴 수 있게",
+    "SEC-01": "docs/policy/gates.md 'SEC-01 보안' — 인증·인가·비밀값·토큰 수명·감사 기록·개인정보, C# 판보다 약해지지 않음. 보강(2차): 기능마다 STRIDE 위협 모델·OWASP ASVS L2(돈·키·인증 L3), SAST·DAST 근거",
+    "FINOPS-01": "docs/policy/gates.md 'FINOPS-01 돈' — 정수 최소 단위, 복식부기, 멱등 키, 대사, 마감, 이중 승인, 감사",
+    "WEB-01": "docs/policy/gates.md 'WEB-01 웹 화면' — pnpm-lock 고정(--frozen-lockfile), pnpm audit, 라이선스 허용 목록, 레지스트리 출처 제한, tsc 타입 검사, eslint, 빌드 통과, 새 패키지의 필요·대안·라이선스 근거, 화면에 비밀값·주소 하드코딩 없음. 보강(2차): WCAG 2.2 AA 접근성, Core Web Vitals 예산(LCP 2.5s·INP 200ms·CLS 0.1, p75)",
+    "CONV-01": "docs/policy/conventions/<언어>.md — 바뀐 파일의 언어 규약을 규칙 번호(R-*/F-*/S-*/P-*/T-*)로 판정. [lint]·[deny]·[검사] 규칙은 실행 결과로, [QA] 규칙은 파일·줄 근거로. 규칙 끄기는 lint-exceptions.json 등록분만",
+    "HOST-01": "docs/policy/gates.md 'HOST-01 운영 실행 환경' — Docker+Kubernetes(GKE COS)·GitOps·Envoy Gateway. deploy-containers.md §3·§4와 check-containers 기준, 노드·패치는 host-security.md §0·§1, 내부 시험 서버는 Ubuntu 24.04 기준 따로. 약해지는 변경은 사용자 결정 없이는 fail",
+    "PRR-01": "docs/policy/gates.md 'PRR-01 출시 준비 검토' — docs/spec/<서비스>/prr.md: SLO·SLI, 소진율 경보, 경보마다 runbook, 당번, 용량(부하 시험 근거), 의존 장애 동작, 되돌리기 시험, 비상 경로, 백업·복구 시험 (Google SRE PRR, AWS Well-Architected)",
+    "PERF-01": "docs/policy/gates.md 'PERF-01 성능' — 명세 목표(p95·p99·처리량)를 내부 서버 부하 시험 결과로 판정, 판마다 벤치 회귀(같은 장비 여러 번, 중앙값·분산). 기준(서비스 목표 또는 기본 5%)과 잡음 범위를 모두 넘으면 fail, 잡음 범위 안이면 warn",
+    "REL-01": "docs/policy/gates.md 'REL-01 장애 견딤' — 의존 서비스·DB·캐시·Pod·영역 장애 주입 시험, 기한·재시도 예산·부하 버리기·회로 차단·대기열 상한 (Netflix Chaos, AWS Builders' Library, SRE 21·22장)",
+    "OPS-01": "docs/policy/gates.md 'OPS-01 운영 가능성' — 설정 목록 밖 숫자·경로·주소 없음(check-hardcoded-values), 운영툴에서 변경·감사, 킬 스위치, 지표·로그·추적, 서버별 다시 읽기",
+    "DEPLOY-01": "docs/policy/gates.md 'DEPLOY-01 배포 안전' — 신·구 판 공존(proto 하위 호환, DB 넓히기·좁히기), 카나리·자동 되돌림 시험, 설정 단계 배포, 같은 다이제스트 승격",
+    "TEST-01": "docs/policy/gates.md 'TEST-01 시험 품질' — 실제 시간·sleep 의존 금지, 파서·바깥 입력 퍼징, 속성 시험, 흔들리는 시험 격리·기한, 변이 시험 또는 실효성 지표 목표",
+    "ARCH-01": "docs/policy/gates.md 'ARCH-01 표준 준수' — 운영·인프라 결정 표의 표준 출처 칸(check-design-sources), 공용 기능은 엔진에만(check-engine-reuse)",
+    "XC-01": "docs/policy/gates.md 'XC-01 서비스 사이 일관성' — 인증·MFA·시계·이름 검사·감사 원장·저장소 틀·권한·읽기 경로를 서비스마다 같은 규칙으로, 주 1회 판정",
+    "PRIV-01": "docs/policy/gates.md 'PRIV-01 개인정보·법무' — 국외 이전, 보관 기한·파기, 최소 수집, 동의·고지, 불법촬영물 걸러내기. 법무 확인 필요 표시, 확인 전에는 보수적인 안"
+  },
+  "docOnlyPaths": "(?i)^README\\.md$|\\.(png|jpe?g|gif|svg|webp|ico)$",
+  "gateExceptions": [],
+  "gateStages": {
+    "_doc": "새 관문의 적용 단계(gates.md › 새 관문의 적용 단계). warn은 판정을 남기되 통합을 막지 않음, 출시 관문(L4)에서는 fail로 셈. 여기 없는 관문은 처음부터 fail.",
+    "warnUntilLaunch": [
+      "PRR-01",
+      "PERF-01",
+      "OPS-01",
+      "DEPLOY-01",
+      "REL-01",
+      "TEST-01",
+      "ARCH-01",
+      "XC-01",
+      "PRIV-01"
+    ],
+    "firstWave": [
+      "PRR-01",
+      "PERF-01",
+      "OPS-01",
+      "DEPLOY-01"
+    ],
+    "secondWave": [
+      "REL-01",
+      "TEST-01",
+      "ARCH-01",
+      "XC-01",
+      "PRIV-01",
+      "SEC-01+",
+      "WEB-01+"
+    ],
+    "launchGate": "출시 관문(L4): 처음 라이브에 열 때와 큰 변경(새 서비스·새 바깥 입구, 하위 호환을 깨는 API·DB 좁히기, 클러스터·영역·DB 배치 변경, 돈·키·인증 기능). 그 밖은 DEPLOY-01 카나리 관문"
+  }
+}

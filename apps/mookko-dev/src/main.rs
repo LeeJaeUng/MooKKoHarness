@@ -1,4 +1,4 @@
-//! MooKKoDev 하네스. `--config <경로>`(필수)와 허브가 넘기는 `--port <포트>`(선택)를 받습니다.
+//! MooKKoHarness 서버. `--config <경로>`(필수)와 허브가 넘기는 `--port <포트>`(선택)를 받습니다.
 #![forbid(unsafe_code)]
 
 use std::process::ExitCode;

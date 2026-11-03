@@ -8,7 +8,7 @@
       "source": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip",
       "archiveSha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e",
       "checksumFile": "gitleaks_8.30.1_checksums.txt",
-      "executable": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\gitleaks\\8.30.1\\gitleaks.exe",
+      "executable": "<옛 MooKKoDev data>\\tools\\gitleaks\\8.30.1\\gitleaks.exe",
       "sha256": "17157e2ee8b76fc8b1d8bee607a250e34b8a8023c8bc81822d4b5ee4d78fcb7c"
     },
     "trivy": {
@@ -17,43 +17,43 @@
       "source": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_windows-64bit.zip",
       "archiveSha256": "4e43bd71a30f51aee39525f60f2b47043af77eb8df8fe082aae4372b69c6660f",
       "checksumFile": "trivy_0.75.0_checksums.txt",
-      "executable": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\trivy\\0.75.0\\trivy.exe",
+      "executable": "<옛 MooKKoDev data>\\tools\\trivy\\0.75.0\\trivy.exe",
       "sha256": "3b4fcf6fec53c4c73c325cfd518c7264100695b19e6c59c6a777e4a67dc9f0e6",
-      "cacheDir": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\trivy\\cache"
+      "cacheDir": "<옛 MooKKoDev data>\\tools\\trivy\\cache"
     },
     "osv-scanner": {
       "version": "2.6.0",
       "published": "2026-09-14",
       "source": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_windows_amd64.exe",
       "checksumFile": "osv-scanner_SHA256SUMS",
-      "executable": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\osv-scanner\\2.6.0\\osv-scanner.exe",
+      "executable": "<옛 MooKKoDev data>\\tools\\osv-scanner\\2.6.0\\osv-scanner.exe",
       "sha256": "e0ed7644118b717b028c249ee9d3515024e55e8510747ca08906eb96765354d6"
     },
     "cyclonedx": {
       "version": "6.3.1",
       "source": "NuGet CycloneDX 6.3.1 (dotnet tool install --tool-path)",
-      "executable": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\cyclonedx\\dotnet-CycloneDX.exe",
+      "executable": "<옛 MooKKoDev data>\\tools\\cyclonedx\\dotnet-CycloneDX.exe",
       "sha256": "b8ba20d2bef0885b30b0673b164a68d014f14a1df9dc1bf7594d1aede57525f8"
     },
     "semgrep": {
       "version": "1.182.1",
       "published": "2026-10-25",
       "source": "https://pypi.org/project/semgrep/1.182.1/ (pip install --target, win_amd64 wheel)",
-      "executable": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\semgrep\\1.182.1\\bin\\semgrep.exe",
+      "executable": "<옛 MooKKoDev data>\\tools\\semgrep\\1.182.1\\bin\\semgrep.exe",
       "sha256": "a7fd8033d3eceb076f45eab444ea314f602982aadafb6f8c7c61df2565967703",
       "distribution": "windows",
-      "pythonPath": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\semgrep\\1.182.1",
+      "pythonPath": "<옛 MooKKoDev data>\\tools\\semgrep\\1.182.1",
       "_how": "호스트가 bin\\semgrep.exe(pip 실행기)를 PYTHONPATH=pythonPath로 돌린다. 판을 바꾸면 pythonPath와 실행기 sha256을 같이 바꾼다."
     },
     "graphify": {
       "version": "0.9.88",
       "published": "2026-10-25",
       "source": "https://pypi.org/project/graphifyy/0.9.88/ (pip install --target)",
-      "executable": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "executable": "<옛 Windows Python 3.12>\\python.exe",
       "sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a",
-      "pythonPath": "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\graphify\\0.9.88",
+      "pythonPath": "<옛 MooKKoDev data>\\tools\\graphify\\0.9.88",
       "command": [
-        "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+        "<옛 Windows Python 3.12>\\python.exe",
         "-B",
         "-s",
         "{tools}/graphify-ci.py",
@@ -66,7 +66,7 @@
         "--sha",
         "{sha}",
         "--python-path",
-        "C:\\Project\\MooKKo\\MooKKoDev\\data\\tools\\graphify\\0.9.88",
+        "<옛 MooKKoDev data>\\tools\\graphify\\0.9.88",
         "--version",
         "0.9.88"
       ],
