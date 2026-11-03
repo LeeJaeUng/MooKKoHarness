@@ -613,7 +613,8 @@ class NameChecks(unittest.TestCase):
         self.assertEqual(problems, [])
         found = name_rules.lint_name_checks(FIXTURES / "repo-names", kinds)
         got = sorted(f.message.split("`")[1] for f in found)
-        # NULL을 받는 approved_by는 `열 IS NULL OR (등록 글)`(뒤 이관 NOT VALID)로 맞춰 통과, created_by만 잡힘
+        # NULL을 받는 approved_by는 `열 IS NULL OR (등록 글)`(뒤 이관 NOT VALID)로 맞춰 통과, created_by만 잡힘.
+        # 0004가 지운 old_things.made_by와 uuid인 posts.published_by는 안 봄
         self.assertEqual(got, ["actions.created_by"], [str(f) for f in found])
 
     def test_registry_sha_and_empty(self) -> None:
@@ -623,7 +624,10 @@ class NameChecks(unittest.TestCase):
         self.assertEqual(kinds, [])
         self.assertIn("SHA가 다름", problems[0])
         kinds, problems = name_rules.load(name_rules.REGISTRY)
-        self.assertEqual((kinds, problems), ([], []), "엔진 C3 전에는 비어 있음")
+        # 제품 등록부(엔진 C3 079c8a1 뒤 DB 담당이 채움): 읽기·SHA·본보기 열 문제가 없어야 함(비어 있어도 됨)
+        self.assertEqual(problems, [])
+        for kind in kinds:
+            self.assertIn(kind.sample, kind.check, kind.kind)
         self.assertEqual(name_rules.lint_name_checks(FIXTURES / "repo-names", []), [])
 
 

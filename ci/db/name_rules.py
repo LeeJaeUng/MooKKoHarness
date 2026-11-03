@@ -8,6 +8,8 @@
   대소문자를 고른 뒤 같음으로 비교한다(서비스 이관은 이름에 따옴표를 쓰지 않음, S-TYPE-6).
 - 등록 글이 바뀌지 않았는지 `sha256`(등록한 글 그대로)을 본다. 서비스 사이 공유 SQL 함수는 쓰지 않는다(S-BND-1).
 - 등록부가 비어 있으면 아무것도 보지 않는다(엔진 C3 전). 이미 있는 열은 `pending.json` 유예로 둔다.
+- 글자 열(text·varchar·char·citext, 형식을 모르면 본다)만 본다(uuid 등 다른 형식의 `*_by`는 이름 규칙 대상 아님, DB 담당 11-04).
+  뒤 이관이 지운 표(`migration_lint.dropped_tables`, 다시 만들지 않은 것)는 보지 않는다(links 0024 audit_records).
 """
 from __future__ import annotations
 
@@ -73,6 +75,9 @@ def check_bodies(text: str) -> list[str]:
     return out
 
 
+TEXTUAL = re.compile(r"^(text|citext|varchar|character\s+varying|char|character|bpchar)\b", re.I)
+
+
 def lint_name_checks(root: Path, kinds: list[NameKind]) -> list[ml.Finding]:
     """서비스 이관 폴더마다: 종류 열마다 등록 글과 같은 CHECK가 있는가(S-NAME-2)."""
     findings: list[ml.Finding] = []
@@ -85,10 +90,13 @@ def lint_name_checks(root: Path, kinds: list[NameKind]) -> list[ml.Finding]:
         schema = ml.default_schema(rel_dir)
         columns: list[tuple[str, str, str]] = []  # (파일, 표, 열)
         bodies: set[str] = set()
+        dropped = ml.dropped_tables(directory)
         for path in sorted(directory.glob("*.sql")):
             text = path.read_text(encoding="utf-8")
             rel = path.relative_to(root).as_posix()
-            for table, cols, _ in ml.column_types(text, "postgres", schema):
+            for table, cols, ctype in ml.column_types(text, "postgres", schema):
+                if table in dropped or (ctype and not TEXTUAL.match(ctype.strip())):
+                    continue  # 지운 표, 글자가 아닌 열(uuid 등)
                 columns.append((rel, table, cols))
             for st in sqltext.split(text).statements:
                 bodies.update(normalized(b) for b in check_bodies(st.raw))  # text는 글자 상수를 비워 둠 — 정규식까지 맞추려면 원문
