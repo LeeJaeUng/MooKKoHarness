@@ -1,0 +1,11 @@
+{
+  "_doc": "출시된 서비스의 이관 잠금(sql.md S-MIG-1). 출시 전에는 비어 있고, 출시 때 통합 담당이 `python3 -X utf8 scripts/ci/db/migration_lint.py --lock <폴더> --decided-by <근거> --launched-at YYYY-MM-DD`로 적음. 잠긴 값은 고치거나 지울 수 없음(git 기록으로 확인). historyCheckedSince 뒤의 커밋만 '출시 전 이관 다시 씀' 본문 표시를 확인함(그 전은 이 규칙 전). 손으로 고치지 않음(DB 담당 검토).",
+  "historyCheckedSince": "222c7722d68e8aad48b6061955382cedec53d62b",
+  "codeIdCheckSince": "fbf6c863d9fcea9dd12b2f2744274f3de30ff55d",
+  "prelaunchRewrite": {
+    "_doc": "출시 전 예외(이미 커밋한 이관 다시 쓰기, sql.md S-MIG-1). 사용자 결정 전에는 allowed=false — 검사가 표시와 상관없이 실패. 사용자 결정이 나면 통합 담당이 allowed=true와 decidedBy(날짜·인용)를 적음.",
+    "allowed": false,
+    "decidedBy": null
+  },
+  "launched": []
+}

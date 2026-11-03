@@ -1,0 +1,14 @@
+services:
+  bad:
+    image: nginx:1.25
+    privileged: true
+    network_mode: host
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    cap_add: [NET_ADMIN]
+    user: root
+    ports:
+      - "8080:8080"
+      - "0.0.0.0:9090:9090"

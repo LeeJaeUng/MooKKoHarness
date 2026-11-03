@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mookko-bad
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-some
+  namespace: mookko-bad
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad
+  namespace: mookko-bad
+spec:
+  replicas: 2
+  template:
+    spec:
+      hostNetwork: true
+      securityContext:
+        runAsUser: 0
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: app
+          image: registry.example/mookko-bad:1.0
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: host
+          hostPath:
+            path: /var/run
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bad
+  namespace: mookko-bad
+spec:
+  type: NodePort
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: bad-db
+provisioner: example.csi
+reclaimPolicy: Delete
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bad-db-0
+spec:
+  capacity:
+    storage: 10Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bad
+  namespace: mookko-bad
+spec:
+  maxReplicas: 4

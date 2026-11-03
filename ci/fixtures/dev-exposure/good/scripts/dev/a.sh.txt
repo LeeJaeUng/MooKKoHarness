@@ -1,0 +1,9 @@
+podman run -d --rm --name "$NAME" \
+    -p "$BIND_HOST::$CONTAINER_PORT" \
+    "$IMAGE"
+podman pod create --name "$POD" >/dev/null
+podman run -d -p 127.0.0.1:5432:5432 img
+podman run -d -p "[::1]:5433:5432" img
+podman run -d --pod "$POD" --name "$POD-ch" img
+mkdir -p "$RUN_DIR"
+# podman run -p 5432:5432 img (주석은 보지 않음)

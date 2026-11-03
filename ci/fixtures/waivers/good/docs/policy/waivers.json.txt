@@ -1,0 +1,1 @@
+{"waivers": [{"id": "ok", "paths": ["docs/target.txt"], "rule": "R", "reason": "표본", "adr": "docs/adr.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY+30@@"}]}

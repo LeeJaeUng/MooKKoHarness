@@ -1,0 +1,4 @@
+pub fn now() -> u64 { std::time::SystemTime::now(); 0 }
+pub fn deny() -> &'static str { "recent_mfa_required" }
+type Mac = Hmac<Sha256>;
+fn rw() -> TxOptions { TxOptions::default() }

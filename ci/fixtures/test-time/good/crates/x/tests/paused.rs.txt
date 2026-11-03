@@ -1,0 +1,7 @@
+// thread::sleep(는 주석이라 안 셈
+#[tokio::test(start_paused = true)]
+async fn waits() {
+    let text = "Utc::now() SystemTime::now()";
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    let _ = text;
+}

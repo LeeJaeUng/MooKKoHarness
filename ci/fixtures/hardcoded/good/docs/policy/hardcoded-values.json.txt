@@ -1,0 +1,1 @@
+{"enforce": true, "expires": "@@TODAY+30@@", "baseline": {"crates/services/s/src/old.rs": {"NUM": 1}}}

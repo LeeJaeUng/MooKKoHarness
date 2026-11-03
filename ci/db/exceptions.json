@@ -1,0 +1,4 @@
+{
+  "_doc": "DB 규약 기한 있는 예외 등록부(sql.md S-BND-7). 지금은 서비스·실행 파일 코드의 DDL(이관 밖)만 받음. 칸: id, paths(저장소 기준 파일), rule, reason, adr(결정 근거 문서 — 저장소 기준 경로 [§절], 그리고 승인), condition(끝내는 조건), expires(YYYY-MM-DD, 이 날이 지나면 check-db 실패), approvedBy. gates.md waived 조건(근거 문서 + 만료일)에 맞춤. DB 담당만 고침. 엔진 생성 고정 이관 파일은 engine-generated.json, 규약 전 파일 유예는 pending.json.",
+  "exceptions": []
+}

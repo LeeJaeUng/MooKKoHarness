@@ -1,0 +1,8 @@
+{"waivers": [
+{"id": "no-fields", "paths": ["docs/target.txt"]},
+{"id": "dup", "paths": ["docs/target.txt"], "rule": "R", "reason": "표본", "adr": "docs/adr.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY+30@@"},
+{"id": "dup", "paths": ["docs/target.txt"], "rule": "R", "reason": "표본", "adr": "docs/adr.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY+30@@"},
+{"id": "expired", "paths": ["docs/target.txt"], "rule": "R", "reason": "표본", "adr": "docs/adr.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY-1@@"},
+{"id": "too-far", "paths": ["docs/target.txt"], "rule": "R", "reason": "표본", "adr": "docs/adr.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY+400@@"},
+{"id": "gone", "paths": ["docs/none.txt"], "rule": "R", "reason": "표본", "adr": "docs/none.md — 표본", "condition": "표본", "approvedBy": "표본", "expires": "@@TODAY+30@@"}
+]}

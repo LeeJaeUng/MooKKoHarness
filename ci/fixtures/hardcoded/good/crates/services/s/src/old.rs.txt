@@ -1,0 +1,3 @@
+pub fn old(n: u64) -> bool {
+    n > 250
+}

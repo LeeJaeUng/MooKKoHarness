@@ -1,0 +1,4 @@
+TEST_ROOT="${TMPDIR:-/tmp}/mookko-test/mookko"
+RUN_DIR="$TEST_ROOT/$RUN_ID"
+cleanup() { rm -rf -- "$RUN_DIR"; }
+# rm -rf / 주석은 보지 않음

@@ -1,0 +1,1 @@
+fn is_identifier(x: &str) -> bool { !x.is_empty() }

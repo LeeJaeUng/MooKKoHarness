@@ -1,0 +1,11 @@
+{
+  "app": { "id": "x", "environment": "production" },
+  "server": { "security": { "staffSessions": { "absoluteLifetimeMs": 86400000, "idleTimeoutMs": 1800000 } } },
+  "rpc": { "server": { "listen": "x" } },
+  "adapters": {
+    "keyVault": { "kind": "file" },
+    "staffLogin": { "kind": "devLocal" },
+    "identity": { "allowPlainHttp": true },
+    "databases": { "x": { "write": { "tls": { "mode": "disable" } } } }
+  }
+}

@@ -1,0 +1,5 @@
+OUT="/var/tmp/x"
+rm -rf "$OUT"
+rm -rf "$HOME/target"
+rm -r /tmp/*
+rm -rf "$UNDEFINED"

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+  annotations:
+    mookko.dev/kubernetes-api-client: "true"
+spec:
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app: operations-deployer}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: deployer
+          image: registry.example/mookko-operations@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8080}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8080}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: operations-deployer}
+  minReplicas: 3
+  maxReplicas: 3
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: operations-deployer}

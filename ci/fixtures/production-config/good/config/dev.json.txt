@@ -1,0 +1,1 @@
+{ "app": { "id": "x", "environment": "development" }, "adapters": { "keyVault": { "kind": "file" }, "staffLogin": { "kind": "devLocal" } } }

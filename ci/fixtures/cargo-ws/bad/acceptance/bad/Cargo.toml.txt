@@ -1,0 +1,9 @@
+[package]
+name = "accbad"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+e = { path = "../../crates/engine/e" }
+s = { path = "../../crates/services/s" }

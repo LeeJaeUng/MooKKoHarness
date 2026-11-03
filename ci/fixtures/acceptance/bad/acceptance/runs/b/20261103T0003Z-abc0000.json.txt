@@ -1,0 +1,1 @@
+{"service": "b", "commit": "abc", "command": "x", "startedAt": "2026-11-03T00:00:00Z", "passed": 1, "failed": 0, "skipped": 0, "engine": "Claude"}

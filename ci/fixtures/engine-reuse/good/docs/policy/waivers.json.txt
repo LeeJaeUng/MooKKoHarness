@@ -1,0 +1,1 @@
+{"waivers": [{"id": "w", "paths": ["crates/services/s/src/waived.rs"], "rule": "ENG-REUSE-C2(시계)"}]}

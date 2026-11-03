@@ -1,0 +1,4 @@
+FROM ubuntu:latest
+ENV DB_PASSWORD=x
+ADD https://example.invalid/y /y
+USER root

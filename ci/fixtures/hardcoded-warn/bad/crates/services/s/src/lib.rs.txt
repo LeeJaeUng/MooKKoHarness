@@ -1,0 +1,7 @@
+pub fn f(n: u64) -> bool {
+    n > 250
+}
+
+pub fn g(n: u64) -> bool {
+    n < 700
+}

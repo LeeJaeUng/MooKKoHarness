@@ -1,0 +1,3 @@
+pub fn a() {}
+#[cfg(test)]
+mod t;

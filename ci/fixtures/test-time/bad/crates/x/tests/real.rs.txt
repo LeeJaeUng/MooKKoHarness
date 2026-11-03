@@ -1,0 +1,10 @@
+#[test]
+fn blocks() {
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    let _ = std::time::SystemTime::now();
+}
+
+#[tokio::test]
+async fn waits() {
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+}
