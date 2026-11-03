@@ -30,6 +30,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTINGS = ROOT / "scripts" / "dev" / "disk-guard.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import machine  # noqa: E402  (같은 폴더의 도우미)
 GIB = 1024**3
 
 
@@ -236,9 +238,18 @@ def stamp(settings: dict) -> None:
     (target / settings["buildCache"]["stampFile"]).touch()
 
 
+def resolve_host(host: dict) -> None:
+    """기계 전용 경로를 저장소 설정에 두지 않는다(PM 2026-11-03). vhdx는 본 체크아웃 기준 상대 경로이고,
+    host.path가 비었으면 그 vhdx가 든 드라이브의 마운트 위치로 본다. data/dev-machine.json의 diskGuard.vhdx·hostPath가 있으면
+    그것을 쓴다(scripts/dev/machine.py)."""
+    host["vhdx"] = str(machine.local("diskGuard.vhdx") or machine.repo_path(host["vhdx"]))
+    host["path"] = str(machine.local("diskGuard.hostPath") or host.get("path") or machine.mount_point(Path(host["vhdx"]).parent))
+
+
 def main() -> int:
     dry_run = "--dry-run" in sys.argv[1:]
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    resolve_host(settings["host"])
     if not dry_run:
         stamp(settings)
     for line in prune(settings, dry_run):

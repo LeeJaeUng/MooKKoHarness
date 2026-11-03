@@ -1,7 +1,11 @@
 """PC 물리 메모리 관문(WSL 안에서 씀). 사용자 2026-11-03 "램 90%이하로 만 먹어야해"(PM 전달).
 
-판정은 Windows 전체 사용률로 한다. WSL VM 안의 /proc/meminfo는 page cache 때문에 Windows가 보는 vmmemWSL 크기와
-다르므로 판정에 쓰지 않는다(기록용으로만 봄). 설정은 scripts/dev/memory-guard.json.
+판정 기준(설정 source): WSL 안이면 Windows 전체 사용률로 한다. WSL VM 안의 /proc/meminfo는 page cache 때문에
+Windows가 보는 vmmemWSL 크기와 다르므로 판정에 쓰지 않는다(기록용으로만 봄). WSL이 아닌 Linux(내부 시험 서버,
+deploy-containers §11)이면 그 기계의 /proc/meminfo(MemAvailable)로 한다. 설정은 scripts/dev/memory-guard.json.
+powershell.exe·wsl.exe 위치는 기계마다 달라 저장소에 적지 않는다: 환경 변수 MOOKKO_POWERSHELL·MOOKKO_WSL_EXE →
+data/dev-machine.json의 memoryGuard.powershell·wslExe → PATH → /mnt/<드라이브>/ 아래 Windows 기본 위치 순으로 찾는다
+(scripts/dev/machine.py, PM 2026-11-03 "하드코딩으로 경로같은거").
 
   memory-guard.py slots <자리 수>
                                 빌드 자리를 잡기 전. hard 이상이면 resume 미만이 될 때까지 기다린다. soft 이상이면
@@ -12,7 +16,7 @@
                                 soft 이상이면 page cache를 비우고 줄인 작업 수를, 아니면 받은 작업 수를 표준 출력에 낸다.
   memory-guard.py watch         빌드 중 pollSeconds마다 사용률을 기록하고 soft 이상이면 page cache를 비운다.
                                 부모 프로세스가 끝나거나 SIGTERM을 받으면 최고값(Windows %, WSL 사용, swap)을 내고 끝난다.
-  memory-guard.py percent       지금 Windows 사용률만 낸다.
+  memory-guard.py percent       지금 사용률만 낸다(WSL이면 Windows 전체, 아니면 이 기계).
 기록은 표준 오류에 `== 메모리 …` 한 줄씩 낸다. 기한(maxWaitMinutes)을 넘기면 1로 끝난다.
 """
 
@@ -20,11 +24,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import machine  # noqa: E402  (같은 폴더의 도우미)
 
 SETTINGS = Path(__file__).resolve().with_name("memory-guard.json")
 
@@ -39,6 +47,49 @@ def log(text: str) -> None:
     print(f"== 메모리 {time.strftime('%H:%M:%S')} {text}", file=sys.stderr, flush=True)
 
 
+def in_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
+def source(cfg: dict) -> str:
+    """판정 기준: windows(WSL 안에서 Windows 전체) 또는 linux(이 기계). auto면 WSL인지로 고른다."""
+    value = cfg.get("source", "auto")
+    if value == "auto":
+        return "windows" if in_wsl() else "linux"
+    return value
+
+
+def windows_exe(cfg: dict, key: str, env: str) -> str:
+    """powershell.exe·wsl.exe 경로. 못 찾으면 이름만 돌려줘 실행 실패 → 기록에 남게 한다."""
+    name = cfg["windowsExe"][key]["name"]
+    found = os.environ.get(env) or machine.local(f"memoryGuard.{key}") or shutil.which(name)
+    if found:
+        return str(found)
+    for drive in sorted(Path("/mnt").glob("?")):
+        candidate = drive / cfg["windowsExe"][key]["underDrive"]
+        if candidate.exists():
+            return str(candidate)
+    return name
+
+
+def used_percent(cfg: dict) -> float:
+    if source(cfg) == "linux":
+        info = meminfo()
+        return round(100.0 * (info["MemTotal"] - info["MemAvailable"]) / info["MemTotal"], 1)
+    return windows_percent(cfg)
+
+
+def meminfo() -> dict[str, int]:
+    info: dict[str, int] = {}
+    for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+        key, value = line.split(":", 1)
+        info[key] = int(value.split()[0])
+    return info
+
+
 def windows_percent(cfg: dict) -> float:
     """Windows 전체 사용률. powershell.exe가 가끔 실패하므로(2026-11-03 메모리가 찼을 때 rc=1) 세 번까지 다시 묻고,
     그래도 못 읽으면 100%로 봅니다(못 잰 채로 빌드를 늘리지 않음). 실패는 기록에 남깁니다."""
@@ -46,7 +97,7 @@ def windows_percent(cfg: dict) -> float:
     for attempt in range(3):
         result = subprocess.run(
             [
-                cfg["powershell"],
+                windows_exe(cfg, "powershell", "MOOKKO_POWERSHELL"),
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
@@ -67,10 +118,7 @@ def windows_percent(cfg: dict) -> float:
 
 
 def wsl_used_mib() -> tuple[int, int]:
-    info: dict[str, int] = {}
-    for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-        key, value = line.split(":", 1)
-        info[key] = int(value.split()[0])
+    info = meminfo()
     used = (info["MemTotal"] - info["MemAvailable"]) // 1024
     swap = (info["SwapTotal"] - info["SwapFree"]) // 1024
     return used, swap
@@ -78,7 +126,10 @@ def wsl_used_mib() -> tuple[int, int]:
 
 def drop_cache(cfg: dict) -> None:
     """WSL page cache를 비운다(root 필요라 Windows 쪽 wsl.exe로 이 배포판의 root 셸 하나만 부름).
-    여러 실행이 단계마다 부르므로 dropCacheMinSeconds 안에 다시 부르면 건너뛴다(QA 1c3fef2: 1초마다 26번 비움)."""
+    여러 실행이 단계마다 부르므로 dropCacheMinSeconds 안에 다시 부르면 건너뛴다(QA 1c3fef2: 1초마다 26번 비움).
+    WSL이 아닌 기계(내부 시험 서버)에서는 root가 없고 다른 일과 함께 쓰므로 비우지 않는다."""
+    if source(cfg) != "windows":
+        return
     stamp = Path(os.path.expanduser(cfg["dropCacheStamp"]))
     try:
         if time.time() - stamp.stat().st_mtime < cfg["dropCacheMinSeconds"]:
@@ -88,7 +139,7 @@ def drop_cache(cfg: dict) -> None:
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
     result = subprocess.run(
-        [cfg["wslExe"], "-d", cfg["distro"], "-u", "root", "-e", "sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches"],
+        [windows_exe(cfg, "wslExe", "MOOKKO_WSL_EXE"), "-d", cfg["distro"], "-u", "root", "-e", "sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches"],
         capture_output=True,
         text=True,
         timeout=120,
@@ -101,7 +152,7 @@ def drop_cache(cfg: dict) -> None:
 
 def wait_below(cfg: dict, name: str, limit: float, target: float) -> float:
     """사용률이 limit 이상이면 target 미만이 될 때까지 기다린다. 기다린 초를 기록하고 마지막 사용률을 돌려준다."""
-    pct = windows_percent(cfg)
+    pct = used_percent(cfg)
     if pct < limit:
         return pct
     start = time.monotonic()
@@ -109,7 +160,7 @@ def wait_below(cfg: dict, name: str, limit: float, target: float) -> float:
     log(f"{name}: {pct}% ≥ {limit}%라 {target}% 아래까지 새로 시작하지 않고 기다립니다")
     drop_cache(cfg)
     while True:
-        pct = windows_percent(cfg)
+        pct = used_percent(cfg)
         if pct < target:
             log(f"{name}: 기다림 끝 {int(time.monotonic() - start)}초, {pct}%")
             return pct
@@ -155,7 +206,7 @@ def cmd_watch(cfg: dict) -> None:
 
     signal.signal(signal.SIGTERM, finish)
     while not stop and os.getppid() == parent:
-        pct = windows_percent(cfg)
+        pct = used_percent(cfg)
         used, swap = wsl_used_mib()
         peak["win"] = max(peak["win"], pct)
         peak["used"] = max(peak["used"], used)
@@ -182,7 +233,7 @@ def main() -> int:
     elif args == ["watch"]:
         cmd_watch(cfg)
     elif args == ["percent"]:
-        print(windows_percent(cfg))
+        print(used_percent(cfg))
     else:
         print(__doc__, file=sys.stderr)
         return 2

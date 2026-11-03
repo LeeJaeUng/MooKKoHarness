@@ -7,8 +7,23 @@
 # 표지 파일은 지우지 않고 첫 낱말(paused·running)만 바꿉니다.
 set -euo pipefail
 
+# 본 체크아웃 최상위(worktree는 <본 체크아웃>/.claude/worktrees/<이름> 아래, scripts/dev/machine.py와 같은 규칙).
+main_root() {
+    local root
+    root="$(cd "$(dirname "$0")/../.." && pwd)"
+    case "$root" in
+        */.claude/worktrees/*) root="${root%%/.claude/worktrees/*}" ;;
+    esac
+    printf '%s\n' "$root"
+}
+
 SETTINGS="$(cd "$(dirname "$0")" && pwd)/wsl.json"
 MARKER="$(sed -n 's/^[[:space:]]*"pauseMarker"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS")"
+# 표지 경로는 본 체크아웃 기준 상대 경로입니다(기계 전용 절대 경로를 커밋하지 않음, PM 2026-11-03).
+case "$MARKER" in
+    /*|[A-Za-z]:*) ;;
+    ?*) MARKER="$(main_root)/$MARKER" ;;
+esac
 if [ -z "$MARKER" ]; then
     echo "scripts/dev/wsl.json에서 pauseMarker를 읽지 못했습니다" >&2
     exit 2

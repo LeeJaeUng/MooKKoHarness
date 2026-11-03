@@ -1,0 +1,11 @@
+{
+  "note": "이 기계에만 맞는 값(자동으로 못 찾을 때만). 본 체크아웃의 data/dev-machine.json(git 제외)으로 복사해 고칩니다. 읽는 곳: scripts/dev/machine.py. 값이 없으면 PATH·마운트 위치로 찾습니다(PM 2026-11-03).",
+  "memoryGuard": {
+    "powershell": "",
+    "wslExe": ""
+  },
+  "diskGuard": {
+    "vhdx": "",
+    "hostPath": ""
+  }
+}
