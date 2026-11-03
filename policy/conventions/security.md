@@ -8,7 +8,7 @@
 
 ## 0. 등록부는 닫힌 쪽 (QA 2026-11-04 ①, 보안 담당 결정)
 
-- SC-REG-1 등록부 `docs/policy/node-pools.json`·`privileged-allowlist.json`·`vuln-register.json`은 제품에 **늘 있어야** 한다(빈 목록이어도). 파일이 없으면 검사가 꺼지는 대신 **실패**한다. `image-registries.json`은 레지스트리가 정해지기 전이라, 저장소에 Dockerfile·Compose·Kubernetes 이미지가 하나라도 있는데 이 파일이 없으면 실패한다. **[검사]** `ci/check-containers.py`·`ci/check-vuln-register.py`(하네스, 제품에 빈 등록부가 들어간 뒤 같은 묶음에서 켬)
+- SC-REG-1 등록부 `docs/policy/node-pools.json`·`privileged-allowlist.json`·`vuln-register.json`은 제품에 **늘 있어야** 한다(빈 목록이어도). 파일이 없으면 검사가 꺼지는 대신 **실패**한다. `image-registries.json`은 레지스트리가 정해지기 전이라, 저장소에 Dockerfile·Compose·Kubernetes 이미지가 하나라도 있는데 이 파일이 없으면 실패한다. **[검사]** `ci/check-containers.py`·`ci/check-vuln-register.py`(하네스 cfdcc63)
 - SC-REG-2 빈 등록부는 "아무것도 허용하지 않음"이다. 전용 풀 네임스페이스에 등록되지 않은 워크로드는 그 풀을 고를 수 없다. 특권 이미지가 비면 특권 컨테이너는 하나도 받지 않는다. 등록부를 고치는 것은 보안 담당이다(owners.json). 다른 담당은 보안 담당에게 요청한다.
 
 ## 1. 노드 풀·피해 범위 (SEC-02)
@@ -21,7 +21,7 @@
 
 ## 2. 바깥 입력 샌드박스 (SEC-02)
 
-- SC-SBX-1 바깥이 고른 바이트를 복잡한 파서(이미지·영상·문서·압축·폰트)로 다루는 Pod, 바깥이 고른 주소로 나가는 연결을 여는 Pod는 `runtimeClassName: gvisor`로 `sandbox` 풀에서 돈다. 그 Deployment에 라벨 `mookko.io/input: untrusted`를 단다. 검사는 YAML을 실제로 풀어 라벨을 읽는다(흐름 스타일 `{mookko.io/input: untrusted}`·따옴표도 같게 봄, QA ③). **[검사]** `ci/check-containers.py`(라벨이 있으면 `runtimeClassName: gvisor` + `sandbox` 풀 네임스페이스, node-pools.json이 있을 때) **[QA]**(라벨을 달아야 할 Deployment에 빠졌는지)
+- SC-SBX-1 바깥이 고른 바이트를 복잡한 파서(이미지·영상·문서·압축·폰트)로 다루는 Pod, 바깥이 고른 주소로 나가는 연결을 여는 Pod는 `runtimeClassName: gvisor`로 `sandbox` 풀에서 돈다. 그 Deployment에 라벨 `mookko.io/input: untrusted`를 단다. 검사는 YAML을 실제로 풀어 라벨·풀 칸을 읽는다(PyYAML `safe_load`, 흐름 모양·따옴표도 같게 봄, QA ③, 하네스 cfdcc63). nodeAffinity required는 모든 term이 `key In [value]`만 고른다. **[검사]** `ci/check-containers.py`(라벨이 있으면 `runtimeClassName: gvisor` + `sandbox` 풀 네임스페이스, node-pools.json이 있을 때) **[QA]**(라벨을 달아야 할 Deployment에 빠졌는지)
 - SC-SBX-2 샌드박스 대상 일은 그 일만 하는 Deployment로 뗀다(서비스 본체에 파서·가져오기를 두지 않음). 엔진 포트(예: `ImageSanitizer`)의 원격 어댑터로 부른다. **[QA]**
 - SC-SBX-3 샌드박스 작업자는 비밀값 파일·DB 접속·Workload Identity 권한·Kubernetes 서비스 계정 토큰을 갖지 않는다. 나가기는 NetworkPolicy로 막고, 바깥 주소 가져오기는 나가기 프록시만(사설·링크 로컬·메타데이터·내부 DNS 거부, 이름 풀이 뒤 주소 다시 확인). **[검사]** `ci/check-containers.py`(라벨 있는 워크로드에 secret 볼륨·serviceAccountToken·`default` 밖 `serviceAccountName`·API 예외 주석이 있으면 실패) **[QA]**
 - SC-SBX-4 공개 Node.js SSR의 샌드박스 여부는 출시 전 부하 시험 결과로 보안 담당이 정한다(security.md §3.1). 정하기 전에는 샌드박스 없는 판을 라이브에 내지 않는다(L4 `fail`). **[QA]**
@@ -46,9 +46,9 @@
 
 ## 6. 취약점·패치 지연 (SEC-04)
 
-- SC-VULN-1 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)을 벤더 때문에 못 맞추면 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json`에 항목을 연다: `id`(`CVE-YYYY-N…` 또는 `GHSA-…` 꼴만), `affects`(`pool:`·`image:`·`host:` 접두어), `exposure`(노출 경로 판단), `mitigations`(목록, 항목마다 `{"kind","action"}`), `opened`, `reviewBy`(매일 다시 봄), `expires`(최대 30일), `owner`. **[검사]** `ci/check-vuln-register.py`(check-all: 칸·`expires` ≤ opened+30일·id 겹침, 닫지 않은 항목 `expires`가 지나면 실패·`reviewBy`가 지나면 경고)
-  - **기다리기만 막기(QA 2026-11-04 ④)**: `kind`는 `block-exposure`(노출 끊기)·`isolate`(격리·gVisor로 옮김)·`disable-feature`(기능 끄기)·`detect`(감지 강화)·`alt-image`(다른 이미지)만 받는다. 열린 항목에는 `block-exposure`·`isolate`·`disable-feature`·`alt-image` 중 하나 이상이 있어야 한다. `detect`만 있으면 실패다. `action`은 빈 글이 아니다. **[검사]** 위 검사 확장(하네스)
-  - **id 바꿔 기한 늘리기 막기(⑤)**: 한 `id`에는 항목이 평생 하나다(닫은 항목도 지우지 않음). 30일을 넘기려면 같은 항목에 `userDecision`(`{"date","ref"}`, 사용자 결정 기록 위치)을 달고 `expires`를 그 날짜부터 최대 30일로 다시 정한다. 기준 브랜치(`foundation/engine`)와 견줘 항목이 사라지거나 `id`·`opened`가 바뀌면 실패다. **[검사]** 위 검사 확장(하네스)
+- SC-VULN-1 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)을 벤더 때문에 못 맞추면 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json`에 항목을 연다: `id`(`CVE-YYYY-N…` 또는 `GHSA-…` 꼴만), `affects`(`pool:`·`image:`·`host:` 접두어), `exposure`(노출 경로 판단), `mitigations`(목록, 항목마다 `{"kind","action"}`), `opened`, `reviewBy`(매일 다시 봄), `expires`(최대 30일), `owner`. `reviewBy`는 opened~expires 안이다. 닫으면 `closed`와 `fixedIn`(고친 판·근거)을 단다. **[검사]** `ci/check-vuln-register.py`(check-all, 하네스 cfdcc63: 칸·`expires` ≤ opened+30일·id 겹침·reviewBy 범위·closed에 fixedIn, 닫지 않은 항목 `expires`가 지나면 실패·`reviewBy`가 지나면 경고, 파일이 없으면 실패)
+  - **기다리기만 막기(QA 2026-11-04 ④)**: `kind`는 `block-exposure`(노출 끊기)·`isolate`(격리·gVisor로 옮김)·`disable-feature`(기능 끄기)·`detect`(감지 강화)·`alt-image`(다른 이미지)만 받는다. 열린 항목에는 `block-exposure`·`isolate`·`disable-feature`·`alt-image` 중 하나 이상이 있어야 한다. `detect`만 있으면 실패다. `action`은 빈 글이 아니다. **[검사]** 위 검사(하네스 cfdcc63)
+  - **id 바꿔 기한 늘리기 막기(⑤)**: 한 `id`에는 항목이 평생 하나다(닫은 항목도 지우지 않음). 30일을 넘기려면 같은 항목에 `userDecision`(`{"date","ref"}`, 사용자 결정 기록 위치)을 달고 `expires`를 그 날짜부터 최대 30일로 다시 정한다. 기준 판(`MOOKKO_REGISTER_BASE`, 기본 `foundation/engine`)과 견줘 항목이 사라지거나 `opened`가 바뀌면 실패다. **[검사]** 위 검사(하네스 cfdcc63)
 - SC-VULN-2 완화 순서는 host-security §1.1: 기록 → 노출 끊기 → 워크로드 격리 → 감지 강화 → (못 막으면) 다른 이미지 → 30일 넘으면 사용자 결정. 완화 없이 기다리기만 하는 항목은 받지 않는다. **[QA]**
 - SC-VULN-3 고친 판이 나오면 그날부터 §1 기한을 다시 세고, 올린 뒤 항목을 닫는다(지우지 않고 `closed`와 날짜). **[QA]**
 - SC-VULN-4 기반 이미지·제3자 이미지(Envoy·Argo·CNPG·Falco 등)도 같은 기록부다. 바깥 레지스트리에서 바로 끌지 않고 우리 레지스트리로 가져와 검사·서명 뒤에만 쓴다. **[검사]** `ci/check-containers.py`(Dockerfile FROM·Compose·컨테이너 image가 제품 `docs/policy/image-registries.json` `{"registries":[접두어]}`로 시작, bacb580). 접두어는 `/`로 끝나야 하고 이미지는 그 경로 경계에서 맞아야 한다(`reg.example/a/`가 `reg.example/ab/x`를 받지 않음, QA ②). **[QA]**
