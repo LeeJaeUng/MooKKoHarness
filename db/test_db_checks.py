@@ -528,12 +528,25 @@ class KeyMaterialCode(unittest.TestCase):
 
     def test_service_code_using_key_material_api_is_caught(self) -> None:
         found = migration_lint.lint_key_material_code(FIXTURES / "repo-keys-bad")
-        names = sorted(f.message.split("`")[1] for f in found)
-        self.assertEqual(names, ["WrappedKey", "WrappedKey", "generate_data_key", "unwrap_data_key"], [f.message for f in found])
+        names = sorted(f.message.split("`")[1] for f in found if "키 재료 API" in f.message)
+        self.assertEqual(names, ["WrappedKey", "WrappedKey", "generate_data_key", "insert_or_get", "unwrap_data_key"], [f.message for f in found])
         self.assertEqual({f.rule for f in found}, {"S-SEC-10"})
+        # QA c63b644 D1: RowKeyStore가 돌려준 감싼 키를 형 이름 없이 `.to_bytes()`로 꺼냄 — src만, 시험의 HTTP 본문은 둠
+        to_bytes = sorted((f.path.rsplit("/", 1)[-1], f.line) for f in found if "`.to_bytes()`" in f.message)
+        self.assertEqual(to_bytes, [("lib.rs", 7), ("store_leak.rs", 5)], [f.message for f in found])
 
     def test_good_repo_and_engine_runtime_are_not_caught(self) -> None:
         self.assertEqual(migration_lint.lint_key_material_code(FIXTURES / "repo-good"), [])
+
+
+class ConstraintFunctions(unittest.TestCase):
+    """QA 0d91d90 낮음: 파티션 부모 `ONLY` 제약은 lint가 먼저 막고, CHECK가 부르는 자기 스키마 함수는 IMMUTABLE·search_path(폴더 끝 상태)."""
+
+    def test_only_on_parent_and_check_functions(self) -> None:
+        root = FIXTURES / "repo-check-fn"
+        found = migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations")
+        got = sorted((f.rule, f.message.split("`")[1]) for f in found if f.rule in ("S-MIG-2", "S-BND-6"))
+        self.assertEqual(got, [("S-BND-6", "tags_nowhere"), ("S-BND-6", "tags_volatile"), ("S-MIG-2", "events")], [f.message for f in found])
 
 
 class EngineKeyDatabases(unittest.TestCase):
