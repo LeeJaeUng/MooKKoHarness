@@ -11,7 +11,7 @@ description: MooKKo 보안 규약(플랫폼·운영). 운영 매니페스트(dep
 
 ## 매니페스트를 쓸 때
 
-- 풀 고르기(SC-NODE-1·2): 키 DB → `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets → `control`, 돈 DB → `db-money`, 바깥 입력 작업자 → `sandbox`, 나머지 → `general`. 전용 풀의 워크로드는 `requiredDuringSchedulingIgnoredDuringExecution` nodeAffinity로 자기 풀만 고르고 toleration을 단다. **다른 네임스페이스가 그 풀의 toleration·nodeSelector를 쓰면 안 된다**(admission·검사가 막음).
+- 풀 고르기(SC-NODE-1·2): 키 DB → `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets → `control`, 돈 DB → `db-money`, 뗀 일반 DB → `db-general`, 바깥 입력 작업자 → `sandbox`, 나머지 → `general`. 전용 풀의 워크로드는 `requiredDuringSchedulingIgnoredDuringExecution` nodeAffinity로 자기 풀만 고르고 toleration을 단다. **다른 네임스페이스가 그 풀의 toleration·nodeSelector를 쓰면 안 된다**(admission·검사가 막음).
 - 바깥 입력(SC-SBX-1~3): 바깥이 고른 바이트를 파서(이미지·영상·문서·압축·폰트)로 다루거나 바깥이 고른 주소로 나가면 `mookko.io/input: untrusted` 라벨 + `runtimeClassName: gvisor` + `sandbox` 풀. 그 일만 하는 Deployment로 떼고(엔진 포트의 원격 어댑터), 비밀값 파일·DB·Workload Identity 권한·SA 토큰 없음, 나가기는 나가기 프록시만(사설·링크 로컬·`169.254.169.254`·내부 DNS 거부).
 - 특권(SC-PRIV-1): `privileged`·`hostPID`·`hostNetwork`·`hostPath`가 필요한 것은 `mookko-security` 네임스페이스의 `docs/policy/privileged-allowlist.json` 등록 이미지(Falco·Tetragon 등)뿐.
 - 이미지(SC-VULN-4): 제3자 이미지도 우리 레지스트리로 가져와 검사·서명한 다이제스트만.
