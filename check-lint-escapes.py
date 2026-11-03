@@ -1,7 +1,7 @@
 """규칙 끄기 검사 (docs/policy/conventions/README.md › 예외, rust.md §9, frontend.md §9).
 
 워커가 lint를 주석으로 꺼서 규약을 피해 가지 못하게 한다.
-- Rust: `#[allow(`, `#![allow(`, `#[expect(`, `#![expect(`, `cfg_attr(..., allow|expect(` 금지.
+- Rust(crates/·acceptance/): `#[allow(`, `#![allow(`, `#[expect(`, `#![expect(`, `cfg_attr(..., allow|expect(` 금지.
   예외는 시험 파일(`tests/` 아래) 머리의 `#![allow(clippy::unwrap_used, clippy::expect_used)]` 한 가지.
 - TypeScript·JavaScript(web/): `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` 금지.
 - 그 밖은 docs/policy/lint-exceptions.json에 path·text·reason·expires로 등록된 줄만 허용, 만료되면 실패.
@@ -54,7 +54,11 @@ def main() -> int:
     problems: list[str] = []
     allowed = load_registry(problems)
     scanned = 0
-    targets = [(files(ROOT / "crates", {".rs"}), RUST_ESCAPE), (files(ROOT / "web", TS_SUFFIXES), TS_ESCAPE)]
+    targets = [
+        (files(ROOT / "crates", {".rs"}), RUST_ESCAPE),
+        (files(ROOT / "acceptance", {".rs"}), RUST_ESCAPE),  # 인수 시험 실행기도 같은 규약(RustDev 11-03)
+        (files(ROOT / "web", TS_SUFFIXES), TS_ESCAPE),
+    ]
     for walker, pattern in targets:
         for path, rel in walker:
             scanned += 1

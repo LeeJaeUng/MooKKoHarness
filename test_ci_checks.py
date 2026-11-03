@@ -38,12 +38,17 @@ CHECKS = {
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
 # cargo-ws bad:
-#   boundaries: service s → adapter a1 1, adapter a1 → adapter a2 2(층 허용·어댑터끼리), crates/ 밖 tools/x 1.
+#   boundaries: service s → adapter a1 1, adapter a1 → adapter a2 2(층 허용·어댑터끼리), crates/ 밖 tools/x 1,
+#     인수 시험 acceptance/bad → service s 1(엔진만 허용). good: acceptance/ok → engine e.
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
+#   Kubernetes 22(Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
+#   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
+#   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
-# lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1.
+# lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
+#   acceptance/ 아래 #[allow] 1.
 #   good: tests 머리줄, 등록부에 오른 예외.
 # tempdirs bad: join이 mookko-test 아님 1, temp_dir 단독 1, panicking 없는 Drop 1, mookko-test 밖 변수 1, "$HOME/target" 1, /tmp/* 1, 정의 없는 변수 1.
 # waivers bad: 빠진 칸 1, id 겹침 1, 만료 1, 180일 넘음 1, 없는 경로 1, adr 문서 없음 1. 날짜는 @@TODAY±N@@로 실행 날 기준.
@@ -61,14 +66,14 @@ EXPECTED_BAD = {
     "file-size": 4,
     "engine-reuse": 9,
     "endpoints": 6,
-    "lint-escapes": 5,
+    "lint-escapes": 6,
     "waivers": 6,
     "tempdirs": 7,
-    "boundaries": 4,
+    "boundaries": 5,
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 19,
+    "containers": 41,
 }
 PROBLEM_LINE = re.compile(r"^(?:\s*-\s+)?\S+:\d+: ")
 # 줄 번호 없이 `  - …`로 문제를 내는 검사

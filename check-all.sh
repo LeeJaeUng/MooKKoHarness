@@ -54,8 +54,17 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     ticket="$QUEUE_DIR/$(printf '%s' "$PWD" | sha1sum | cut -c1-16)"
     priority="${MOOKKO_SLOT_PRIORITY:-5}"
     enqueued="$(date +%s%N)"
-    if read -r t_state _ t_at _ < "$ticket" 2>/dev/null && [ "$t_state" = "waiting" ]; then
+    if read -r t_state _ t_at t_pid _ < "$ticket" 2>/dev/null && [ "$t_state" = "waiting" ]; then
         enqueued="$t_at"
+        # 같은 worktree의 옛 run이 아직 자리를 기다리면 끝냅니다. 같은 세션 것은 마지막 것만 남깁니다(사용자 2026-11-03
+        # "빌드는 작업다하고 돌리는게 맞지 않아?", PM 전달). 자리를 잡은(done) run은 건드리지 않습니다.
+        # pid가 다른 프로세스에 다시 쓰였을 수 있으므로, 같은 worktree에서 도는 check-all일 때만 끕니다.
+        if [ -n "$t_pid" ] && [ "$t_pid" != "$$" ] && kill -0 "$t_pid" 2>/dev/null \
+            && tr '\0' ' ' < "/proc/$t_pid/cmdline" 2>/dev/null | grep -q "scripts/ci/check-all.sh" \
+            && [ "$(readlink "/proc/$t_pid/cwd" 2>/dev/null)" = "$PWD" ]; then
+            echo "== 같은 worktree에서 자리를 기다리던 옛 run(pid $t_pid)을 끝내고 그 차례를 이어받습니다"
+            kill -TERM "$t_pid" 2>/dev/null || true
+        fi
     fi
     printf 'waiting %s %s %s %s\n' "$priority" "$enqueued" "$$" "$PWD" > "$ticket"
     # 살아 있는 waiting 표 가운데 이 표의 차례(0부터).
@@ -173,6 +182,7 @@ run python3 -X utf8 scripts/ci/check-stack.py
 run python3 -X utf8 scripts/ci/check-lint-escapes.py
 run python3 -X utf8 scripts/ci/check-test-tempdirs.py
 run python3 -X utf8 scripts/ci/check-dev-exposure.py
+run python3 -X utf8 scripts/ci/check-containers.py
 run python3 -X utf8 scripts/ci/check-file-size.py
 run python3 -X utf8 scripts/ci/check-engine-reuse.py
 run python3 -X utf8 scripts/ci/test_ci_checks.py

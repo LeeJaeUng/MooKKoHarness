@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operations-deployer
+  namespace: mookko-links
+  annotations:
+    mookko.dev/kubernetes-api-client: "true"
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: deployer
+          image: registry.example/mookko-operations@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8080}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8080}

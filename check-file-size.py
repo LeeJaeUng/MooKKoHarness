@@ -1,6 +1,6 @@
 """Rust 파일 길이 검사 (rust.md R-MOD-3 "파일 하나 600줄을 넘기면 나눈다", qa-engine 2026-11-03 지적: 자동 검사 없음).
 
-crates/ 아래 src/의 *.rs마다, `#[cfg(test)]`이 붙은 항목(시험 모듈 등)만 빼고 나머지 줄을 모두 센다(시험 모듈 뒤 코드도 셈).
+crates/·acceptance/ 아래 src/의 *.rs마다, `#[cfg(test)]`이 붙은 항목(시험 모듈 등)만 빼고 나머지 줄을 모두 센다(시험 모듈 뒤 코드도 셈).
 tests/·benches/·examples/는 보지 않는다. 600줄을 넘으면 실패한다. 다만 docs/policy/waivers.json에 rule이 "R-MOD-3"으로
 시작하고 paths에 그 파일이 든 항목이 있으면 넘어간다(기한·칸은 check-waivers.py가 검사). 예외가 있는데 600줄 이하가 되면
 예외를 지우라고 실패한다(낡은 예외를 남기지 않음).
@@ -85,7 +85,7 @@ def main() -> int:
     problems: list[str] = []
     scanned = 0
     files = [
-        p for p in sorted((root / "crates").rglob("*.rs"))
+        p for base in ("crates", "acceptance") for p in sorted((root / base).rglob("*.rs"))  # 인수 시험 실행기도 셈(RustDev 11-03)
         if in_src(p.relative_to(root)) and not any(part in SKIP_DIRS for part in p.relative_to(root).parts)
     ]
     texts = {p: p.read_text(encoding="utf-8") for p in files}

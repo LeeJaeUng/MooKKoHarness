@@ -4,6 +4,9 @@
 - crates/adapters/* 는 apps·services·다른 어댑터에 의존하지 않는다.
 - crates/services/* 는 엔진만 쓴다(adapters·apps·다른 서비스 금지). dev 의존성도 같다.
 - crates/apps/*     는 무엇이든 조립할 수 있다.
+- acceptance/*      (인수 시험 실행기, acceptance/README.md)는 엔진만 쓴다. 외부 계약만 보므로 서비스·어댑터·앱 코드를
+  가져다 쓰지 않는다(RustDev 11-03, links 인수 시험 자리 결정). 워크스페이스 members에는 crate마다 명시해 넣는다
+  (glob "acceptance/*"는 Cargo.toml이 없는 runs/에 걸림).
 - 빌드 때만 도는 crate(BUILD_ONLY)는 build-dependency로만 쓴다(실행 코드에 링크 금지).
 
 엔진·어댑터의 dev 의존성은 시험 도구(적합성 시험 등)를 위해 엔진 crate만 허용한다.
@@ -27,6 +30,7 @@ ALLOWED = {
     "adapter": {"engine"},
     "service": {"engine"},
     "app": {"engine", "adapter", "service", "app"},
+    "acceptance": {"engine"},
 }
 
 
@@ -37,6 +41,7 @@ def layer_of(manifest: Path) -> str | None:
         ("crates/adapters/", "adapter"),
         ("crates/services/", "service"),
         ("crates/apps/", "app"),
+        ("acceptance/", "acceptance"),
     ):
         if rel.startswith(prefix):
             return layer
@@ -58,7 +63,7 @@ def main() -> int:
     for pkg in packages:
         layer = layer_of(Path(pkg["manifest_path"]))
         if layer is None:
-            problems.append(f"{pkg['name']}: crate is outside crates/engine|adapters|services|apps")
+            problems.append(f"{pkg['name']}: crate is outside crates/engine|adapters|services|apps or acceptance/")
             continue
         layers[pkg["name"]] = layer
 

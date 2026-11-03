@@ -2,8 +2,8 @@
 
 Linux에는 휴지통이 없어서, 시험이 같은 실행에서 직접 만든 `$TMPDIR/mookko-test/...` 아래 폴더만 바로 지울 수 있고
 실패한 시험의 폴더는 원인 확인용으로 남겨야 한다. 시험 코드가 그 밖의 경로를 만들거나 지우지 못하게 잡는다.
-- Rust(crates/): `temp_dir()` 바로 뒤 첫 `.join(...)`은 `"mookko-test"`여야 한다.
-- Rust(crates/): `remove_dir_all`을 부르는 `impl Drop`은 `std::thread::panicking()`일 때 지우지 않아야 한다
+- Rust(crates/·acceptance/): `temp_dir()` 바로 뒤 첫 `.join(...)`은 `"mookko-test"`여야 한다.
+- Rust(crates/·acceptance/): `remove_dir_all`을 부르는 `impl Drop`은 `std::thread::panicking()`일 때 지우지 않아야 한다
   (그 블록 안에 `std::thread::panicking()`이 있어야 함).
 - Bash(scripts/·crates/의 *.sh): `rm -r`의 대상은 `"$변수"` 하나여야 하고, 그 변수를 따라가면 값에 `mookko-test`가 있어야 한다.
 - 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
@@ -104,10 +104,11 @@ def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
     problems: list[str] = []
     scanned = 0
-    for path, rel in files(root, root / "crates", ".rs"):
-        scanned += 1
-        check_rust(rel, path.read_text(encoding="utf-8"), problems)
-    for base in (root / "scripts", root / "crates"):
+    for base in (root / "crates", root / "acceptance"):  # 인수 시험 실행기도 봄(RustDev 11-03)
+        for path, rel in files(root, base, ".rs"):
+            scanned += 1
+            check_rust(rel, path.read_text(encoding="utf-8"), problems)
+    for base in (root / "scripts", root / "crates", root / "acceptance"):
         for path, rel in files(root, base, ".sh"):
             scanned += 1
             check_shell(rel, path.read_text(encoding="utf-8"), problems)
