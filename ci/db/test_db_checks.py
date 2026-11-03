@@ -553,6 +553,11 @@ class DroppedTables(unittest.TestCase):
         self.assertEqual(found, [], [str(f) for f in found])
         self.assertEqual([p for p in data_classes.migration_coverage(root) if "audit_records" in p.message], [])
 
+    def test_recreated_table_is_not_dropped(self) -> None:
+        """qa-design D4-1: 지운 뒤(DROP TABLE·DROP TABLE IF EXISTS) 같은 이름으로 다시 만든 표는 append_only·등급 대조를 비켜 가지 않음."""
+        root = FIXTURES / "repo-drop-recreate"
+        self.assertEqual(migration_lint.dropped_tables(root / "crates" / "services" / "svc" / "migrations"), set())
+
 
 class NameChecks(unittest.TestCase):
     """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
