@@ -5,6 +5,11 @@ async fn leak(store: &RowKeyStore, subject: Uuid) -> Result<Vec<u8>, DataError> 
     Ok(key.to_bytes())
 }
 
+async fn leak_field(store: &RowKeyStore, subject: Uuid) -> Result<(String, Vec<u8>), DataError> {
+    let key = store.get(subject, "svc/profile").await?.expect("있음");
+    Ok((key.kek_id.clone(), key.ciphertext.clone()))
+}
+
 async fn put(store: &RowKeyStore, subject: Uuid, key: &K) -> Result<(), DataError> {
     store.insert_or_get(subject, "svc/profile", key).await?;
     Ok(())

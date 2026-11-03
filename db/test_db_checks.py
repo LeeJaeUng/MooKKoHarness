@@ -534,9 +534,62 @@ class KeyMaterialCode(unittest.TestCase):
         # QA c63b644 D1: RowKeyStore가 돌려준 감싼 키를 형 이름 없이 `.to_bytes()`로 꺼냄 — src만, 시험의 HTTP 본문은 둠
         to_bytes = sorted((f.path.rsplit("/", 1)[-1], f.line) for f in found if "`.to_bytes()`" in f.message)
         self.assertEqual(to_bytes, [("lib.rs", 7), ("store_leak.rs", 5)], [f.message for f in found])
+        # qa-design 11-03 2회 보통: WrappedKey 공개 필드(ciphertext·kek_id)로 꺼내는 길
+        fields = sorted(f.message.split("`")[1] for f in found if "공개 필드" in f.message)
+        self.assertEqual(fields, [".ciphertext", ".kek_id"], [f.message for f in found])
 
     def test_good_repo_and_engine_runtime_are_not_caught(self) -> None:
         self.assertEqual(migration_lint.lint_key_material_code(FIXTURES / "repo-good"), [])
+
+
+class NameChecks(unittest.TestCase):
+    """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
+
+    def test_registered_kind_must_match(self) -> None:
+        import name_rules
+
+        kinds, problems = name_rules.load(FIXTURES / "name-checks-sample.json")
+        self.assertEqual(problems, [])
+        found = name_rules.lint_name_checks(FIXTURES / "repo-names", kinds)
+        got = sorted(f.message.split("`")[1] for f in found)
+        # NULL을 받는 approved_by는 `열 IS NULL OR (등록 글)`(뒤 이관 NOT VALID)로 맞춰 통과, created_by만 잡힘
+        self.assertEqual(got, ["actions.created_by"], [str(f) for f in found])
+
+    def test_registry_sha_and_empty(self) -> None:
+        import name_rules
+
+        kinds, problems = name_rules.load(FIXTURES / "name-checks-bad-sha.json")
+        self.assertEqual(kinds, [])
+        self.assertIn("SHA가 다름", problems[0])
+        kinds, problems = name_rules.load(name_rules.REGISTRY)
+        self.assertEqual((kinds, problems), ([], []), "엔진 C3 전에는 비어 있음")
+        self.assertEqual(name_rules.lint_name_checks(FIXTURES / "repo-names", []), [])
+
+
+class TimeSources(unittest.TestCase):
+    """S-TIME-1(qa-design XC-D3): 서비스 SQL 시각은 엔진 Clock의 `$now`, 새 ID는 앱 `TimeOrderedId`. S-TYPE-1 시간대 경고."""
+
+    def test_db_clock_in_service_sql_and_migrations(self) -> None:
+        import time_rules
+
+        root = FIXTURES / "repo-time"
+        found = time_rules.lint_time_sources(root, EMPTY_ENGINE)
+        got = sorted((f.path.rsplit("/", 1)[-1], f.message.split("`")[1]) for f in found)
+        self.assertEqual(got, [("0001_jobs.sql", "clock_timestamp()"), ("store.rs", "now()"), ("store.rs", "uuidv7()")], [str(f) for f in found])
+        warnings = time_rules.timezone_warnings(root)
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("store.rs:6", warnings[0])
+
+    def test_audit_partition_needs_keep_days_and_archive(self) -> None:
+        root = FIXTURES / "repo-time"
+        found = [f for f in migration_lint.lint_partitioned(root) if "감사 파티션" in f.message]
+        self.assertEqual(len(found), 1, [str(f) for f in found])
+        self.assertIn("`audit_events`", found[0].message)
+
+    def test_good_repo_has_no_db_clock(self) -> None:
+        import time_rules
+
+        self.assertEqual(time_rules.lint_time_sources(FIXTURES / "repo-good", EMPTY_ENGINE), [])
 
 
 class ConstraintFunctions(unittest.TestCase):
@@ -546,7 +599,13 @@ class ConstraintFunctions(unittest.TestCase):
         root = FIXTURES / "repo-check-fn"
         found = migration_lint.lint_dir(root, root / "crates" / "services" / "svc" / "migrations")
         got = sorted((f.rule, f.message.split("`")[1]) for f in found if f.rule in ("S-MIG-2", "S-BND-6"))
-        self.assertEqual(got, [("S-BND-6", "tags_nowhere"), ("S-BND-6", "tags_volatile"), ("S-MIG-2", "events")], [f.message for f in found])
+        self.assertEqual(got, [("S-BND-6", "tags_nowhere"), ("S-BND-6", "tags_ok"), ("S-BND-6", "tags_public_path"), ("S-BND-6", "tags_volatile"), ("S-MIG-2", "events")], [f.message for f in found])
+        # qa-design 2회 낮음: search_path 값은 pg_catalog·자기 스키마·pg_temp만, 자기 함수는 스키마를 붙여 부름
+        self.assertTrue(any("스키마 없이 부름" in f.message and "`tags_ok`" in f.message for f in found), [f.message for f in found])
+        self.assertTrue(migration_lint.search_path_ok("SET search_path = pg_catalog, pg_temp", "svc"))
+        self.assertTrue(migration_lint.search_path_ok("SET search_path TO __SCHEMA__, pg_catalog AS $$", "svc"))
+        self.assertFalse(migration_lint.search_path_ok("SET search_path = public", "svc"))
+        self.assertFalse(migration_lint.search_path_ok("LANGUAGE sql IMMUTABLE", "svc"))
 
 
 class EngineKeyDatabases(unittest.TestCase):

@@ -776,8 +776,13 @@ def lint_partitioned(root: Path) -> list[Finding]:
             for table in created_tables(text, "postgres", schema):
                 plain.setdefault(table, path.relative_to(root).as_posix())
         registered: set[str] = set()
+        sources_by_table: dict[str, list[str]] = {}
         for path in walk(directory.parent / "src", lambda name: name.endswith(".rs")):
-            registered |= registered_partitions(strip_rust_comments(path.read_text(encoding="utf-8")))
+            source = strip_rust_comments(path.read_text(encoding="utf-8"))
+            names = registered_partitions(source)
+            registered |= names
+            for name in names:
+                sources_by_table.setdefault(name, []).append(source)
         for path in sorted(directory.glob("*.sql")):
             for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
                 if table not in registered:
@@ -785,6 +790,14 @@ def lint_partitioned(root: Path) -> list[Finding]:
                         path.relative_to(root).as_posix(), 1, "S-PART-3",
                         f"파티션 부모 `{table}`을 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly(…))`로 적지 않음(E-DB-5)",
                     ))
+        # 감사 원장 파티션(이름에 audit)은 보관 기한(`keep_days`)과 지우기 전 내보내기(`archive_before_drop`)를 꼭 적는다(qa-services
+        # XC 5절, S-PART-3). 형을 글로 따라가지 못하므로, 그 표를 등록한 파일에 두 호출이 함께 있는지로 본다.
+        for path in sorted(directory.glob("*.sql")):
+            for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
+                if "audit" not in table or table not in registered:
+                    continue
+                if not any(".keep_days(" in s and ".archive_before_drop(" in s for s in sources_by_table.get(table, [])):
+                    findings.append(Finding(path.relative_to(root).as_posix(), 1, "S-PART-3", f"감사 파티션 `{table}`은 등록한 파일에 `.keep_days(n)`과 `.archive_before_drop()`가 함께 있어야 함(보관 기한·지우기 전 내보내기)"))
         # 엔진은 `<부모>_YYYYMM` 이름만 보고 기한 지난 달을 떼어 지우므로, 그 이름의 다른 표를 두지 않는다(QA f4753d1 낮음).
         for table, rel in sorted(plain.items()):
             for parent in sorted(parents | registered):
@@ -926,6 +939,18 @@ SCHEMA_CALL = re.compile(rf"({IDENT})\s*\.\s*({IDENT})\s*\(")
 ONLY_ADD_CONSTRAINT = re.compile(rf"^ALTER\s+TABLE\s+ONLY\s+({QNAME})\s+ADD\s+CONSTRAINT\b", re.I)
 CREATE_FUNCTION = re.compile(rf"^CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+({QNAME})", re.I)
 ALTER_FUNCTION = re.compile(rf"^ALTER\s+FUNCTION\s+({QNAME})\s*\(", re.I)
+SEARCH_PATH_SET = re.compile(r"\bSET\s+search_path\s*(?:=|\bTO\b)\s*(.+?)(?=\s+(?:AS|LANGUAGE|IMMUTABLE|STABLE|VOLATILE|STRICT|SECURITY|PARALLEL|RETURNS|SET)\b|\s*;|\s*$)", re.I | re.S)
+BARE_CALL = re.compile(rf"(?<![.\w\"])({IDENT})\s*\(")
+
+
+def search_path_ok(text: str, schema: str | None) -> bool:
+    """`SET search_path` 절이 있고 값이 `pg_catalog`·자기 스키마(`__SCHEMA__`)·`pg_temp`뿐인가."""
+    m = SEARCH_PATH_SET.search(text)
+    if not m:
+        return False
+    allowed = {"pg_catalog", "pg_temp", SCHEMA_PLACEHOLDER} | ({schema.lower()} if schema else set())
+    values = [v.strip().strip("'\"").lower() for v in m.group(1).split(",")]
+    return bool(values) and all(v in allowed for v in values)
 
 
 def check_bodies(text: str) -> list[str]:
@@ -940,13 +965,15 @@ def check_bodies(text: str) -> list[str]:
 def constraint_function_findings(root: Path, directory: Path, schema: str | None) -> list[Finding]:
     """폴더 단위(앞 파일에서 만든 것도 봄):
     - S-MIG-2: 파티션 부모 표에 `ALTER TABLE ONLY … ADD CONSTRAINT` 금지(PostgreSQL 18이 42P16으로 거부, database.md §7.2).
-    - S-BND-6: CHECK가 부르는 자기 스키마 함수는 이관에서 만든 것이고 `IMMUTABLE`·`SET search_path`가 있어야 함(행마다 같은 답이어야
+    - S-BND-6: CHECK가 부르는 자기 스키마 함수는 이관에서 만든 것이고 `IMMUTABLE`·`SET search_path`(값은 pg_catalog·자기 스키마·
+      pg_temp만)가 있어야 하고, 스키마를 붙여 부름(행마다 같은 답이어야
       제약이 뜻이 있고, search_path로 다른 함수를 끼워 넣지 못하게). 이미 커밋한 함수는 뒤 이관의 `ALTER FUNCTION … SET search_path`로
       고칠 수 있으므로, 판정은 폴더 끝의 함수 상태로 한다."""
     findings: list[Finding] = []
     parents: set[str] = set()
     functions: dict[str, tuple[bool, bool]] = {}
     calls: list[tuple[str, int, str]] = []
+    bare: list[tuple[str, int, str]] = []
     own = {SCHEMA_PLACEHOLDER} | ({schema.lower()} if schema else set())
     for path in sorted(p for p in directory.glob("*.sql") if FILE_NAME.match(p.name)):
         rel = path.relative_to(root).as_posix()
@@ -956,7 +983,7 @@ def constraint_function_findings(root: Path, directory: Path, schema: str | None
             if fn:
                 functions[parse_qname(fn.group(1))[1]] = (
                     bool(re.search(r"\bIMMUTABLE\b", st.text, re.I)),
-                    bool(re.search(r"\bSET\s+search_path\b", st.text, re.I)),
+                    search_path_ok(st.text, schema),
                 )
                 continue
             altered = ALTER_FUNCTION.match(st.text)
@@ -965,7 +992,7 @@ def constraint_function_findings(root: Path, directory: Path, schema: str | None
                 immutable, search_path = functions.get(name, (False, False))
                 functions[name] = (
                     immutable or bool(re.search(r"\bIMMUTABLE\b", st.text, re.I)),
-                    search_path or bool(re.search(r"\bSET\s+search_path\b", st.text, re.I)),
+                    search_path_ok(st.text, schema) if SEARCH_PATH_SET.search(st.text) else search_path,
                 )
                 continue
             only = ONLY_ADD_CONSTRAINT.match(st.text)
@@ -976,13 +1003,18 @@ def constraint_function_findings(root: Path, directory: Path, schema: str | None
                     if call.group(1).lower() not in own:
                         continue
                     calls.append((rel, st.line, call.group(2)))
+                for call in BARE_CALL.finditer(body):
+                    bare.append((rel, st.line, call.group(1)))
         parents.update(partitioned_parents(text, schema))
     for rel, line, name in calls:
         immutable, search_path = functions.get(name, (False, False))
         if name not in functions:
             findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 부르는 `{name}`을 이 폴더 이관이 만들지 않음"))
         elif not (immutable and search_path):
-            findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 부르는 함수 `{name}`은 `IMMUTABLE`과 `SET search_path = pg_catalog`(자기 스키마 이름은 붙여 씀)가 있어야 함 — 커밋한 함수는 뒤 이관에서 `ALTER FUNCTION … SET search_path`"))
+            findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 부르는 함수 `{name}`은 `IMMUTABLE`과 `SET search_path = pg_catalog`(값은 pg_catalog·자기 스키마·pg_temp만, 자기 스키마 이름은 붙여 씀)가 있어야 함 — 커밋한 함수는 뒤 이관에서 `ALTER FUNCTION … SET search_path`"))
+    for rel, line, name in bare:
+        if name in functions:
+            findings.append(Finding(rel, line, "S-BND-6", f"CHECK가 자기 함수 `{name}`을 스키마 없이 부름 — `__SCHEMA__.{name}(…)`로(search_path로 다른 함수가 끼어들 수 있음)"))
     return findings
 
 
@@ -1295,6 +1327,10 @@ KEY_MATERIAL_API = re.compile(r"\b(WrappedKey|DataKey|generate_data_key|unwrap_d
 # 감싼 키를 돌려주므로 형 이름 없이도 꺼낼 수 있음). 글로는 형을 모르므로 서비스·실행 파일 `src/`의 `.to_bytes()`는 모두 막는다
 # (시험 코드의 HTTP 본문 `Collected::to_bytes`는 둠). 엔진이 E-DB-18로 형을 닫으면 줄임.
 KEY_BYTES_CALL = re.compile(r"\.\s*to_bytes\s*\(")
+# `WrappedKey`의 공개 필드(`ciphertext: Vec<u8>`·`kek_id`)로도 바이트를 꺼낼 수 있음(qa-design 11-03 2회 보통). 엔진이 필드를 닫을
+# 때까지(E-DB-18) 서비스·실행 파일 `src/`에서 이 필드 이름에 닿는 것을 막는다. `{:?}`(Debug)로 내보내는 길은 형을 모르면 글로 가릴
+# 수 없어 엔진 몫(Debug 가림)으로 둔다.
+KEY_FIELD_ACCESS = re.compile(r"\.\s*(ciphertext|kek_id)\b")
 KEY_MATERIAL_CODE_SKIP = ("crates/apps/mookko-runtime/",)  # 금고 어댑터를 고르고 엮는 곳(엔진 쪽 실행 틀)
 
 
@@ -1315,6 +1351,8 @@ def lint_key_material_code(root: Path) -> list[Finding]:
         if "src" in Path(rel).parts and "tests" not in Path(rel).parts:
             for match in KEY_BYTES_CALL.finditer(text):
                 findings.append(Finding(rel, text.count("\n", 0, match.start()) + 1, "S-SEC-10", "서비스 코드의 `.to_bytes()` 금지 — 감싼 키(`WrappedKey::to_bytes`)를 꺼내 서비스 DB에 쓰는 길(형을 글로 가릴 수 없음, 엔진 E-DB-18 전까지)"))
+            for match in KEY_FIELD_ACCESS.finditer(text):
+                findings.append(Finding(rel, text.count("\n", 0, match.start()) + 1, "S-SEC-10", f"서비스 코드의 `.{match.group(1)}` 금지 — 감싼 키(`WrappedKey`)의 공개 필드로 바이트를 꺼내는 길(엔진 E-DB-18 전까지)"))
     return findings
 
 
@@ -1403,6 +1441,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock-file", type=Path, default=migration_lock.LIST, help="이관 잠금 목록(시험용)")
     parser.add_argument("--exceptions", type=Path, default=EXCEPTIONS, help="기한 있는 예외 등록부(시험용)")
     parser.add_argument("--engine-generated", type=Path, default=ENGINE_GENERATED, help="엔진 생성 고정 파일 등록부(시험용)")
+    parser.add_argument("--name-checks", type=Path, default=Path(__file__).resolve().parent / "name-checks.json", help="이름 종류별 CHECK 글 등록부(시험용)")
     parser.add_argument("--lock", metavar="DIR", help="출시: 이 이관 폴더(저장소 기준)의 지금 파일을 잠금 목록에 적음")
     parser.add_argument("--decided-by", help="--lock: 출시 결정 근거(예: 사용자 결정 2026-11-20)")
     parser.add_argument("--launched-at", type=datetime.date.fromisoformat, help="--lock: 출시 날짜 YYYY-MM-DD")
@@ -1437,7 +1476,17 @@ def main(argv: list[str] | None = None) -> int:
     rust_findings += lint_key_material_code(root)
     rust_findings += engine_fixed_tests(root, json.loads(args.engine_generated.read_text(encoding="utf-8")))
     rust_findings += lint_partitioned(root)
+    import time_rules  # noqa: PLC0415 — time_rules가 이 모듈을 가져다 쓰므로 여기서
+
+    rust_findings += time_rules.lint_time_sources(root, args.engine_generated)
+    import name_rules  # noqa: PLC0415
+
+    name_kinds, name_problems = name_rules.load(args.name_checks)
+    problems += name_problems
+    rust_findings += name_rules.lint_name_checks(root, name_kinds)
     findings += rust_findings
+    for line in time_rules.timezone_warnings(root):
+        print(f"  경고: {line}")
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path, f.rule))]
     waived = [f for f in findings if f not in failing]
     # 잠금 위반은 유예하지 않음(출시 뒤 이관 다시 쓰기).

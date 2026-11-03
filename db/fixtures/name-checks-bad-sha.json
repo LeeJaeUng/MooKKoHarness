@@ -1,0 +1,13 @@
+{
+  "_doc": "시험 표본(엔진 C3 글 아님): name_rules.py 판정 모양만 본다.",
+  "kinds": [
+    {
+      "kind": "ActorId",
+      "columns": "^(staff_id|actor_id|[a-z][a-z0-9_]*_by)$",
+      "check": "CHECK (char_length(\"actor\") BETWEEN 1 AND 64 AND \"actor\" ~ '^[!-~]([ -~]*[!-~])?$')",
+      "sample_column": "actor",
+      "sha256": "db5dc3afba1bc2e548861ae943181223731b71f4b470656337bf308716fa35b5",
+      "source": "표본"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ CREATE TABLE __SCHEMA__.accounts (
     email_bidx bytea NOT NULL,
     email_bidx_kid text NOT NULL,
     state text NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL,
     CONSTRAINT accounts_pkey PRIMARY KEY (account_id),
     CONSTRAINT accounts_email_bidx_key UNIQUE (email_bidx),
     CONSTRAINT accounts_email_bidx_len CHECK (octet_length(email_bidx) = 32),

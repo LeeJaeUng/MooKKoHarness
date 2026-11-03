@@ -2,13 +2,157 @@
   "_doc": "DB 규약(2026-10-30) 전에 들어온 파일. 기한까지 담당이 고치면 지움. 기한이 지나면 check-db가 실패. 규칙: scripts/ci/db/pending.py",
   "pending": [
     {
-      "path": "crates/services/operations/migrations/0009_role_permission_resources_items.sql",
-      "owner": "operations",
-      "until": "2026-11-10",
+      "path": "crates/services/links/migrations/0006_takedowns.sql",
+      "owner": "links",
+      "until": "2026-11-30",
       "rules": [
-        "S-BND-6"
+        "S-TIME-1"
       ],
-      "reason": "CHECK가 부르는 resources_valid에 SET search_path가 없음(규칙은 DB 11-03 새로 둠). 커밋한 이관이라 다음 이관에서 ALTER FUNCTION __SCHEMA__.resources_valid(text[]) SET search_path = pg_catalog"
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/migrations/0017_cdn_purges.sql",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/migrations/0020_image_jobs.sql",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/handle_admin.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/handles.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/image_cleanup.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/images.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/moderation/sql.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/purge.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/rebuild.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/sql.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/src/unblock.rs",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/monitoring/src/pg_receipt.rs",
+      "owner": "monitoring",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/monitoring/src/pg_registry.rs",
+      "owner": "monitoring",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/monitoring/src/pg_sql.rs",
+      "owner": "monitoring",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "S-TIME-1(DB 11-03, qa-design XC-D3) 전부터 있던 DB 시계·ID 함수. 엔진 C2(시계 공용화) 뒤 $now·TimeOrderedId 바인딩으로 옮김(이관은 새 넓히기로 기본값을 앱 값으로)"
+    },
+    {
+      "path": "crates/services/links/migrations/0003_audit_events.sql",
+      "owner": "links",
+      "until": "2026-11-30",
+      "rules": [
+        "S-PART-3"
+      ],
+      "reason": "감사 파티션 audit_events에 keep_days·archive_before_drop이 없음(지금 영구 보관). 엔진 C4 공용 감사 원장으로 옮기거나 보관 기한을 정해 등록(qa-services XC 5절)"
+    },
+    {
+      "path": "crates/services/monitoring/src/pg_host_state.rs",
+      "owner": "monitoring",
+      "until": "2026-11-30",
+      "rules": [
+        "S-TIME-1"
+      ],
+      "reason": "pg_registry.rs(유예)에서 파일 길이 때문에 옮긴 호스트 상태 문장의 now()(updated_at). 다음 QA 묶음(XC-T3·MN3)에서 처리기가 넘긴 $received로 바꿈(모니터링 11-03)"
     }
   ]
 }
