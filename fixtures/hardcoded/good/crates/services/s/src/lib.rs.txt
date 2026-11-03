@@ -1,0 +1,22 @@
+use std::time::Duration;
+
+/// 요청 기한(밀리초). 운영 값은 설정에서 받고 이것은 안전 상한.
+pub const MAX_DEADLINE: Duration = Duration::from_millis(30_000);
+const SQL: &str = "SELECT 1000";
+
+pub fn deadline(ms: u64) -> Duration {
+    let text = "CHECK (length(key) BETWEEN 8 AND 128)";
+    let multi = "first line
+        LIMIT 5000";
+    let _ = (text, multi, 'x', 99);
+    Duration::from_millis(ms).min(MAX_DEADLINE)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn t() {
+        let _ = std::time::Duration::from_secs(600);
+        assert!(4096 > 1000);
+    }
+}

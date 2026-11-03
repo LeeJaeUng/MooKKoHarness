@@ -1,0 +1,1 @@
+pub const RULES: &str = include_str!("rules.json");

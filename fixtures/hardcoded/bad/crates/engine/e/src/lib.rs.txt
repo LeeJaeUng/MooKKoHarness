@@ -1,0 +1,4 @@
+#[cfg(test)]
+mod t {
+    const R: &str = include_str!("../../../services/s/rules.json");
+}

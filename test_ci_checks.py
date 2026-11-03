@@ -35,6 +35,7 @@ CHECKS = {
     "systemd-units": ROOT / "scripts" / "ci" / "check-systemd-units.py",
     "containers": ROOT / "scripts" / "ci" / "check-containers.py",
     "design-sources": ROOT / "scripts" / "ci" / "check-design-sources.py",
+    "hardcoded": ROOT / "scripts" / "ci" / "check-hardcoded-values.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -48,6 +49,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
 # design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1. good: 출처·해당 없음, 결정 아닌 표는 안 봄.
+# hardcoded bad(enforce true): DUR 1, NUM 2(비교식·호출 인자), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
+#   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
 # lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
 #   acceptance/ 아래 #[allow] 1.
@@ -77,6 +80,7 @@ EXPECTED_BAD = {
     "systemd-units": 4,
     "containers": 44,
     "design-sources": 3,
+    "hardcoded": 8,
 }
 PROBLEM_LINE = re.compile(r"^(?:\s*-\s+)?\S+:\d+: ")
 # 줄 번호 없이 `  - …`로 문제를 내는 검사
