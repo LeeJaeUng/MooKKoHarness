@@ -60,6 +60,9 @@ printf 'CLICKHOUSE_DB=%s\nCLICKHOUSE_USER=%s\nCLICKHOUSE_PASSWORD=%s\nCLICKHOUSE
     "$DATABASE" "$USER_NAME" "$PASSWORD" > "$RUN_DIR/env"
 chmod 600 "$RUN_DIR/env"
 
+# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(scripts/dev/memory-guard.json).
+python3 -X utf8 "$ROOT/scripts/dev/memory-guard.py" open "시험 ClickHouse"
+
 podman run -d --rm --name "$NAME" \
     --env-file "$RUN_DIR/env" \
     --tmpfs "/var/lib/clickhouse:rw,size=$TMPFS_SIZE" \

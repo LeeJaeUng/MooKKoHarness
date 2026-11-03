@@ -53,6 +53,9 @@ USER_NAME="$(setting user)"
 TMPFS_SIZE="$(setting tmpfsSize)"
 READY_TIMEOUT="$(setting readyTimeoutSeconds)"
 
+# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(scripts/dev/memory-guard.json).
+python3 -X utf8 "$ROOT/scripts/dev/memory-guard.py" open "시험 PostgreSQL"
+
 podman run -d --rm --name "$NAME" \
     -e POSTGRES_DB="$DATABASE" -e POSTGRES_USER="$USER_NAME" \
     -e POSTGRES_PASSWORD_FILE=/run/mookko/password \

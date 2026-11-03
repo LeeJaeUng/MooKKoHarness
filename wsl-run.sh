@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Windows(Git Bash)에서 MooKKo-Linux로 명령을 넘깁니다. WSL을 부를 때는 wsl을 직접 쓰지 말고 이것을 씁니다.
 #   scripts/dev/wsl-run.sh <리눅스 명령...>      예: scripts/dev/wsl-run.sh bash /mnt/c/.../script.sh
+# wsl.exe는 인자를 Linux 셸로 다시 읽어 $변수를 펼치므로, 변수·따옴표가 든 명령은 스크립트 파일로 넘깁니다.
 # 설정은 scripts/dev/wsl.json(배포판 이름·멈춤 표지 경로). 멈춤 표지(scripts/dev/wsl-pause.sh on)가 있으면
 # WSL을 켜지 않고 75(EX_TEMPFAIL)로 끝납니다. 다시 시도하지 않습니다(재시도 고리가 내려간 WSL을 다시 켜서 압축이 깨짐).
 set -euo pipefail
