@@ -575,6 +575,34 @@ class DroppedStillRead(unittest.TestCase):
         self.assertEqual(found, [], [str(f) for f in found])
 
 
+class ExpectedBaseline(unittest.TestCase):
+    """S-MIG-12 기준 커밋(expectedCheckSince): 그 커밋에 있던 이관의 S-MIG-12만 빼고, git을 못 읽으면 빼지 않음."""
+
+    def findings(self) -> list:
+        F = migration_lint.Finding
+        return [F("crates/services/svc/migrations/0001_old.sql", 3, "S-MIG-12", "x"),
+                F("crates/services/svc/migrations/0002_new.sql", 3, "S-MIG-12", "x"),
+                F("crates/services/svc/migrations/0001_old.sql", 4, "S-MIG-5", "x")]
+
+    def run_with(self, listing: str | None, locks: dict) -> list:
+        import migration_lock
+
+        saved = migration_lock.git
+        migration_lock.git = lambda root, *args: listing
+        try:
+            return migration_lint.expected_baseline(Path("."), locks, self.findings(), migration_lock.LIST)
+        finally:
+            migration_lock.git = saved
+
+    def test_files_before_base_are_skipped_only_for_s_mig_12(self) -> None:
+        got = self.run_with("crates/services/svc/migrations/0001_old.sql\n", {"expectedCheckSince": "abc"})
+        self.assertEqual([(f.path.rsplit("/", 1)[1], f.rule) for f in got], [("0002_new.sql", "S-MIG-12"), ("0001_old.sql", "S-MIG-5")])
+
+    def test_unreadable_git_or_no_base_keeps_everything(self) -> None:
+        self.assertEqual(len(self.run_with(None, {"expectedCheckSince": "abc"})), 3)
+        self.assertEqual(len(self.run_with("crates/services/svc/migrations/0001_old.sql\n", {})), 3)
+
+
 class NameChecks(unittest.TestCase):
     """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
 
@@ -585,7 +613,8 @@ class NameChecks(unittest.TestCase):
         self.assertEqual(problems, [])
         found = name_rules.lint_name_checks(FIXTURES / "repo-names", kinds)
         got = sorted(f.message.split("`")[1] for f in found)
-        # NULL을 받는 approved_by는 `열 IS NULL OR (등록 글)`(뒤 이관 NOT VALID)로 맞춰 통과, created_by만 잡힘
+        # NULL을 받는 approved_by는 `열 IS NULL OR (등록 글)`(뒤 이관 NOT VALID)로 맞춰 통과, created_by만 잡힘.
+        # 0004가 지운 old_things.made_by와 uuid인 posts.published_by는 안 봄
         self.assertEqual(got, ["actions.created_by"], [str(f) for f in found])
 
     def test_registry_sha_and_empty(self) -> None:
@@ -595,7 +624,10 @@ class NameChecks(unittest.TestCase):
         self.assertEqual(kinds, [])
         self.assertIn("SHA가 다름", problems[0])
         kinds, problems = name_rules.load(name_rules.REGISTRY)
-        self.assertEqual((kinds, problems), ([], []), "엔진 C3 전에는 비어 있음")
+        # 제품 등록부(엔진 C3 079c8a1 뒤 DB 담당이 채움): 읽기·SHA·본보기 열 문제가 없어야 함(비어 있어도 됨)
+        self.assertEqual(problems, [])
+        for kind in kinds:
+            self.assertIn(kind.sample, kind.check, kind.kind)
         self.assertEqual(name_rules.lint_name_checks(FIXTURES / "repo-names", []), [])
 
 
