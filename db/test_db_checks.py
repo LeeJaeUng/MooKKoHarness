@@ -523,6 +523,19 @@ class KeyTables(unittest.TestCase):
         self.assertEqual([p for p in data_classes.migration_coverage(FIXTURES / "repo-good") if p.rule == "S-SEC-10"], [])
 
 
+class KeyMaterialCode(unittest.TestCase):
+    """S-SEC-10 코드 쪽: 서비스 코드가 감싼 키를 손에 쥐면 설계서 등급과 상관없이 서비스 DB에 쓸 수 있으므로, 키 재료 API를 쓰지 않는다."""
+
+    def test_service_code_using_key_material_api_is_caught(self) -> None:
+        found = migration_lint.lint_key_material_code(FIXTURES / "repo-keys-bad")
+        names = sorted(f.message.split("`")[1] for f in found)
+        self.assertEqual(names, ["WrappedKey", "WrappedKey", "generate_data_key", "unwrap_data_key"], [f.message for f in found])
+        self.assertEqual({f.rule for f in found}, {"S-SEC-10"})
+
+    def test_good_repo_and_engine_runtime_are_not_caught(self) -> None:
+        self.assertEqual(migration_lint.lint_key_material_code(FIXTURES / "repo-good"), [])
+
+
 class EngineKeyDatabases(unittest.TestCase):
     """E-DB-17: 실행 파일이 있는 서비스의 키 DB 이관은 서비스 DB와 같은 `migrate` 실행에서 엔진이 돌린다(적용 시험의 설정 만들기)."""
 
