@@ -152,6 +152,7 @@ run python3 -X utf8 scripts/ci/check-stack.py
 run python3 -X utf8 scripts/ci/check-lint-escapes.py
 run python3 -X utf8 scripts/ci/check-test-tempdirs.py
 run python3 -X utf8 scripts/ci/check-dev-exposure.py
+run python3 -X utf8 scripts/ci/check-file-size.py
 run python3 -X utf8 scripts/ci/test_ci_checks.py
 run python3 -X utf8 scripts/ci/check-acceptance.py
 run python3 -X utf8 scripts/ci/check-waivers.py

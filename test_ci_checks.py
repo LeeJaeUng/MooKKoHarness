@@ -22,11 +22,14 @@ FIXTURES = ROOT / "scripts" / "ci" / "fixtures"
 CHECKS = {
     "dev-exposure": ROOT / "scripts" / "ci" / "check-dev-exposure.py",
     "acceptance": ROOT / "scripts" / "ci" / "check-acceptance.py",
+    "file-size": ROOT / "scripts" / "ci" / "check-file-size.py",
 }
 # acceptance bad: enforce 서비스에 기록 없음 1, 깨진 JSON 1, 다른 service 1, 짧은 commit 1, passed 형 틀림 1.
+# file-size bad: src 601줄 1, 600줄 이하인데 예외가 남음 1(tests/ 900줄은 세지 않음).
 EXPECTED_BAD = {
     "dev-exposure": 15,
     "acceptance": 5,
+    "file-size": 2,
 }
 PROBLEM_LINE = re.compile(r"^\S+:\d+: ")
 

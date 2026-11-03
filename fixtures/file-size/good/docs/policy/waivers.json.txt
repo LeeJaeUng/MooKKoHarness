@@ -1,0 +1,1 @@
+{"waivers": [{"id": "w", "paths": ["crates/x/a/src/waived.rs"], "rule": "R-MOD-3"}]}
