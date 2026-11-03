@@ -84,6 +84,7 @@
 ## SEC-01 보안
 
 - **범위(2026-11-04 정리)**: SEC-01은 **앱·기능 보안**(인증·세션·인가·입력·암호·쿠키·비밀값 다루기, ASVS·STRIDE)입니다. 그 아래 플랫폼 층은 SEC-02(피해 범위·격리)·SEC-03(탐지·대응)·SEC-04(취약점·패치 지연)가 보고, 워크로드 기본 위생은 HOST-01이 봅니다. 기준 정본은 보안 전문 담당의 [`docs/architecture/security.md`](../architecture/security.md)와 규약 [`conventions/security.md`](conventions/security.md)(SC-*)입니다.
+- **옛 번호 대응(2026-11-04, PM 지시)**: qa-engine 11-03 지적 번호 "SEC-2·SEC-3·SEC-4"는 새 관문 SEC-02~04와 헷갈려 **`QE-SEC-2`(운영 파일 KEK 금지, KMS 감싼 키만)·`QE-SEC-3`(직원 로그인 MFA 필수)·`QE-SEC-4`(직원 세션 12시간·유휴 15분)**으로 부릅니다. 셋 다 이 SEC-01 아래의 운영 설정 검사(`ci/check-production-config.py`)이고, 관문 SEC-02~04와는 상관없습니다. 옛 이름이 남은 곳(검사 머리말·오류 문구, 제품 `docs/coordination/engine-priority.md`)은 그 파일 담당이 고칩니다.
 - 인증·인가(OpenIddict 대응), 소셜 로그인 5종, 토큰 수명·회전·폐기, 비밀값 보관(HSM/Pkcs11 대응), 감사 기록, 개인정보 최소화.
 - C# 판에 있던 보안 수준보다 약해지면 안 됩니다(기능 파악용 참고). **약해지는 변경은 사용자 결정 없이는 `fail`입니다**(규칙 문서 `docs/policy/`를 약하게 바꾸는 것도 포함).
 - 쿠키는 모두 `__Host-` 접두어(Secure, Path=/, `Domain` 없음). 상위 도메인(`Domain=mookko.com`) 쿠키는 금지입니다(사용자 콘텐츠 하위 도메인과 분리). 서버(엔진 BFF)와 화면 모두 해당합니다.
