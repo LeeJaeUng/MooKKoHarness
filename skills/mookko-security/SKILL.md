@@ -12,7 +12,7 @@ description: MooKKo 보안 규약(플랫폼·운영). 운영 매니페스트(dep
 ## 매니페스트를 쓸 때
 
 - 풀 고르기(SC-NODE-1·2): 키 DB → `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets → `control`, 돈 DB → `db-money`, 뗀 일반 DB → `db-general`, 바깥 입력 작업자 → `sandbox`, 나머지 → `general`. 전용 풀의 워크로드는 `requiredDuringSchedulingIgnoredDuringExecution` nodeAffinity로 자기 풀만 고르고 toleration을 단다. **다른 네임스페이스가 그 풀의 toleration·nodeSelector를 쓰면 안 된다**(admission·검사가 막음).
-- 바깥 입력(SC-SBX-1~3): 바깥이 고른 바이트를 파서(이미지·영상·문서·압축·폰트)로 다루거나 바깥이 고른 주소로 나가면 `mookko.io/input: untrusted` 라벨 + `runtimeClassName: gvisor` + `sandbox` 풀. 그 일만 하는 Deployment로 떼고(엔진 포트의 원격 어댑터), 비밀값 파일·DB·Workload Identity 권한·SA 토큰 없음, 나가기는 나가기 프록시만(사설·링크 로컬·`169.254.169.254`·내부 DNS 거부).
+- 바깥 입력(SC-SBX-1~3): 바깥이 고른 바이트를 파서(이미지·영상·문서·압축·폰트)로 다루거나 바깥이 고른 주소로 나가면 `mookko.io/input: untrusted` 라벨 + `runtimeClassName: gvisor` + `sandbox` 풀. 라벨·풀 칸은 블록 모양으로만(흐름 모양은 실패). 그 일만 하는 Deployment로 떼고(엔진 포트의 원격 어댑터), 비밀값 파일·DB·Workload Identity 권한·SA 토큰 없음, 나가기는 나가기 프록시만(사설·링크 로컬·`169.254.169.254`·내부 DNS 거부).
 - 특권(SC-PRIV-1): `privileged`·`hostPID`·`hostNetwork`·`hostPath`가 필요한 것은 `mookko-security` 네임스페이스의 `docs/policy/privileged-allowlist.json` 등록 이미지(Falco·Tetragon 등)뿐.
 - 이미지(SC-VULN-4): 제3자 이미지도 우리 레지스트리로 가져와 검사·서명한 다이제스트만.
 - 서비스 계정(SC-NODE-4): Kubernetes SA 하나 = Workload Identity 주체 하나, 실제로 부르는 권한만. 여러 서비스가 IAM 서비스 계정을 같이 쓰지 않는다.
@@ -31,7 +31,7 @@ Falco는 모든 풀, Tetragon은 `keys`·`control`(처음 2주 감사만, 그 �
 
 ## 취약점·패치 지연 (SC-VULN-*)
 
-KEV·실제 공격 48시간, 치명 7일을 벤더 때문에 못 맞추면 기한 절반 전에 `docs/policy/vuln-register.json` 항목(`id`·`affects`·`exposure`·`mitigations`·`opened`·`reviewBy`·`expires` 최대 30일·`owner`). 순서: 기록 → 노출 끊기 → 격리(gVisor 풀) → 감지 강화 → 다른 노드 이미지(두 사람 승인) → 30일 넘으면 사용자 결정. 기다리기만 하는 항목은 받지 않는다. 고친 판이 나오면 기한을 다시 세고 `closed`로 닫는다(지우지 않음).
+KEV·실제 공격 48시간, 치명 7일을 벤더 때문에 못 맞추면 기한 절반(`published`부터 kev 1일·critical 3일) 안에 `docs/policy/vuln-register.json` 항목을 연다. 칸은 `id`·`cve`·`severity`(kev|critical)·`published`·`affects`(pool:·image:·host:)·`exposure`·`mitigations[{kind, what}]`·`opened`·`reviewBy`(opened~expires 안)·`expires`·`owner`, 닫으면 `closed`+`fixedIn`. `kind`는 cut-exposure·isolate·detect·alternate-image이고, detect만으로는 안 되며 줄이는 완화가 하나 이상 있어야 한다. 30일은 같은 cve를 처음 연 날부터 세고, 넘기려면 `userDecision`이 필요하다. 순서는 기록 → 노출 끊기 → 격리(gVisor 풀) → 감지 강화 → 다른 노드 이미지(두 사람 승인)이다. 닫은 항목은 지우지 않는다.
 
 ## 보안 설계 검토 (SC-REV-*)
 
