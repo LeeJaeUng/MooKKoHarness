@@ -1,5 +1,6 @@
 {
   "note": "보안 관문 도구(H-5) 고정 판. 각 프로젝트 공식 GitHub 릴리스에서 받아, 릴리스가 함께 낸 SHA256과 맞을 때만 설치함(2026-11-02 PM 사용자 대행 결정, 사용자 \"PM말만 들어 나한테 묻지말고\"). 설치 위치는 WSL ~/.local/share/mookko/tools/<이름>-<판>/, 실행 파일 링크는 ~/.local/bin. 판을 바꿀 때는 이 파일의 판·주소·해시를 함께 바꾸고 커밋 본문에 확인 결과를 남김. Trivy 릴리스는 sigstore 서명도 내지만 cosign이 없어 아직 서명은 확인하지 않음(SHA256만).",
+  "installRoot": "~/.local/share/mookko/tools",
   "tools": [
     {
       "name": "gitleaks",
