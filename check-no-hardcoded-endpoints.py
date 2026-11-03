@@ -15,11 +15,12 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
 IDENTIFIERS = ROOT / "docs" / "policy" / "identifier-uris.json"
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("IPv4 literal", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
+    # 0~255 네 덩어리이고 앞뒤에 글자·숫자·점이 붙지 않은 것만 주소로 봄(판 문자열 "1.2.3.4.5"·"v1.0.0.1"은 아님, PM 11-03).
+    ("IPv4 literal", re.compile(r"(?<![\w.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\w.])")),
     ("IPv6 loopback/any", re.compile(r"\"\[?::1?\]?(?::\d+)?\"")),
     ("localhost", re.compile(r"localhost", re.IGNORECASE)),
     ("URL", re.compile(r"\b[a-z][a-z0-9+.-]*://", re.IGNORECASE)),

@@ -1,0 +1,4 @@
+const VERSION: &str = "1.2.3.4.5";
+const TAG: &str = "v1.0.0.1";
+// let addr = "127.0.0.1";
+const NOT_IP: &str = "300.1.2.3";

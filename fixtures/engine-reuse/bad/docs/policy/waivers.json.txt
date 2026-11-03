@@ -1,0 +1,1 @@
+{"waivers": [{"id": "w", "paths": ["crates/services/s/src/c.rs"], "rule": "ENG-REUSE-C1(MFA)"}]}

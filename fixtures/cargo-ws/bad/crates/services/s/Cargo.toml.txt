@@ -1,0 +1,10 @@
+[package]
+name = "s"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+e = { path = "../../engine/e" }
+a1 = { path = "../../adapters/a1" }
+hyper = { path = "../../engine/hyper" }

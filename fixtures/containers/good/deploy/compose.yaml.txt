@@ -1,0 +1,15 @@
+services:
+  links:
+    image: registry.internal/links@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+    ports:
+      - "${LINKS_BIND}:8080:8080"
+      - "127.0.0.1:9100:9100"

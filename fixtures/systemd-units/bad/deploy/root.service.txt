@@ -1,0 +1,40 @@
+# links 유지보수 단계(하루 한 번): 달 파티션 만들기, 보관 기한 지난 원본 클릭 달 떼고 지우기, 실행 기록.
+# 이관 계정으로 돕니다(앱 계정 아님, S-BND-2). 이관 설정 경로는 배포 환경이 MOOKKO_MIGRATE_CONFIG로 줍니다.
+# 실행 파일은 마지막 실행이 36시간보다 오래되면 오류 로그로 알립니다. 명세: docs/spec/links/data-model.md §4.
+[Unit]
+Description=MooKKo links maintain (month partitions and retention)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/mookko/links-maintain.env
+ExecStart=/opt/mookko/bin/mookko-links maintain
+# 큰 달 떼기(DETACH … CONCURRENTLY)는 오래 기다릴 수 있어 상한을 둡니다(엔진 이관 기한 1시간 + 여유).
+TimeoutStartSec=2h
+# 운영 서버 보안 기준(docs/architecture/host-security.md §3, 관문 HOST-01). 쓰는 파일이 없어 작업 폴더도 읽기만.
+WorkingDirectory=/opt/mookko
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @swap @reboot @raw-io @module @obsolete @cpu-emulation @debug

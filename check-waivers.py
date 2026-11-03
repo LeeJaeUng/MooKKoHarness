@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
 REGISTRY = ROOT / "docs" / "policy" / "waivers.json"
 MAX_DAYS = 180  # 예외는 길어야 반년. 더 필요하면 다시 승인받아 날짜를 고친다.
 FIELDS = ("id", "paths", "rule", "reason", "adr", "condition", "expires", "approvedBy")

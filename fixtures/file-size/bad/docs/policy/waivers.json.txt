@@ -1,1 +1,1 @@
-{"waivers": [{"id": "w", "paths": ["crates/x/a/src/small.rs"], "rule": "R-MOD-3"}]}
+{"waivers": [{"id": "w", "paths": ["crates/x/a/src/small.rs", "crates/x/a/src/gone.rs"], "rule": "R-MOD-3"}]}

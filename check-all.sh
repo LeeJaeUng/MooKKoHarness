@@ -45,13 +45,46 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
         [ "$word" = "closing" ] || [ "$word" = "closed" ] || return 1
         [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
     }
+    # 대기표(PM 2026-11-03: 자리는 우선순위 → 먼저 온 차례로, 기다리다 끊겨도 차례를 이어받음).
+    # worktree마다 표 하나(<dir>/queue/<경로 해시>): "waiting|done 우선순위 줄선시각(ns) pid 경로". 우선순위는
+    # MOOKKO_SLOT_PRIORITY(작을수록 앞, 기본 5; QA 높음 고침 1, 통합 담당 묶음 2). 같은 worktree가 다시 돌면 남은 waiting 표의
+    # 줄선 시각을 그대로 써서 차례를 잃지 않습니다. 표 파일은 지우지 않고 덮어씁니다.
+    QUEUE_DIR="$SLOT_DIR/queue"
+    mkdir -p "$QUEUE_DIR"
+    ticket="$QUEUE_DIR/$(printf '%s' "$PWD" | sha1sum | cut -c1-16)"
+    priority="${MOOKKO_SLOT_PRIORITY:-5}"
+    enqueued="$(date +%s%N)"
+    if read -r t_state _ t_at _ < "$ticket" 2>/dev/null && [ "$t_state" = "waiting" ]; then
+        enqueued="$t_at"
+    fi
+    printf 'waiting %s %s %s %s\n' "$priority" "$enqueued" "$$" "$PWD" > "$ticket"
+    # 살아 있는 waiting 표 가운데 이 표의 차례(0부터).
+    queue_rank() {
+        python3 -I - "$QUEUE_DIR" "$ticket" <<'PY'
+import os, sys
+from pathlib import Path
+mine = Path(sys.argv[2]).name
+live = []
+for p in Path(sys.argv[1]).iterdir():
+    try:
+        state, prio, at, pid, *_ = p.read_text(encoding="utf-8").split()
+        if state != "waiting":
+            continue
+        os.kill(int(pid), 0)
+    except (OSError, ValueError):
+        continue
+    live.append((int(prio), int(at), p.name))
+live.sort()
+print(next((i for i, (_, _, name) in enumerate(live) if name == mine), 0))
+PY
+    }
     announced=""
-    wait_round=0
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
         # PC 메모리 관문(사용자 2026-11-03 "램 90%이하로 만 먹어야해"): Windows 전체 사용률이 hard 이상이면 내려갈 때까지
         # 기다리고, soft 이상이면 자리를 1개만 씁니다(scripts/dev/memory-guard.json).
         usable="$(python3 -X utf8 scripts/dev/memory-guard.py slots "$SLOT_COUNT")"
-        if ! slots_closing; then
+        rank="$(queue_rank)"
+        if ! slots_closing && [ "$rank" -lt "$usable" ]; then
             for i in $(seq 1 "$usable"); do
                 exec {slot_fd}>"$SLOT_DIR/slot-$i"
                 if flock -n "$slot_fd"; then
@@ -63,27 +96,15 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
         fi
         if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
             if [ "$(date +%s)" -ge "$SLOT_DEADLINE" ]; then
-                echo "build slot wait timed out: 빌드 자리를 기다리다 기한을 넘겼습니다($SLOT_DIR). 통합 담당에 알리세요." >&2
+                echo "build slot wait timed out: 빌드 자리를 기다리다 기한을 넘겼습니다($SLOT_DIR). 다시 돌리면 차례를 이어받습니다." >&2
                 exit 1
             fi
-            [ -z "$announced" ] && echo "== 빌드 자리 기다림(지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
+            [ -z "$announced" ] && echo "== 빌드 자리 기다림(우선순위 $priority, 차례 $rank, 지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
             announced=1
-            if slots_closing; then
-                sleep "$SLOT_POLL"
-                continue
-            fi
-            # 자리 하나에 막고 기다립니다. 막고 기다리는 쪽은 자리가 풀리면 바로 깨어나므로, 15초마다 엿보던 때처럼
-            # 늦게 온 실행이 먼저 가져가는 일이 줄어듭니다(2026-11-03 통합 check-all이 50분 넘게 자리를 못 잡음).
-            wait_round=$((wait_round + 1))
-            i=$(( (wait_round - 1) % usable + 1 ))
-            exec {slot_fd}>"$SLOT_DIR/slot-$i"
-            if flock -w "$SLOT_POLL" "$slot_fd" && ! slots_closing; then
-                export MOOKKO_BUILD_SLOT="$i"
-            else
-                exec {slot_fd}>&-
-            fi
+            sleep "$SLOT_POLL"
         fi
     done
+    printf 'done %s %s %s %s\n' "$priority" "$enqueued" "$$" "$PWD" > "$ticket"
     # 빌드 캐시는 자리마다 하나(targetRoot/slot-<n>)를 worktree끼리 나눠 씁니다. 같은 자리는 위 잠금으로 한 번에 하나만 씁니다.
     # 세션마다 캐시를 따로 두니 8개·약 100GB까지 자라 C 드라이브가 바닥났습니다(2026-11-02). incremental은 캐시의 절반이고
     # check-all은 매번 전체를 보므로 끕니다.
@@ -153,6 +174,7 @@ run python3 -X utf8 scripts/ci/check-lint-escapes.py
 run python3 -X utf8 scripts/ci/check-test-tempdirs.py
 run python3 -X utf8 scripts/ci/check-dev-exposure.py
 run python3 -X utf8 scripts/ci/check-file-size.py
+run python3 -X utf8 scripts/ci/check-engine-reuse.py
 run python3 -X utf8 scripts/ci/test_ci_checks.py
 run python3 -X utf8 scripts/ci/check-acceptance.py
 run python3 -X utf8 scripts/ci/check-waivers.py

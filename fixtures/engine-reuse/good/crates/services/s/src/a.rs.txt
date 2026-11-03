@@ -1,0 +1,3 @@
+use mookko_core::Clock;
+// trait Clock 는 주석이라 보지 않음
+pub fn run() {}

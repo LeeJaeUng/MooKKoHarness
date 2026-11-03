@@ -1,0 +1,11 @@
+struct TempDir(PathBuf);
+fn make() { let p = std::env::temp_dir()
+    .join("mookko-test")
+    .join("a"); }
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        if std::thread::panicking() { return; }
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+impl Drop for Other { fn drop(&mut self) { let _ = stop.send(()); } }

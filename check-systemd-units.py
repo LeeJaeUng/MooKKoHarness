@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]  # 인자를 주면 표본 폴더를 검사
 WAIVERS = ROOT / "docs" / "policy" / "waivers.json"
 SKIP_PARTS = {"target", ".git", ".claude", "node_modules", "data"}
 

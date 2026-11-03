@@ -1,0 +1,4 @@
+pub const RECENT_MFA: u64 = 600;
+pub struct SystemClock;
+fn is_identifier(x: &str) -> bool { !x.is_empty() }
+struct Row { prev_hash: Vec<u8> }

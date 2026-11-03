@@ -1,0 +1,5 @@
+let a = "10.0.0.21";
+let b = "LOCALHOST";
+let c = "https";  let d = "ftp://files";
+let e = "db:5432";
+let f = std::net::Ipv4Addr::LOCALHOST;
