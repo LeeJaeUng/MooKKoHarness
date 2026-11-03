@@ -542,6 +542,17 @@ class KeyMaterialCode(unittest.TestCase):
         self.assertEqual(migration_lint.lint_key_material_code(FIXTURES / "repo-good"), [])
 
 
+class DroppedTables(unittest.TestCase):
+    """links 0024: 뒤 contract 이관이 `DROP TABLE`한 표는 append_only 지정·등급 대조에서 뺀다."""
+
+    def test_dropped_audit_table_needs_no_append_only(self) -> None:
+        root = FIXTURES / "repo-drop"
+        self.assertEqual(migration_lint.dropped_tables(root / "crates" / "services" / "svc" / "migrations"), {"audit_records"})
+        found = [f for f in migration_lint.lint_embedded(root) if f.rule == "S-MONEY-2"]
+        self.assertEqual(found, [], [str(f) for f in found])
+        self.assertEqual([p for p in data_classes.migration_coverage(root) if "audit_records" in p.message], [])
+
+
 class NameChecks(unittest.TestCase):
     """S-NAME-2(qa-design XC-D5): 이름 종류 열의 CHECK는 엔진 C3 `NameKind::sql_check` 글(등록부)과 같아야 한다. 등록부가 비면 보지 않음."""
 
