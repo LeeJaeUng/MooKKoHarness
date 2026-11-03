@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "CVE-2026-0010",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0001",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0001",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0011",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+40@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0012",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-31@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY-1@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0013",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "2026/11/01",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-0014",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안",
+      "closed": "@@TODAY-10@@"
+    },
+    {
+      "id": "CVE-2026-0015",
+      "affects": [
+        "general 풀 노드 이미지"
+      ],
+      "exposure": "바깥에서 닿지 않음",
+      "mitigations": [
+        "노출 끊기"
+      ],
+      "opened": "@@TODAY-3@@",
+      "reviewBy": "@@TODAY-1@@",
+      "expires": "@@TODAY+20@@",
+      "owner": "보안"
+    }
+  ]
+}

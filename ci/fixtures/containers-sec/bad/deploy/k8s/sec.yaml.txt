@@ -1,0 +1,233 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: steal
+  namespace: mookko-links
+spec:
+  template:
+    metadata:
+      labels:
+        app: steal
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - key: mookko.io/pool
+          operator: Equal
+          value: control
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: mookko.io/pool
+                    operator: In
+                    values:
+                      - control
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ops-loose
+  namespace: mookko-operations
+spec:
+  template:
+    metadata:
+      labels:
+        app: ops-loose
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - key: mookko.io/pool
+          operator: Equal
+          value: control
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: img-bad
+  namespace: mookko-sandbox
+spec:
+  template:
+    metadata:
+      labels:
+        app: img-bad
+        mookko.io/input: untrusted
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - key: sandbox.gke.io/runtime
+          operator: Equal
+          value: gvisor
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sandbox.gke.io/runtime
+                    operator: In
+                    values:
+                      - gvisor
+      serviceAccountName: img-sa
+      volumes:
+        - name: key
+          secret:
+            secretName: k
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: img-out
+  namespace: mookko-links
+spec:
+  template:
+    metadata:
+      labels:
+        app: img-out
+        mookko.io/input: untrusted
+    spec:
+      automountServiceAccountToken: false
+      runtimeClassName: gvisor
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sneaky
+  namespace: mookko-security
+spec:
+  template:
+    metadata:
+      labels:
+        app: sneaky
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/other@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ext
+  namespace: mookko-links
+spec:
+  template:
+    metadata:
+      labels:
+        app: ext
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: docker.io/library/busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi

@@ -26,7 +26,7 @@
 |---|---|
 | `ci/` 검사 본체와 그 표본, `dev/` 개발 도구(빌드 자리·메모리·디스크 관문·시험 DB), `config/dev/` 그 설정 | 얇은 진입점 `scripts/ci/check-all.sh`·`scripts/dev/*.sh` → `scripts/harness.sh` |
 | `policy/gates.md`·`gates.json`, `policy/conventions/`, `skills/`, `rules/` | 고정 판의 사본(`docs/policy/gates.*`·`docs/policy/conventions/`·`.claude/skills/`, 워커가 읽는 자리) |
-| 검사가 어떻게 판정하는지 | 이 제품만의 목록: 예외(`waivers`·`lint-exceptions`·`docs/policy/db/`), 래칫 기준(`hardcoded-values`·`test-time`), 설계 출처·PRR·식별자 등록부, `gitleaks.toml` |
+| 검사가 어떻게 판정하는지 | 이 제품만의 목록: 예외(`waivers`·`lint-exceptions`·`docs/policy/db/`), 래칫 기준(`hardcoded-values`·`test-time`), 설계 출처·PRR·식별자 등록부, 보안 등록부(`node-pools`·`privileged-allowlist`·`image-registries`·`vuln-register`, 보안 담당), `gitleaks.toml` |
 | | `harness.lock`(하네스 커밋 40자), acceptance/, docs/spec·architecture·coordination, config/ |
 
 - `scripts/harness.sh`는 하네스 저장소에서 고정 커밋을 `git archive`로 꺼내 `data/harness/<커밋>/`(다시 만들 수 있는 캐시)에 둡니다. 그다음 `MOOKKO_PRODUCT_ROOT`·`MOOKKO_HARNESS_DIR`·`MOOKKO_HARNESS_COMMIT`을 넘겨 실행합니다. 하네스 작업 사본에서 고치는 중인 파일은 쓰지 않으므로, 같은 제품 커밋은 늘 같은 검사를 받습니다.
@@ -43,7 +43,7 @@
 | 전부 모듈화(포트·어댑터) | 새 바깥 시스템은 엔진 포트 + 어댑터 crate + 적합성 시험으로만 | `check-boundaries.py`, QA 관문 |
 | 포트·주소·경로·숫자는 설정 목록에서만 | 코드·상수에 두지 않음, 늘리면 래칫 실패 | `check-no-hardcoded-endpoints.py`, `check-hardcoded-values.py` |
 | 웹 화면은 React + TypeScript + Tailwind (`web/` pnpm) | 다른 프레임워크·lock 금지, Next.js는 공개 SEO 화면만 | `check-stack.py`, WEB-01 |
-| 라이브는 Docker + Kubernetes(GKE Standard, COS 노드, 서울 3영역), GitOps(Argo CD·Rollouts), 앞단 Envoy Gateway | 매니페스트 규칙·컨테이너 보안·짝 HPA/PDB·멀티 AZ | `check-containers.py`, `check-production-config.py`, `check-prr.py` |
+| 라이브는 Docker + Kubernetes(GKE Standard, COS 노드, 서울 3영역), GitOps(Argo CD·Rollouts), 앞단 Envoy Gateway | 매니페스트 규칙·컨테이너 보안·짝 HPA/PDB·멀티 AZ | `check-containers.py`(노드 풀·샌드박스·특권·레지스트리 포함), `check-production-config.py`, `check-prr.py`(훈련 기록 포함), `check-vuln-register.py` |
 | 시험은 내부 서버(생기기 전까지 WSL `MooKKo-Linux`), 빌드·시험은 Linux | Linux 밖 결과는 통과 아님. 빌드 자리·메모리 관문(Windows 전체 85%/90%) | `dev/build-slots.sh`, `dev/memory-guard.py` |
 | 이름에 Rust를 붙이지 않음 | crate·실행 파일·이미지·설정 id에 `rust` 금지 | `check-stack.py` |
 | 언어별 코딩 규약 | 정본 `policy/conventions/`와 `skills/`. lint 끄기는 예외 등록부(만료일)에 없으면 실패 | clippy·eslint·tsc, `check-lint-escapes.py`, QA CONV-01 |

@@ -36,6 +36,17 @@
     NetworkPolicy(podSelector: {}, policyTypes에 Ingress·Egress, 허용 규칙 없음)
   - PersistentVolume은 persistentVolumeReclaimPolicy: Retain, StorageClass는 reclaimPolicy: Retain(DB PV를 지워도 데이터가
     남게, deploy-containers.md §7′. 칸이 없으면 기본값 Delete라 실패)
+- 보안 등록부(제품 docs/policy/, 보안 담당 정본, conventions/security.md SC-*, 관문 SEC-02·SEC-04). 파일이 없으면 그 규칙은 보지 않는다.
+  - node-pools.json(SC-NODE-2): 풀마다 {name, key, value, namespaces}. 워크로드의 tolerations·nodeSelector·nodeAffinity가
+    전용 풀(key·value)을 가리키면 네임스페이스가 그 풀의 namespaces에 있어야 하고, 그 namespaces의 워크로드는
+    nodeAffinity requiredDuringSchedulingIgnoredDuringExecution으로 자기 풀을 골라야 함(taint만으로는 막히지 않음)
+  - 라벨 mookko.io/input: untrusted(SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
+    secret 볼륨·serviceAccountToken 투영·serviceAccountName(default 빼고)·Kubernetes API 예외 주석 없음
+  - privileged-allowlist.json(SC-PRIV-1): 항목마다 {image(다이제스트), reason, owner, reviewed}. 네임스페이스 mookko-security의
+    워크로드는 모든 이미지가 여기 있을 때만 특권·호스트 공유·hostPath와 컨테이너 권한 칸 예외를 받음(이미지·자원·probe·
+    비밀값 환경 변수 규칙은 그대로). Namespace는 mookko-security만 enforce: privileged를 받음
+  - image-registries.json(SC-VULN-4): {registries: [접두어…]}. Dockerfile FROM(빌드 단계 별칭 빼고)·Compose image·
+    컨테이너 image가 이 접두어 중 하나로 시작해야 함(바깥 레지스트리에서 바로 끌지 않음)
 YAML 해석기 없이 들여쓰기로만 읽는다(표준 라이브러리만, tools.md). 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
 사용: python3 -X utf8 ci/check-containers.py [저장소 루트]
@@ -43,6 +54,7 @@ YAML 해석기 없이 들여쓰기로만 읽는다(표준 라이브러리만, to
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -50,6 +62,8 @@ from pathlib import Path
 
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 SECRET_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|API_KEY)", re.IGNORECASE)
+UNTRUSTED = re.compile(r"^\s*mookko\.io/input:\s*[\"']?untrusted[\"']?\s*$", re.MULTILINE)
+PRIV_NAMESPACE = "mookko-security"  # 특권 예외를 받는 단 하나의 네임스페이스(conventions/security.md SC-PRIV-1)
 PRIVATE_BIND = re.compile(r"^(\$\{[^}]+\}|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|127\.\d+\.\d+\.\d+|\[::1\]):")
 
 
@@ -71,7 +85,7 @@ def files(root: Path):
                 yield "kubernetes", path, rel
 
 
-def check_dockerfile(rel: str, text: str, problems: list[str]) -> None:
+def check_dockerfile(rel: str, text: str, problems: list[str], sec: dict | None = None) -> None:
     stages: list[str] = []
     last_stage_users: list[tuple[int, str]] = []
     for no, raw in enumerate(text.splitlines(), 1):
@@ -88,6 +102,8 @@ def check_dockerfile(rel: str, text: str, problems: list[str]) -> None:
                 problems.append(f"{rel}:{no}: FROM {image}는 다이제스트(@sha256:…)로 고정해야 합니다")
             if image.endswith(":latest"):
                 problems.append(f"{rel}:{no}: :latest 이미지는 쓰지 않습니다")
+            if image not in stages:
+                check_registry(rel, no, f"FROM {image}", image, sec, problems)
             if alias:
                 stages.append(alias)
             last_stage_users = []
@@ -138,7 +154,7 @@ def service_blocks(lines: list[str]):
         yield current
 
 
-def check_compose(rel: str, text: str, problems: list[str]) -> None:
+def check_compose(rel: str, text: str, problems: list[str], sec: dict | None = None) -> None:
     for start, name, body in service_blocks(text.splitlines()):
         joined = "\n".join(l for _, l in body)
         where = f"{rel}:{start}"
@@ -172,6 +188,8 @@ def check_compose(rel: str, text: str, problems: list[str]) -> None:
             m = re.match(r"^image:\s*\"?([^\"\s]+)", s)
             if m and "@sha256:" not in m.group(1):
                 problems.append(f"{rel}:{no}: 서비스 {name}: image {m.group(1)}는 다이제스트(@sha256:…)로 고정해야 합니다")
+            if m:
+                check_registry(rel, no, f"서비스 {name}: image {m.group(1)}", m.group(1), sec, problems)
             m = re.match(r"^-\s*\"?([^\"\s]+)\"?\s*$", s)
             if m and re.search(r":\d+(/\w+)?$", m.group(1)) and _in_ports(body, no):
                 if not PRIVATE_BIND.match(m.group(1)):
@@ -297,8 +315,10 @@ def pod_level(lines: list[str], start: int) -> str:
     return "\n".join(line for i, line in enumerate(lines) if start + i not in inside)
 
 
-def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str, problems: list[str]) -> None:
+def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str, problems: list[str],
+                   ns: str = "default", sec: dict | None = None) -> None:
     doc = "\n".join(lines)
+    sec = sec or {}
     for offset, line in enumerate(lines):
         if FLOW_FORBIDDEN.search(line):
             problems.append(f"{rel}:{start + offset}: {label}: 흐름 모양({line.strip()[:40]})은 검사하지 못합니다. 블록 모양으로 쓰세요")
@@ -309,6 +329,12 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
     items = list(container_items(lines, start))
     if not items:
         problems.append(f"{rel}:{start}: {label}에 containers가 없습니다(검사할 수 없음)")
+    images = [m.group(2) for _, _, body in items
+              for m in [re.search(r"^\s*(-\s*)?image:\s*[\"']?([^\"'#\s]+)", "\n".join(body), re.MULTILINE)] if m]
+    # 특권 예외(SC-PRIV-1): mookko-security 네임스페이스이고 모든 컨테이너 이미지가 privileged-allowlist.json에 있을 때만
+    privileged_ok = (ns == PRIV_NAMESPACE and sec.get("privileged") is not None and bool(images)
+                     and len(images) == len(items) and all(img in sec["privileged"] for img in images))
+    check_security(rel, start, lines, doc, label, ns, sec, problems)
     if not re.search(r"^\s*automountServiceAccountToken:\s*" + FALSE + r"\b", pod, re.MULTILINE) and not api_client(lines):
         problems.append(f"{rel}:{start}: {label}에 automountServiceAccountToken: false가 없습니다")
     for ckind, cstart, body in items:
@@ -316,6 +342,23 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         cname = re.search(r"name:\s*[\"']?([^\"'#\s]+)", block)
         clabel = f"{label}의 {ckind[:-1]} {cname.group(1) if cname else '?'}"
         sc = section(block, "securityContext")
+        image = re.search(r"^\s*(-\s*)?image:\s*[\"']?([^\"'#\s]+)", block, re.MULTILINE)
+        if not image or "@sha256:" not in image.group(2):
+            problems.append(f"{rel}:{cstart}: {clabel}: image는 다이제스트(@sha256:…)로 고정해야 합니다")
+        if image:
+            check_registry(rel, cstart, f"{clabel}: image {image.group(2)}", image.group(2), sec, problems)
+        resources = section(block, "resources")
+        for part in ("requests", "limits"):
+            body_text = section(resources, part)
+            for res in ("cpu", "memory"):
+                if not re.search(rf"^\s*{res}:\s*\S", body_text, re.MULTILINE):
+                    problems.append(f"{rel}:{cstart}: {clabel}: resources.{part}.{res}이 없습니다")
+        if ckind == "containers" and kind in LONG_RUNNING:
+            for probe in ("readinessProbe", "livenessProbe"):
+                if not re.search(rf"^\s*{probe}:", block, re.MULTILINE):
+                    problems.append(f"{rel}:{cstart}: {clabel}: {probe}가 없습니다")
+        if privileged_ok:
+            continue  # 등록한 특권 이미지(Falco·Tetragon 등)는 컨테이너 권한 칸을 보지 않음
         # 파드 기본값을 물려받는 칸(runAsNonRoot·seccompProfile)과 컨테이너에만 있는 칸
         if not re.search(r"^\s*runAsNonRoot:\s*" + TRUE + r"\b", sc or pod_sc, re.MULTILINE) and not (
                 not sc_has(sc, "runAsNonRoot") and re.search(r"^\s*runAsNonRoot:\s*" + TRUE + r"\b", pod_sc, re.MULTILINE)):
@@ -331,19 +374,6 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         if not (re.search(r"^\s*drop:\s*\[\s*[\"']?ALL[\"']?\s*\]", section(sc, "capabilities") , re.MULTILINE)
                 or re.search(r"^\s*-\s*[\"']?ALL[\"']?\s*$", drop, re.MULTILINE)):
             problems.append(f"{rel}:{cstart}: {clabel}에 capabilities.drop: [ALL]이 없습니다")
-        image = re.search(r"^\s*(-\s*)?image:\s*[\"']?([^\"'#\s]+)", block, re.MULTILINE)
-        if not image or "@sha256:" not in image.group(2):
-            problems.append(f"{rel}:{cstart}: {clabel}: image는 다이제스트(@sha256:…)로 고정해야 합니다")
-        resources = section(block, "resources")
-        for part in ("requests", "limits"):
-            body_text = section(resources, part)
-            for res in ("cpu", "memory"):
-                if not re.search(rf"^\s*{res}:\s*\S", body_text, re.MULTILINE):
-                    problems.append(f"{rel}:{cstart}: {clabel}: resources.{part}.{res}이 없습니다")
-        if ckind == "containers" and kind in LONG_RUNNING:
-            for probe in ("readinessProbe", "livenessProbe"):
-                if not re.search(rf"^\s*{probe}:", block, re.MULTILINE):
-                    problems.append(f"{rel}:{cstart}: {clabel}: {probe}가 없습니다")
     forbid = [
         (r"^(privileged|hostNetwork|hostPID|hostIPC):\s*" + TRUE + r"\b", "특권·호스트 네트워크·pid·ipc를 쓰지 않습니다"),
         (r"^(-\s*)?hostPath:", "hostPath를 붙이지 않습니다"),
@@ -356,6 +386,8 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         (r"^type:\s*Unconfined\b", "seccomp·AppArmor를 끄지 않습니다"),
         (r"^(-\s*)?secretKeyRef:|^(-\s*)?secretRef:", "비밀값을 환경 변수로 넘기지 않습니다(읽기 전용 파일로)"),
     ]
+    if privileged_ok:
+        forbid = forbid[-1:]  # 비밀값 환경 변수 금지만 남김
     for offset, line in enumerate(lines):
         s = line.strip()
         for pattern, message in forbid:
@@ -370,6 +402,93 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         replicas = child_value(section(doc, "spec"), "replicas")
         if replicas is not None and (not replicas.isdigit() or int(replicas) < MIN_REPLICAS):
             problems.append(f"{rel}:{start}: {label}: replicas {replicas}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
+
+
+def refers(text: str, pool: dict) -> bool:
+    """tolerations·nodeSelector·nodeAffinity 글이 풀의 key와 value를 함께 가리키는지(들여쓰기로만 읽는 근사)."""
+    return bool(text and re.search(rf"(?<![\w./-]){re.escape(pool['key'])}(?![\w./-])", text)
+                and re.search(rf"(?<![\w./-]){re.escape(pool['value'])}(?![\w./-])", text))
+
+
+def check_security(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
+                   problems: list[str]) -> None:
+    """보안 등록부 규칙(SEC-02): 노드 풀 대응표, 바깥 입력 샌드박스."""
+    pools = sec.get("pools")
+    where = f"{rel}:{start}"
+    if pools is not None:
+        affinity = section(doc, "nodeAffinity")
+        used_text = "\n".join((section(doc, "tolerations"), section(doc, "nodeSelector"), affinity))
+        required = section(affinity, "requiredDuringSchedulingIgnoredDuringExecution")
+        for pool in pools:
+            if refers(used_text, pool) and ns not in pool["namespaces"]:
+                problems.append(f"{where}: {label}: 네임스페이스 {ns}는 {pool['name']} 풀을 쓸 수 없습니다"
+                                f"(docs/policy/node-pools.json, SC-NODE-2)")
+            if ns in pool["namespaces"] and not refers(required, pool):
+                problems.append(f"{where}: {label}: {pool['name']} 풀 네임스페이스의 워크로드는 nodeAffinity "
+                                f"requiredDuringSchedulingIgnoredDuringExecution으로 {pool['key']}={pool['value']}만 골라야 합니다(SC-NODE-2)")
+    if not UNTRUSTED.search(doc):
+        return
+    if not re.search(r"^\s*runtimeClassName:\s*[\"']?gvisor[\"']?\s*$", doc, re.MULTILINE):
+        problems.append(f"{where}: {label}: mookko.io/input: untrusted이면 runtimeClassName: gvisor여야 합니다(SC-SBX-1)")
+    sandbox = next((p for p in pools or [] if p["name"] == "sandbox"), None)
+    if sandbox and ns not in sandbox["namespaces"]:
+        problems.append(f"{where}: {label}: mookko.io/input: untrusted 워크로드는 sandbox 풀 네임스페이스에 둡니다(지금 {ns}, SC-SBX-1)")
+    for offset, line in enumerate(lines):
+        s = line.strip()
+        if re.match(r"^(-\s*)?secret:", s):
+            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 비밀값 볼륨을 붙이지 않습니다(SC-SBX-3)")
+        elif re.match(r"^(-\s*)?serviceAccountToken:", s):
+            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 서비스 계정 토큰을 넣지 않습니다(SC-SBX-3)")
+        elif re.match(r"^serviceAccountName:\s*[\"']?(?!default[\"']?\s*$)\S", s):
+            problems.append(f"{rel}:{start + offset}: {label}: 샌드박스 작업자에 서비스 계정(Workload Identity 권한)을 붙이지 않습니다(SC-SBX-3)")
+    if api_client(lines):
+        problems.append(f"{where}: {label}: 샌드박스 작업자는 Kubernetes API 예외 주석을 쓰지 않습니다(SC-SBX-3)")
+
+
+def check_registry(rel: str, no: int, what: str, image: str, sec: dict | None, problems: list[str]) -> None:
+    registries = (sec or {}).get("registries")
+    if registries is not None and not image.startswith(tuple(registries)):
+        problems.append(f"{rel}:{no}: {what}: 우리 레지스트리(docs/policy/image-registries.json)로 가져온 이미지만 씁니다(SC-VULN-4)")
+
+
+def load_security(root: Path, problems: list[str]) -> dict:
+    """제품 docs/policy/의 보안 등록부. 없는 파일은 None(그 규칙을 보지 않음)."""
+    def read(name: str):
+        path = root / "docs" / "policy" / name
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as e:
+            problems.append(f"docs/policy/{name}:1: JSON을 읽지 못했습니다: {e}")
+            return {}
+
+    sec: dict = {"pools": None, "privileged": None, "registries": None}
+    pools = read("node-pools.json")
+    if pools is not None:
+        sec["pools"] = []
+        for i, pool in enumerate(pools.get("pools", [])):
+            if not (isinstance(pool, dict) and all(pool.get(k) for k in ("name", "key", "value", "namespaces"))
+                    and isinstance(pool["namespaces"], list)):
+                problems.append(f"docs/policy/node-pools.json:1: pools[{i}]에 name·key·value·namespaces(목록)가 있어야 합니다")
+                continue
+            sec["pools"].append(pool)
+    allow = read("privileged-allowlist.json")
+    if allow is not None:
+        sec["privileged"] = set()
+        for i, item in enumerate(allow.get("images", [])):
+            if not (isinstance(item, dict) and all(item.get(k) for k in ("image", "reason", "owner", "reviewed"))):
+                problems.append(f"docs/policy/privileged-allowlist.json:1: images[{i}]에 image·reason·owner·reviewed가 있어야 합니다")
+            elif "@sha256:" not in item["image"]:
+                problems.append(f"docs/policy/privileged-allowlist.json:1: images[{i}] {item['image']}는 다이제스트로 고정해야 합니다")
+            else:
+                sec["privileged"].add(item["image"])
+    registries = read("image-registries.json")
+    if registries is not None:
+        sec["registries"] = [r for r in registries.get("registries", []) if isinstance(r, str) and r]
+        if not sec["registries"]:
+            problems.append("docs/policy/image-registries.json:1: registries(이미지 접두어 목록)가 비었습니다")
+    return sec
 
 
 def sc_has(sc: str, key: str) -> bool:
@@ -397,7 +516,7 @@ def api_client(lines: list[str]) -> bool:
 
 
 def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[str, str], deny: set[str],
-                     pairs: dict[str, dict]) -> None:
+                     pairs: dict[str, dict], sec: dict | None = None) -> None:
     for start, lines in documents(text):
         kind = top_value(lines, "kind")
         if not kind:
@@ -408,7 +527,7 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         ns = metadata_value(lines, "namespace") or "default"
         label = f"{kind} {name}"
         if kind in WORKLOADS:
-            check_workload(rel, start, lines, kind, label, problems)
+            check_workload(rel, start, lines, kind, label, problems, ns, sec)
             ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", section(doc, "workloadRef"), re.MULTILINE)
             if kind == "Rollout" and ref:
                 pairs["refs"].add((ns, ref.group(1)))
@@ -435,7 +554,8 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             if m:
                 problems.append(f"{where}: {label}: type {m.group(1)}는 쓰지 않습니다(ClusterIP, 바깥은 라우터·Gateway만)")
         elif kind == "Namespace":
-            if not re.search(r"pod-security\.kubernetes\.io/enforce:\s*\"?restricted\"?", doc):
+            allowed = "restricted|privileged" if name == PRIV_NAMESPACE else "restricted"  # SC-PRIV-1
+            if not re.search(rf"pod-security\.kubernetes\.io/enforce:\s*\"?({allowed})\"?", doc):
                 problems.append(f"{where}: {label}에 라벨 pod-security.kubernetes.io/enforce: restricted가 없습니다")
             namespaces[name] = where
         elif kind == "NetworkPolicy":
@@ -459,15 +579,16 @@ def main() -> int:
     namespaces: dict[str, str] = {}
     deny: set[str] = set()
     pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set()}
+    sec = load_security(root, problems)
     for kind, path, rel in files(root):
         counts[kind] += 1
         text = path.read_text(encoding="utf-8")
         if kind == "kubernetes":
-            check_kubernetes(rel.as_posix(), text, problems, namespaces, deny, pairs)
+            check_kubernetes(rel.as_posix(), text, problems, namespaces, deny, pairs, sec)
         elif kind == "dockerfile":
-            check_dockerfile(rel.as_posix(), text, problems)
+            check_dockerfile(rel.as_posix(), text, problems, sec)
         else:
-            check_compose(rel.as_posix(), text, problems)
+            check_compose(rel.as_posix(), text, problems, sec)
     for key, (where, label) in sorted(pairs["workloads"].items()):
         if key in pairs["refs"]:
             continue  # Argo Rollout이 workloadRef로 가리키는 Deployment: 짝은 Rollout이 가짐
@@ -485,7 +606,7 @@ def main() -> int:
         return 1
     print(
         f"container check passed ({counts['dockerfile']} Dockerfiles, {counts['compose']} compose files, "
-        f"{counts['kubernetes']} Kubernetes manifests)"
+        f"{counts['kubernetes']} Kubernetes manifests, security registers {sum(v is not None for v in sec.values())}/3)"
     )
     return 0
 
