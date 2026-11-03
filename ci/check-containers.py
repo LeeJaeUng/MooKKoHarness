@@ -36,17 +36,21 @@
     NetworkPolicy(podSelector: {}, policyTypes에 Ingress·Egress, 허용 규칙 없음)
   - PersistentVolume은 persistentVolumeReclaimPolicy: Retain, StorageClass는 reclaimPolicy: Retain(DB PV를 지워도 데이터가
     남게, deploy-containers.md §7′. 칸이 없으면 기본값 Delete라 실패)
-- 보안 등록부(제품 docs/policy/, 보안 담당 정본, conventions/security.md SC-*, 관문 SEC-02·SEC-04). 파일이 없으면 그 규칙은 보지 않는다.
+- 보안 등록부(제품 docs/policy/, 보안 담당 정본, conventions/security.md SC-*, 관문 SEC-02·SEC-04). Dockerfile·Compose·Kubernetes
+  매니페스트가 하나라도 있으면 등록부 셋이 다 있어야 한다(없으면 실패 — 등록부를 지워 검사를 끄지 못하게, mookko-rust-qa 11-04).
+  매니페스트가 없으면 빠진 등록부를 `경고:`로만 알린다.
   - node-pools.json(SC-NODE-2): 풀마다 {name, key, value, namespaces}. 워크로드의 tolerations·nodeSelector·nodeAffinity가
     전용 풀(key·value)을 가리키면 네임스페이스가 그 풀의 namespaces에 있어야 하고, 그 namespaces의 워크로드는
     nodeAffinity requiredDuringSchedulingIgnoredDuringExecution으로 자기 풀을 골라야 함(taint만으로는 막히지 않음)
-  - 라벨 mookko.io/input: untrusted(SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
+  - 라벨 mookko.io/input: untrusted(블록·흐름 모양 모두, SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
     secret 볼륨·serviceAccountToken 투영·serviceAccountName(default 빼고)·Kubernetes API 예외 주석 없음
   - privileged-allowlist.json(SC-PRIV-1): 항목마다 {image(다이제스트), reason, owner, reviewed}. 네임스페이스 mookko-security의
     워크로드는 모든 이미지가 여기 있을 때만 특권·호스트 공유·hostPath와 컨테이너 권한 칸 예외를 받음(이미지·자원·probe·
     비밀값 환경 변수 규칙은 그대로). Namespace는 mookko-security만 enforce: privileged를 받음
-  - image-registries.json(SC-VULN-4): {registries: [접두어…]}. Dockerfile FROM(빌드 단계 별칭 빼고)·Compose image·
-    컨테이너 image가 이 접두어 중 하나로 시작해야 함(바깥 레지스트리에서 바로 끌지 않음)
+  - image-registries.json(SC-VULN-4): {registries: [접두어…]}. 접두어는 `/`로 끝나야 함(경로 마디 경계 — `…/mookko`가
+    `…/mookko-evil/`을 통과시키지 않게). Dockerfile FROM(빌드 단계 별칭 빼고)·Compose image·컨테이너 image가 이 접두어 중
+    하나로 시작해야 함(바깥 레지스트리에서 바로 끌지 않음)
+  - 풀 칸(tolerations·nodeSelector·affinity·nodeAffinity·nodeSelectorTerms)의 흐름 모양은 읽지 못하므로 실패(들여쓰기로만 읽는 근사)
 YAML 해석기 없이 들여쓰기로만 읽는다(표준 라이브러리만, tools.md). 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
 
 사용: python3 -X utf8 ci/check-containers.py [저장소 루트]
@@ -62,7 +66,8 @@ from pathlib import Path
 
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist"}
 SECRET_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|API_KEY)", re.IGNORECASE)
-UNTRUSTED = re.compile(r"^\s*mookko\.io/input:\s*[\"']?untrusted[\"']?\s*$", re.MULTILINE)
+# 블록(`mookko.io/input: untrusted`)·흐름(`labels: {mookko.io/input: untrusted}`)·따옴표 키 모두(mookko-rust-qa 11-04 지적 3)
+UNTRUSTED = re.compile(r"[\"']?\bmookko\.io/input[\"']?\s*:\s*[\"']?untrusted\b")
 PRIV_NAMESPACE = "mookko-security"  # 특권 예외를 받는 단 하나의 네임스페이스(conventions/security.md SC-PRIV-1)
 PRIVATE_BIND = re.compile(r"^(\$\{[^}]+\}|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|127\.\d+\.\d+\.\d+|\[::1\]):")
 
@@ -212,7 +217,8 @@ WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod", 
 LONG_RUNNING = {"Deployment", "StatefulSet", "DaemonSet", "Rollout"}
 ZONE_SPREAD = {"Deployment", "StatefulSet", "Rollout"}
 # 흐름 모양(`key: [ … ]`·`key: { … }`)은 이 검사가 안을 읽지 못하므로 보안 칸에는 쓰지 못하게 한다(mookko-rust-qa 11-03).
-FLOW_FORBIDDEN = re.compile(r"^\s*(-\s*)?(containers|initContainers|securityContext|capabilities|volumes|env|envFrom):\s*[\[{]")
+FLOW_FORBIDDEN = re.compile(r"^\s*(-\s*)?(containers|initContainers|securityContext|capabilities|volumes|env|envFrom|"
+                            r"tolerations|nodeSelector|affinity|nodeAffinity|nodeSelectorTerms):\s*[\[{]")
 TRUE = r"(?i:true|yes|on)"
 FALSE = r"(?i:false|no|off)"
 MIN_REPLICAS = 3  # AZ 3개에 하나씩(deploy-containers §3 멀티 AZ, PM 대행 2026-11-03)
@@ -485,10 +491,28 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 sec["privileged"].add(item["image"])
     registries = read("image-registries.json")
     if registries is not None:
-        sec["registries"] = [r for r in registries.get("registries", []) if isinstance(r, str) and r]
+        sec["registries"] = []
+        for value in registries.get("registries", []):
+            if not (isinstance(value, str) and value.endswith("/") and len(value) > 1):
+                problems.append(f"docs/policy/image-registries.json:1: 접두어 {value!r}는 `/`로 끝나는 레지스트리 경로여야 합니다(마디 경계)")
+            else:
+                sec["registries"].append(value)
         if not sec["registries"]:
             problems.append("docs/policy/image-registries.json:1: registries(이미지 접두어 목록)가 비었습니다")
     return sec
+
+
+REGISTERS = {"pools": "node-pools.json", "privileged": "privileged-allowlist.json", "registries": "image-registries.json"}
+
+
+def missing_registers(sec: dict, manifests: int, problems: list[str]) -> list[str]:
+    """빠진 등록부: 매니페스트가 있으면 실패(problems), 없으면 경고 줄로 돌려줌."""
+    warnings = []
+    for key, name in REGISTERS.items():
+        if sec[key] is None:
+            line = f"docs/policy/{name}:1: 보안 등록부가 없습니다(보안 담당이 만듦, conventions/security.md)"
+            (problems if manifests else warnings).append(line)
+    return warnings
 
 
 def sc_has(sc: str, key: str) -> bool:
@@ -599,8 +623,11 @@ def main() -> int:
     for ns, where in sorted(namespaces.items()):
         if ns not in deny:
             problems.append(f"{where}: Namespace {ns}에 기본 차단 NetworkPolicy(podSelector: {{}}, Ingress·Egress, 허용 규칙 없음)가 없습니다")
+    warnings = missing_registers(sec, sum(counts.values()), problems)
     for p in problems:
         print(p)
+    for w in warnings:
+        print(f"경고: {w}")
     if problems:
         print(f"container check failed ({len(problems)} problems)")
         return 1

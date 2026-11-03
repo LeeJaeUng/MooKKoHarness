@@ -53,15 +53,18 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
+#   등록부 셋 없음 3(매니페스트가 있으면 실패, mookko-rust-qa 11-04). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리).
 #   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
 # containers-sec bad(보안 등록부 docs/policy/ 셋이 있음): 다른 네임스페이스가 control 풀 1, control 네임스페이스인데 required
 #   nodeAffinity 없음 1, untrusted인데 gvisor 없음 1·secret 볼륨 1·serviceAccountName 1, untrusted가 sandbox 네임스페이스 밖 1,
-#   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1(합 10).
+#   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1,
+#   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 tolerations 1·흐름 모양 라벨의 untrusted(gvisor 없음) 1(합 13).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
-# vuln-register bad: 빠진 칸 1, id 겹침 1, 30일 넘음 1, 기한 지남 1, 날짜 모양 1, 연 날보다 먼저 닫음 1(reviewBy 지남은 경고만).
-#   good: 열린 항목, 닫은 항목(기한 지남이어도 닫았으면 안 봄).
+# vuln-register bad: 빠진 칸 1, id 겹침 1, 같은 cve 다시 열어 30일 넘음 1, 기한 지남 1, 날짜 모양 1, 연 날보다 먼저 닫음 1,
+#   기다리기만 하는 완화 1, 기한 절반 뒤에 엶 1, reviewBy 범위 밖 1, 닫았는데 fixedIn 없음 1, 객체 아님 1, severity 1(합 12,
+#   reviewBy 지남은 경고만). good: 열린 항목, 닫은 항목, 같은 cve를 30일 넘어 다시 열었지만 userDecision 있음.
 # design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1, TBD 1(넓힌 모양 ID·정한 값 표는 경고만). good: 출처·해당 없음, 결정 아닌 표는 안 봄.
 # hardcoded bad(enforce true): DUR 1, NUM 3(비교식·호출 인자·const fn 몸통), INC 1(엔진 시험이 서비스 파일), PATH 3(드라이브 문자 경로·/mnt 드라이브·/home 사용자), 기준보다 줄어듦 1.
 #   good: const 안 Duration·숫자, 문자열(여러 줄 포함)·문자·99, 시험 모듈, 기준 안 개수, crate 안 include, 상대 경로.
@@ -98,9 +101,9 @@ EXPECTED_BAD = {
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 57,
-    "containers-sec": 10,
-    "vuln-register": 6,
+    "containers": 60,
+    "containers-sec": 13,
+    "vuln-register": 12,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,
