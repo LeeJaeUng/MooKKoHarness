@@ -30,6 +30,7 @@ import migration_apply  # noqa: E402
 import migration_lint  # noqa: E402
 import migration_lock  # noqa: E402
 import pending  # noqa: E402
+import paths  # noqa: E402  (제품 저장소 위치)
 
 FIXTURES = HERE / "fixtures"
 EMPTY_PENDING = FIXTURES / "pending-empty.json"
