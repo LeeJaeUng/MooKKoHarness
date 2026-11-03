@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "MooKKoHarness 담당 구성 초안(10-29, 11-03 이름·엔진 고침). 순서: 공용 서버 엔진 → 명세 뽑기 → 언어와 상관없는 인수 시험 → 서비스(4단계에서 서비스 등록으로 추가, 모니터링 먼저). --bootstrap-roles가 없는 담당만 만든다. owns는 MooKKo docs/coordination/owners.json과 맞춘다. 당분간 개발·QA 모두 Claude(사용자 2026-10-29), QA는 분야별 세션.",
+  "note": "MooKKoHarness 담당 구성 초안(10-29, 11-03 이름·엔진 고침, 11-04 보안 담당). 순서: 공용 서버 엔진 → 명세 뽑기 → 언어와 상관없는 인수 시험 → 서비스(4단계에서 서비스 등록으로 추가, 모니터링 먼저). --bootstrap-roles가 없는 담당만 만든다. owns는 MooKKo docs/coordination/owners.json과 맞춘다. 당분간 개발·QA 모두 Claude(사용자 2026-10-29), QA는 분야별 세션.",
   "roles": [
     {
       "id": "pm", "title": "프로젝트 관리자", "kind": "pm", "service": "common", "owner": "조정", "permission": "read", "parent": "user", "code": "",
@@ -74,6 +74,15 @@
       "engine": "claude", "model": "", "effort": "high",
       "rules": ["00_공통.md", "qa.md"],
       "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+    },
+    {
+      "id": "security/lead", "title": "보안 전문 담당", "kind": "lead", "service": "security", "owner": "보안", "permission": "edit", "parent": "pm", "code": "",
+      "owns": ["docs/architecture/security.md", "docs/architecture/incident-response.md", "docs/architecture/host-security.md", "docs/policy/conventions/security.md", ".claude/skills/mookko-security/", "docs/policy/vuln-register.json", "docs/policy/privileged-allowlist.json", "docs/policy/node-pools.json"],
+      "excludes": [],
+      "canSend": ["pm", "integration", "foundation/lead", "spec/lead"],
+      "engine": "claude", "model": "", "effort": "high",
+      "rules": ["00_공통.md"],
+      "docs": ["AGENTS.md", "docs/policy/gates.md", "docs/policy/conventions/security.md", "docs/architecture/security.md", "docs/architecture/incident-response.md"]
     }
   ]
 }
