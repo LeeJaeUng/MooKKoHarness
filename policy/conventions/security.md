@@ -8,8 +8,8 @@
 
 ## 1. 노드 풀·피해 범위 (SEC-02)
 
-- SC-NODE-1 신뢰 등급이 다른 워크로드를 같은 노드에 두지 않는다. 풀은 `system`·`general`·`sandbox`·`control`·`keys`·`db-money`(security.md §2.2). 키 DB는 `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets는 `control`, 돈 DB는 `db-money`. 새 풀은 security.md를 먼저 고친다. **[QA]** **[검사]** `check-containers.py` 확장(하네스에 요청)
-- SC-NODE-2 `control`·`keys`·`db-money`·`sandbox` 풀의 toleration·nodeSelector·nodeAffinity는 그 풀에 정해진 네임스페이스만 쓴다. 정해진 네임스페이스의 워크로드는 반드시 `requiredDuringScheduling…` nodeAffinity로 자기 풀만 고른다(taint만으로는 막히지 않음). 클러스터에서는 ValidatingAdmissionPolicy로 다시 막는다. 대응표는 제품 `docs/policy/node-pools.json`(하네스에 요청). **[검사]** `check-containers.py` 확장(하네스에 요청)
+- SC-NODE-1 신뢰 등급이 다른 워크로드를 같은 노드에 두지 않는다. 풀은 `system`·`general`·`sandbox`·`control`·`keys`·`db-money`·`db-general`(일반 DB를 뗀 뒤, security.md §2.2). 키 DB는 `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets는 `control`, 돈 DB는 `db-money`. 새 풀은 security.md를 먼저 고친다. **[QA]** **[검사]** `check-containers.py` 확장(하네스에 요청)
+- SC-NODE-2 `control`·`keys`·`db-money`·`db-general`·`sandbox` 풀의 toleration·nodeSelector·nodeAffinity는 그 풀에 정해진 네임스페이스만 쓴다. 정해진 네임스페이스의 워크로드는 반드시 `requiredDuringScheduling…` nodeAffinity로 자기 풀만 고른다(taint만으로는 막히지 않음). 클러스터에서는 ValidatingAdmissionPolicy로 다시 막는다. 대응표는 제품 `docs/policy/node-pools.json`(하네스에 요청). **[검사]** `check-containers.py` 확장(하네스에 요청)
 - SC-NODE-3 노드 풀마다 전용 노드 서비스 계정(최소 역할 `roles/container.defaultNodeServiceAccount` + 레지스트리 읽기), Workload Identity(`GKE_METADATA`), Shielded·보안 부팅·무결성 모니터링, 사설 노드, 자동 업그레이드·자동 복구, kubelet 읽기 전용 포트 끔. Compute 기본 서비스 계정 금지. **[검사]** OpenTofu plan 정책(IaC 저장소가 생기면, 하네스에 요청) **[QA]**
 - SC-NODE-4 Kubernetes 서비스 계정 하나에 Workload Identity 주체 하나, 권한은 그 서비스가 실제로 부르는 것만. 여러 서비스가 한 IAM 서비스 계정을 함께 쓰지 않는다. **[QA]**
 - SC-NODE-5 제어부는 사설 끝점 + 승인된 네트워크. 사람의 kubectl·콘솔 쓰기는 비상 경로(두 사람·경보·감사)뿐. **[QA]**

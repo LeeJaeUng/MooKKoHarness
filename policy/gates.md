@@ -98,7 +98,7 @@
 
 표준 출처: CIS GKE Benchmark(노드 서비스 계정·Workload Identity·메타데이터 숨김·Shielded 노드·사설 클러스터·GKE Sandbox 항목), MITRE ATT&CK for Containers(T1611 Escape to Host, T1068, T1190), GKE 강화 안내서·GKE Sandbox 문서, Kubernetes ValidatingAdmissionPolicy.
 
-- 노드 root를 얻어도 피해가 그 풀의 워크로드에 묶이게 합니다. 신뢰 등급별 노드 풀(`system`·`general`·`sandbox`·`control`·`keys`·`db-money`)이고, **키 DB·운영툴·Argo CD는 처음부터 전용 풀**입니다(security.md §2, SC-NODE-1).
+- 노드 root를 얻어도 피해가 그 풀의 워크로드에 묶이게 합니다. 신뢰 등급별 노드 풀(`system`·`general`·`sandbox`·`control`·`keys`·`db-money`·`db-general`)이고, **키 DB·운영툴·Argo CD는 처음부터 전용 풀**입니다(security.md §2, SC-NODE-1).
 - 전용 풀의 toleration·nodeSelector·nodeAffinity는 정해진 네임스페이스만 쓰고(SC-NODE-2), 노드 풀마다 전용 노드 서비스 계정·Workload Identity·Shielded·사설 노드(SC-NODE-3), Kubernetes SA 하나 = IAM 주체 하나(SC-NODE-4).
 - 바깥 바이트 파서·바깥 주소 가져오기는 gVisor 샌드박스의 그 일만 하는 Deployment(SC-SBX-1~3). 공개 Node.js SSR은 부하 시험 뒤 보안 담당이 정하고, 정하기 전에는 L4 `fail`(SC-SBX-4).
 - 특권은 `mookko-security` 네임스페이스의 등록 이미지만(SC-PRIV-1).
