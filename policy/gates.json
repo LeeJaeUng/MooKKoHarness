@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "MooKKo QA 관문 정본. 바꾸면 하네스(MooKKoDev)로 정책을 다시 내보내야 영수증 판정에 들어갑니다. 판정 기준 전문은 docs/policy/gates.md.",
+  "note": "MooKKo QA 관문. 정본은 하네스(MooKKoHarness) policy/gates.json이고 이 파일은 harness.lock 판의 사본입니다. 판정 기준 전문은 docs/policy/gates.md.",
   "requiredServices": [
     "workspace"
   ],
