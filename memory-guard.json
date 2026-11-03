@@ -6,6 +6,8 @@
   "pollSeconds": 30,
   "maxWaitMinutes": 60,
   "reducedJobs": 2,
+  "dropCacheMinSeconds": 60,
+  "dropCacheStamp": "~/.local/state/mookko/memory-guard-drop-cache",
   "powershell": "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
   "wslExe": "/mnt/c/Windows/System32/wsl.exe",
   "distro": "MooKKo-Linux"

@@ -60,6 +60,12 @@ printf 'CLICKHOUSE_DB=%s\nCLICKHOUSE_USER=%s\nCLICKHOUSE_PASSWORD=%s\nCLICKHOUSE
     "$DATABASE" "$USER_NAME" "$PASSWORD" > "$RUN_DIR/env"
 chmod 600 "$RUN_DIR/env"
 
+# 감싸개가 죽어(wsl --shutdown·SIGKILL) trap이 돌지 못하고 남은 시험 컨테이너를 알립니다. 남이 만든 것이라 지우지 않습니다(PM 11-03).
+stale="$(podman ps -a --filter name=mookko-test- --filter status=created --filter status=exited --format '{{.Names}}' 2>/dev/null || true)"
+if [ -n "$stale" ]; then
+    echo "경고: 끝나지 않고 남은 시험 컨테이너가 있습니다(지우지 않음, 통합 담당에 알리세요): $(printf '%s ' $stale)" >&2
+fi
+
 # PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(scripts/dev/memory-guard.json).
 python3 -X utf8 "$ROOT/scripts/dev/memory-guard.py" open "시험 ClickHouse"
 

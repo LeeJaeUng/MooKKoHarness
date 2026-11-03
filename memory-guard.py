@@ -77,7 +77,16 @@ def wsl_used_mib() -> tuple[int, int]:
 
 
 def drop_cache(cfg: dict) -> None:
-    """WSL page cache를 비운다(root 필요라 Windows 쪽 wsl.exe로 이 배포판의 root 셸 하나만 부름)."""
+    """WSL page cache를 비운다(root 필요라 Windows 쪽 wsl.exe로 이 배포판의 root 셸 하나만 부름).
+    여러 실행이 단계마다 부르므로 dropCacheMinSeconds 안에 다시 부르면 건너뛴다(QA 1c3fef2: 1초마다 26번 비움)."""
+    stamp = Path(os.path.expanduser(cfg["dropCacheStamp"]))
+    try:
+        if time.time() - stamp.stat().st_mtime < cfg["dropCacheMinSeconds"]:
+            return
+    except FileNotFoundError:
+        pass
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
     result = subprocess.run(
         [cfg["wslExe"], "-d", cfg["distro"], "-u", "root", "-e", "sh", "-c", "sync; echo 1 > /proc/sys/vm/drop_caches"],
         capture_output=True,

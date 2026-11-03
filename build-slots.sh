@@ -61,11 +61,22 @@ close() {
         return
     fi
     # 자리를 모두 잡은 뒤 sleep으로 바뀌어 잠금을 계속 쥡니다(같은 프로세스 번호). 이 셸·세션과 떨어져 돌게 setsid로 띄웁니다.
+    # 자리를 차례로 막고 기다리면 한 자리를 기다리는 동안 다른 자리를 새 check-all이 가져가므로(QA 6b8bdab T4), 빈 자리를
+    # 1초마다 모두 엿봐 비는 대로 잡습니다. check-all은 close-state가 closing이면 새로 잡지 않습니다.
     setsid bash -c '
         dir="$1"; count="$2"; state="$3"
-        for i in $(seq 1 "$count"); do
-            exec {fd}>"$dir/slot-$i"
-            flock "$fd"
+        declare -A held=()
+        while [ "${#held[@]}" -lt "$count" ]; do
+            for i in $(seq 1 "$count"); do
+                [ -n "${held[$i]:-}" ] && continue
+                exec {fd}>"$dir/slot-$i"
+                if flock -n "$fd"; then
+                    held[$i]="$fd"
+                else
+                    exec {fd}>&-
+                fi
+            done
+            [ "${#held[@]}" -lt "$count" ] && sleep 1
         done
         printf "closed %s %s\n" "$$" "$(date "+%F %T")" > "$state"
         exec sleep infinity

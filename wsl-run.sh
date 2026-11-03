@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Windows(Git Bash)에서 MooKKo-Linux로 명령을 넘깁니다. WSL을 부를 때는 wsl을 직접 쓰지 말고 이것을 씁니다.
 #   scripts/dev/wsl-run.sh <리눅스 명령...>      예: scripts/dev/wsl-run.sh bash /mnt/c/.../script.sh
-# wsl.exe는 인자를 Linux 셸로 다시 읽어 $변수를 펼치므로, 변수·따옴표가 든 명령은 스크립트 파일로 넘깁니다.
-# 설정은 scripts/dev/wsl.json(배포판 이름·멈춤 표지 경로). 멈춤 표지(scripts/dev/wsl-pause.sh on)가 있으면
-# WSL을 켜지 않고 75(EX_TEMPFAIL)로 끝납니다. 다시 시도하지 않습니다(재시도 고리가 내려간 WSL을 다시 켜서 압축이 깨짐).
+# 명령은 wsl.exe --exec로 넘겨 Linux 기본 셸이 다시 읽지 않습니다(인자 그대로 실행).
+# 설정은 scripts/dev/wsl.json(배포판 이름·멈춤 표지 경로). 표지 파일이 있으면 BOM·NUL·\r·공백을 뗀 첫 낱말이
+# "running"일 때만 켭니다. 그 밖(paused, 빈 파일, 읽기 실패 등)은 WSL을 켜지 않고 75(EX_TEMPFAIL)로 끝납니다(QA 6b8bdab T1).
+# 다시 시도하지 않습니다(재시도 고리가 내려간 WSL을 다시 켜서 압축이 깨짐).
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -22,10 +23,14 @@ if [ -z "$DISTRO" ] || [ -z "$MARKER" ]; then
     exit 2
 fi
 
-if [ -f "$MARKER" ] && [ "$(cut -d' ' -f1 "$MARKER" | head -n1)" = "paused" ]; then
-    echo "WSL 멈춤 중이라 켜지 않습니다: $(cat "$MARKER")" >&2
-    echo "끝나면 PM이나 통합 담당이 scripts/dev/wsl-pause.sh off로 풉니다. 다시 시도하지 말고 기다리세요." >&2
-    exit 75
+if [ -e "$MARKER" ]; then
+    state="$( { LC_ALL=C tr -d '\000\r' < "$MARKER" 2>/dev/null || true; } \
+        | LC_ALL=C sed '1s/^\xEF\xBB\xBF//; 1s/^\xFF\xFE//; 1s/^\xFE\xFF//' | awk 'NR == 1 { print $1 }')"
+    if [ "$state" != "running" ]; then
+        echo "WSL 멈춤 표지가 running이 아니라 켜지 않습니다(첫 낱말 '${state}'): $MARKER" >&2
+        echo "끝나면 PM이나 통합 담당이 scripts/dev/wsl-pause.sh off로 풉니다. 다시 시도하지 말고 기다리세요." >&2
+        exit 75
+    fi
 fi
 
-MSYS_NO_PATHCONV=1 exec wsl.exe -d "$DISTRO" -- "$@"
+MSYS_NO_PATHCONV=1 exec wsl.exe -d "$DISTRO" --exec "$@"
