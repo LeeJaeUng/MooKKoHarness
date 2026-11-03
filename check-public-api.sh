@@ -31,7 +31,8 @@ status=0
 for crate in $crates; do
     dir="crates/engine/$crate"
     snapshot="$dir/public-api.txt"
-    if ! current=$(cargo public-api -p "$crate" -ss --all-features 2>"$err"); then
+    # nightly rustdoc 산출물은 자리 캐시 안의 따로 된 폴더에 둡니다(check-all이 worktree가 바뀌면 통째로 버림).
+    if ! current=$(CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}/public-api" cargo public-api -p "$crate" -ss --all-features 2>"$err"); then
         echo "public API check failed: cargo public-api -p $crate 이 실패했습니다:"
         tail -n 20 "$err"
         exit 1
