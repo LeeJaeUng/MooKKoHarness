@@ -7,6 +7,9 @@ docs/policy/prr.json의 서비스마다 docs/spec/<서비스>/prr.md를 본다.
   내용 칸이 비었거나 `-`·`TODO`뿐이면 항목마다 한 건("미정: 사유"는 됨).
 - "## 경보와 runbook" 표에 경보가 하나도 없으면 한 건, 경보마다 runbook 칸이 저장소 안 문서 링크(`[이름](경로)`, 그 파일이
   있어야 함)가 아니면 한 건.
+- "## 사고 대응 훈련" 표(SEC-03 SC-IR-2, 제품 docs/architecture/incident-response.md §8, 보안 담당 요청 2026-11-04):
+  표가 없으면 한 건. 훈련(TRAININGS)마다 줄이 없거나, 날짜 칸이 YYYY-MM-DD가 아니거나, 기록 칸이 저장소 안 문서 링크가 아니면
+  한 건씩. 열은 | 훈련 | 날짜 | 기록 |. 출시 전 1회 뒤 분기마다라, 가장 최근 것을 적습니다.
 prr.json의 enforce가 false인 동안(QA 관문 1차 경고 단계, 출시 관문 L4 전까지) `경고:`로 내고 0, true면 `파일:줄: 이유`로 1.
 
 사용: python3 -X utf8 ci/check-prr.py [저장소 루트]
@@ -23,6 +26,8 @@ from pathlib import Path
 ITEMS = ["SLO·SLI", "경보", "runbook", "당번", "용량", "의존 장애", "되돌리기", "비상 경로", "백업·복구"]
 EMPTY = {"", "-", "—", "todo", "TODO", "tbd", "TBD"}
 LINK = re.compile(r"\[[^\]]+\]\(([^)\s]+)\)")
+TRAININGS = ["탁상 훈련", "기술 훈련"]  # incident-response §8: 출시 전 각 1회, 그 뒤 분기마다
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def table_after(lines: list[str], heading: str) -> list[tuple[int, list[str]]]:
@@ -75,6 +80,21 @@ def check(root: Path, service: str, problems: list[str]) -> None:
             problems.append(f"{rel}:{no}: 경보 '{name}'에 runbook 링크가 없습니다")
         elif not m.group(1).startswith(("http://", "https://")) and not (path.parent / m.group(1).split("#")[0]).resolve().exists():
             problems.append(f"{rel}:{no}: 경보 '{name}'의 runbook {m.group(1)}이 저장소에 없습니다")
+    if "## 사고 대응 훈련" not in (l.strip() for l in lines):
+        problems.append(f"{rel}:1: '사고 대응 훈련' 표가 없습니다(탁상·기술 훈련 날짜와 기록, incident-response §8)")
+        return
+    drills = {cells[0]: (no, cells) for no, cells in table_after(lines, "## 사고 대응 훈련")}
+    for drill in TRAININGS:
+        if drill not in drills:
+            problems.append(f"{rel}:1: 사고 대응 훈련 '{drill}' 줄이 없습니다")
+            continue
+        no, cells = drills[drill]
+        date, record = (cells[1] if len(cells) > 1 else ""), (cells[2] if len(cells) > 2 else "")
+        if not DATE.match(date):
+            problems.append(f"{rel}:{no}: '{drill}'의 날짜가 YYYY-MM-DD가 아닙니다(아직 안 했으면 출시 관문에서 fail)")
+        m = LINK.search(record)
+        if not m or not (path.parent / m.group(1).split("#")[0]).resolve().exists():
+            problems.append(f"{rel}:{no}: '{drill}'의 기록이 저장소 안 문서 링크가 아닙니다")
 
 
 def main() -> int:
