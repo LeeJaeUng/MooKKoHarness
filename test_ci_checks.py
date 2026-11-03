@@ -34,6 +34,7 @@ CHECKS = {
     "forbid-unsafe": ROOT / "scripts" / "ci" / "check-forbid-unsafe.py",
     "systemd-units": ROOT / "scripts" / "ci" / "check-systemd-units.py",
     "containers": ROOT / "scripts" / "ci" / "check-containers.py",
+    "design-sources": ROOT / "scripts" / "ci" / "check-design-sources.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -46,6 +47,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   Kubernetes 22(Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
+# design-sources bad(enforce true): 결정 표에 표준 출처 칸 없음 1, 빈 칸 1, "-" 1. good: 출처·해당 없음, 결정 아닌 표는 안 봄.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
 # lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
 #   acceptance/ 아래 #[allow] 1.
@@ -74,6 +76,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 41,
+    "design-sources": 3,
 }
 PROBLEM_LINE = re.compile(r"^(?:\s*-\s+)?\S+:\d+: ")
 # 줄 번호 없이 `  - …`로 문제를 내는 검사

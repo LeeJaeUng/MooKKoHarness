@@ -25,7 +25,8 @@ SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist", "tests
 RULES: dict[str, tuple[re.Pattern[str], str]] = {
     "C1": (
         re.compile(r"\bconst\s+\w*MFA\w*\s*:|\"(recent_mfa_required|mfa_required)\""),
-        "최근 MFA 기한·거절 코드는 엔진 공용 판정(C1 StaffActor::has_recent_mfa, RECENT_MFA_REQUIRED)을 쓰세요",
+        "최근 MFA 기한·거절 코드는 엔진 공용 판정(C1 mookko_core::RecentMfaPolicy, 설정 rpc.server.staffRecentMfa, "
+        "CallContext::require_recent_mfa(), StaffActor::has_recent_mfa, codes::RECENT_MFA_REQUIRED)을 쓰세요",
     ),
     "C2": (
         re.compile(
@@ -33,14 +34,15 @@ RULES: dict[str, tuple[re.Pattern[str], str]] = {
             r"|\bSystemTime::now\s*\(|\bTimestamp::now\s*\(|\bOffsetDateTime::now_utc\s*\("
             r"|\bfn\s+(utc_day|kst_day|today|civil_date|month_index|day_number)\s*\("
         ),
-        "시계·시각은 주입한 엔진 공용 Clock·Timestamp·UtcDay(C2)를 쓰세요",
+        "시계·시각은 주입한 엔진 공용 시계(C2 mookko_core::{Clock, SystemClock, FixedClock})를 쓰세요",
     ),
     "C3": (
         re.compile(
             r"\bfn\s+(is_identifier|is_valid_identifier|valid_identifier|is_slug|is_valid_slug)\b"
             r"|\\u\{(200[b-f]|202[a-e]|206[0-9]|feff)\}"
         ),
-        "이름 검사·보이지 않는 문자 목록은 엔진 공용 이름 규칙(C3)을 쓰세요",
+        "이름 검사·보이지 않는 문자 목록은 엔진 공용 이름 규칙(C3 mookko_core::NameKind::{StaffId, ActorId, Action, Slug, "
+        "ReceiptKey, ServiceId, SqlIdentifier}, mookko_core::StaffId, mookko_core::has_hidden_characters)을 쓰세요",
     ),
     "C4": (
         re.compile(
