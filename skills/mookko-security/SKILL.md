@@ -15,6 +15,7 @@ description: MooKKo 보안 규약(플랫폼·운영). 운영 매니페스트(dep
 - 바깥 입력(SC-SBX-1~3): 바깥이 고른 바이트를 파서(이미지·영상·문서·압축·폰트)로 다루거나 바깥이 고른 주소로 나가면 `mookko.io/input: untrusted` 라벨 + `runtimeClassName: gvisor` + `sandbox` 풀. 그 일만 하는 Deployment로 떼고(엔진 포트의 원격 어댑터), 비밀값 파일·DB·Workload Identity 권한·SA 토큰 없음, 나가기는 나가기 프록시만(사설·링크 로컬·`169.254.169.254`·내부 DNS 거부).
 - 특권(SC-PRIV-1): `privileged`·`hostPID`·`hostNetwork`·`hostPath`가 필요한 것은 `mookko-security` 네임스페이스의 `docs/policy/privileged-allowlist.json` 등록 이미지(Falco·Tetragon 등)뿐.
 - 이미지(SC-VULN-4): 제3자 이미지도 우리 레지스트리로 가져와 검사·서명한 다이제스트만.
+- Kubernetes API 토큰(SC-NODE-6): 모두 `automountServiceAccountToken: false`. API를 부르는 워크로드는 `docs/policy/api-clients.json`에 등록된 것만, 등록한 SA + projected 토큰(≤ 3600초)으로. 모든 노드에 떠야 하는 DaemonSet은 `mookko-security`(daemonSetNamespaces)에서만.
 - 서비스 계정(SC-NODE-4): Kubernetes SA 하나 = Workload Identity 주체 하나, 실제로 부르는 권한만. 여러 서비스가 IAM 서비스 계정을 같이 쓰지 않는다.
 
 ## 노드·클러스터·IaC를 쓸 때 (SC-NODE-3·5)
