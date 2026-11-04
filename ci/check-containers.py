@@ -600,19 +600,36 @@ def load_security(root: Path, problems: list[str]) -> dict:
             if not (isinstance(item, dict) and all(item.get(k) for k in API_CLIENT_FIELDS)):
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]에 {'·'.join(API_CLIENT_FIELDS)}가 있어야 합니다")
                 continue
-            if item["scope"] not in ("namespace", "cluster") or not isinstance(item["rules"], list) or not all(
-                    isinstance(r, dict) and all(isinstance(r.get(k), list) and r[k] for k in ("apiGroups", "resources", "verbs"))
-                    and not any("*" in v for k in ("apiGroups", "resources", "verbs") for v in r[k])
-                    and not any("/" in v for v in r["resources"]) for r in item["rules"]):
-                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
-                                f"(와일드카드·하위 자원 금지)")
+            cls = item.get("class", "workload")
+            if cls not in CLIENT_CLASSES:
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: class는 {'|'.join(CLIENT_CLASSES)}입니다(지금 {cls!r})")
                 continue
+            platform = cls == "platform-controller"
+            if item["scope"] not in ("namespace", "cluster") or not isinstance(item["rules"], list) or not all(
+                    rule_shape_ok(r, subresources=platform) for r in item["rules"]):
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
+                                f"(와일드카드 금지, 하위 자원은 platform-controller만)")
+                continue
+            if not platform and "allowedEscalations" in item:
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: allowedEscalations는 class platform-controller만 씁니다(SC-NODE-6)")
+                continue
+            if platform:
+                escs = item.get("allowedEscalations", [])
+                if not (isinstance(escs, list) and all(rule_shape_ok(e, subresources=True) and isinstance(e.get("reason"), str) and e["reason"]
+                                                       for e in escs)):
+                    problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: allowedEscalations는 [{{apiGroups, resources, verbs, reason}}] 목록입니다")
+                    continue
+                control = next((set(p["namespaces"]) for p in sec["pools"] or [] if p["name"] == CONTROL_POOL), set())
+                if item["namespace"] not in control or item["namespace"].startswith("mookko-"):
+                    problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: platform-controller는 node-pools.json {CONTROL_POOL} 풀의 "
+                                    f"플랫폼 네임스페이스(우리 mookko-* 서비스 빼고)에만 둡니다(지금 {item['namespace']}, SC-NODE-6)")
+                    continue
             if "bindNamespaces" in item and not (isinstance(item["bindNamespaces"], list)
                                                  and all(isinstance(n, str) and n for n in item["bindNamespaces"])):
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: bindNamespaces는 네임스페이스 이름 목록이어야 합니다")
                 continue
             wide = sorted({f"{g or 'core'}/{r} {v}" for rule in item["rules"] for g in rule["apiGroups"] for r in rule["resources"]
-                           for v in rule["verbs"] if escalating(g, r, v)})
+                           for v in rule["verbs"] if escalating(g, r, v) and not escalation_allowed(item, g, r, v)})
             if wide:
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: 권한을 넓히는 권한은 등록하지 않습니다 {wide}(SC-NODE-6)")
                 continue
@@ -684,6 +701,22 @@ def child_value(block: str, key: str) -> str | None:
 MAX_TOKEN_SECONDS = 3600  # projected serviceAccountToken 만료 상한(보안 담당 api-clients.json note)
 API_CLIENT_FIELDS = ("namespace", "workload", "serviceAccount", "reason", "reviewed", "scope", "rules", "reviewer")
 RBAC_KINDS = {"Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding"}
+CLIENT_CLASSES = ("workload", "platform-controller")
+CONTROL_POOL = "control"  # node-pools.json에서 플랫폼 제어기가 사는 풀 이름(보안 담당 730d41a SC-NODE-6 ①)
+
+
+def rule_shape_ok(rule: object, subresources: bool) -> bool:
+    """apiGroups·resources·verbs가 비지 않은 문자열 목록, 와일드카드 없음, 하위 자원은 subresources일 때만."""
+    return (isinstance(rule, dict) and all(isinstance(rule.get(k), list) and rule[k] and all(isinstance(v, str) for v in rule[k])
+                                           for k in ("apiGroups", "resources", "verbs"))
+            and not any("*" in v for k in ("apiGroups", "resources", "verbs") for v in rule[k])
+            and (subresources or not any("/" in v for v in rule["resources"])))
+
+
+def escalation_allowed(entry: dict, group: str, resource: str, verb: str) -> bool:
+    """platform-controller 항목의 allowedEscalations에 적힌 (그룹, 자원, 동사)인지(보안 담당 730d41a SC-NODE-6 ④)."""
+    return entry.get("class") == "platform-controller" and any(
+        group in e["apiGroups"] and resource in e["resources"] and verb in e["verbs"] for e in entry.get("allowedEscalations", []))
 
 
 def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> None:
@@ -739,11 +772,12 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
                 for group in rule.get("apiGroups") or [""]:
                     for resource in rule.get("resources") or []:
                         for verb in rule.get("verbs") or []:
-                            if escalating(group, resource, verb):
+                            if escalating(group, resource, verb) and not escalation_allowed(entry, group, resource, verb):
                                 problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
                                                 f"권한을 넓히는 권한이라 주지 않습니다(SC-NODE-6)")
                                 continue
-                            if "*" in (group, resource, verb) or "/" in resource or not any(
+                            sub_ok = entry.get("class") == "platform-controller"
+                            if "*" in (group, resource, verb) or ("/" in resource and not sub_ok) or not any(
                                     group in r["apiGroups"] and resource in r["resources"] and verb in r["verbs"] for r in entry["rules"]):
                                 problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
                                                 f"{entry['serviceAccount']}의 api-clients.json rules 상한을 넘습니다(와일드카드·하위 자원 금지)")
