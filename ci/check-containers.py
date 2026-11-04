@@ -629,9 +629,10 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: bindNamespaces는 네임스페이스 이름 목록이어야 합니다")
                 continue
             wide = sorted({f"{g or 'core'}/{r} {v}" for rule in item["rules"] for g in rule["apiGroups"] for r in rule["resources"]
-                           for v in rule["verbs"] if escalating(g, r, v) and not escalation_allowed(item, g, r, v)})
+                           for v in rule["verbs"] if (escalating(g, r, v) or "/" in r) and not escalation_allowed(item, g, r, v)})
             if wide:
-                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: 권한을 넓히는 권한은 등록하지 않습니다 {wide}(SC-NODE-6)")
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: 권한을 넓히는 권한·하위 자원은 등록하지 않습니다 {wide}"
+                                f"(platform-controller는 allowedEscalations에 적은 것만, SC-NODE-6)")
                 continue
             if item["serviceAccount"] == "default":
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: default 서비스 계정은 등록하지 않습니다(네임스페이스 전체가 권한을 받음)")
@@ -776,7 +777,8 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
                                 problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
                                                 f"권한을 넓히는 권한이라 주지 않습니다(SC-NODE-6)")
                                 continue
-                            sub_ok = entry.get("class") == "platform-controller"
+                            # 하위 자원은 platform-controller의 allowedEscalations에 정확히 적은 것만(보안 담당 c50f515 확인: pods/exec 등은 실패)
+                            sub_ok = escalation_allowed(entry, group, resource, verb)
                             if "*" in (group, resource, verb) or ("/" in resource and not sub_ok) or not any(
                                     group in r["apiGroups"] and resource in r["resources"] and verb in r["verbs"] for r in entry["rules"]):
                                 problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
