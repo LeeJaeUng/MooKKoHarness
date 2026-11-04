@@ -1,4 +1,44 @@
 {
   "schema": 1,
-  "clients": []
+  "clients": [
+    {
+      "kind": "StatefulSet",
+      "namespace": "argocd",
+      "workload": "argocd-application-controller",
+      "serviceAccount": "argocd-application-controller",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "platform-controller",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
+    }
+  ]
 }

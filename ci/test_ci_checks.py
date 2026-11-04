@@ -75,7 +75,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   default SA WI 주석 1, 권한 넓히는 권한 3(secrets·rolebindings create·impersonate, 보안 755f466),
 #   bindNamespaces 밖 RoleBinding 1(9j 결정),
 #   권한 넓히기 4(roles bind·escalate, clusterroles update, serviceaccounts create)·system:authenticated Group 1(추가 6 ⑤),
-#   보안 fb18ab2 넓힘 6(pods create·deployments patch·webhook update·CRD create·signers approve·persistentvolumes create), 합 55. good: staff-gate namespaceSelector podAntiAffinity.
+#   보안 fb18ab2 넓힘 6(pods create·deployments patch·webhook update·CRD create·signers approve·persistentvolumes create),
+#   platform-controller(보안 730d41a) control 풀 밖 1·allowedEscalations 밖 등록 1·workload에 allowedEscalations 1·class 값 1·묶인 Role 밖 1, 합 60. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
@@ -122,7 +123,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 71,
-    "containers-sec": 55,
+    "containers-sec": 60,
     "vuln-register": 15,
     "security-reviews": 3,
     "design-sources": 4,

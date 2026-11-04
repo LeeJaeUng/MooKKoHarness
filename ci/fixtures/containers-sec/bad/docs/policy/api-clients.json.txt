@@ -48,6 +48,200 @@
           ]
         }
       ]
+    },
+    {
+      "kind": "StatefulSet",
+      "namespace": "argocd",
+      "workload": "argo-ok",
+      "serviceAccount": "argo-ok",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "platform-controller",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
+    },
+    {
+      "kind": "StatefulSet",
+      "namespace": "mookko-links",
+      "workload": "pc-wrong-ns",
+      "serviceAccount": "pc-wrong-ns",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "platform-controller",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
+    },
+    {
+      "kind": "StatefulSet",
+      "namespace": "argocd",
+      "workload": "pc-uncovered",
+      "serviceAccount": "pc-uncovered",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "platform-controller",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "statefulsets"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
+    },
+    {
+      "kind": "StatefulSet",
+      "namespace": "argocd",
+      "workload": "wl-esc",
+      "serviceAccount": "wl-esc",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "workload",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
+    },
+    {
+      "kind": "StatefulSet",
+      "namespace": "argocd",
+      "workload": "bad-class",
+      "serviceAccount": "bad-class",
+      "reason": "GitOps 동기화",
+      "reviewed": "2026-11-04",
+      "scope": "namespace",
+      "class": "admin",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ],
+      "allowedEscalations": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "patch"
+          ],
+          "reason": "Deployment 동기화"
+        }
+      ],
+      "reviewer": "security-reviews.json"
     }
   ]
 }
