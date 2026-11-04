@@ -833,3 +833,41 @@ subjects:
   - kind: ServiceAccount
     name: reg-no-token
     namespace: mookko-links
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: mookko-links
+  annotations:
+    iam.gke.io/gcp-service-account: links@p.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: escalate
+  namespace: mookko-links
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: escalate-bind
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: escalate
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links

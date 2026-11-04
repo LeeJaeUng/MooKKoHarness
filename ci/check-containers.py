@@ -607,6 +607,11 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
                                 f"(와일드카드·하위 자원 금지)")
                 continue
+            wide = sorted({f"{g or 'core'}/{r} {v}" for rule in item["rules"] for g in rule["apiGroups"] for r in rule["resources"]
+                           for v in rule["verbs"] if escalating(g, r, v)})
+            if wide:
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: 권한을 넓히는 권한은 등록하지 않습니다 {wide}(SC-NODE-6)")
+                continue
             if item["serviceAccount"] == "default":
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: default 서비스 계정은 등록하지 않습니다(네임스페이스 전체가 권한을 받음)")
                 continue
@@ -724,10 +729,29 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
                 for group in rule.get("apiGroups") or [""]:
                     for resource in rule.get("resources") or []:
                         for verb in rule.get("verbs") or []:
+                            if escalating(group, resource, verb):
+                                problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
+                                                f"권한을 넓히는 권한이라 주지 않습니다(SC-NODE-6)")
+                                continue
                             if "*" in (group, resource, verb) or "/" in resource or not any(
                                     group in r["apiGroups"] and resource in r["resources"] and verb in r["verbs"] for r in entry["rules"]):
                                 problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
                                                 f"{entry['serviceAccount']}의 api-clients.json rules 상한을 넘습니다(와일드카드·하위 자원 금지)")
+
+
+RBAC_OBJECTS = {"roles", "rolebindings", "clusterroles", "clusterrolebindings"}
+WRITE_VERBS = {"create", "update", "patch", "delete", "deletecollection"}
+
+
+def escalating(group: str, resource: str, verb: str) -> bool:
+    """권한을 넓히는 권한(보안 담당 755f466): RBAC 객체 쓰기, bind·escalate·impersonate, secrets, 서비스 계정 토큰 만들기."""
+    if verb in ("bind", "escalate", "impersonate"):
+        return True
+    if group == "rbac.authorization.k8s.io" and resource in RBAC_OBJECTS and verb in WRITE_VERBS:
+        return True
+    if group == "" and resource == "secrets":
+        return True
+    return group == "" and resource in ("serviceaccounts/token", "serviceaccounts") and verb == "create"
 
 
 def check_service_account(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
@@ -822,7 +846,9 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
                 obj = None
             gsa = (((obj or {}).get("metadata") or {}).get("annotations") or {}).get(WI_ANNOTATION) if isinstance(obj, dict) else None
             entries = sec["wi"]["by_sa"].get((ns, name), [])
-            if gsa is not None and not entries:
+            if gsa is not None and name == "default":
+                problems.append(f"{where}: {label}: default 서비스 계정에는 {WI_ANNOTATION} 주석을 달지 않습니다(네임스페이스 전체가 GCP 자격을 받음, SC-NODE-4)")
+            elif gsa is not None and not entries:
                 problems.append(f"{where}: {label}: {WI_ANNOTATION} 주석이 있으면 workload-identities.json에 ({ns}, {name})가 있어야 합니다(SC-NODE-4)")
             elif gsa is not None and all(e["gcpServiceAccount"] != gsa for e in entries):
                 problems.append(f"{where}: {label}: {WI_ANNOTATION} {gsa}가 workload-identities.json의 gcpServiceAccount와 다릅니다(SC-NODE-4)")
