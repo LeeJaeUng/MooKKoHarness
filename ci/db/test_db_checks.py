@@ -165,8 +165,15 @@ class ServiceDdl(unittest.TestCase):
         found = sorted((f.path, f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": []}))
         adapter = "crates/adapters/mookko-store-clickhouse/src/rekey.rs"
         # 어댑터는 S-CH-2만 봄(DDL은 어댑터에서 S-BND-7 대상 아님)
-        self.assertEqual(found, sorted([(adapter, "S-CH-2", 1), (path, "S-BND-7", 3), (path, "S-BND-7", 4),
+        light = "crates/adapters/mookko-store-clickhouse/src/light.rs"
+        # ClickHouse 어댑터 안에서는 경량 DELETE FROM·UPDATE도 S-CH-2(S-CH-8), 서비스 쪽 Postgres DELETE는 그대로 둠
+        self.assertEqual(found, sorted([(adapter, "S-CH-2", 1), (light, "S-CH-2", 1), (light, "S-CH-2", 1),
+                                        (path, "S-BND-7", 3), (path, "S-BND-7", 4),
                                         (path, "S-CH-2", 2), (path, "S-CH-2", 3), (path, "S-CH-2", 4)]))
+        # S-CH-8: 서비스 Cargo.toml이 ClickHouse 클라이언트(package 이름 바꾸기 포함)에 바로 의존하면 실패
+        deps = migration_lint.lint_ch_client_deps(root)
+        self.assertEqual([(f.path, f.rule) for f in deps], [("crates/services/logs/Cargo.toml", "S-CH-8")])
+        self.assertEqual(migration_lint.lint_ch_client_deps(FIXTURES / "repo-good"), [])
         adapter_item = {"id": "DBX-CH2-a", "paths": [adapter], "rule": "S-CH-2", "reason": "시험", "adr": f"{adapter} 시험",
                         "condition": "시험", "expires": "2099-01-01", "approvedBy": "DB 담당"}
         self.assertFalse(any(f.path == adapter for f in migration_lint.lint_service_ddl(root, {"exceptions": [adapter_item]})))

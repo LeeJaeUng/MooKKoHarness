@@ -1,0 +1,7 @@
+[package]
+name = "logs"
+version = "0.1.0"
+
+[dependencies]
+ch = { package = "clickhouse", version = "0.13" }
+serde = "1"

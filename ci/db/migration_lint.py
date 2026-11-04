@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1369,6 +1370,14 @@ SERVICE_CH_REWRITE = re.compile(
 )
 
 
+# ClickHouse SQL이 사는 유일한 곳(S-CH-8, DB 담당 11-04). 이 crate 안 SQL은 모두 ClickHouse이므로 Postgres와 글이 같은
+# 경량 `DELETE FROM`·`UPDATE`도 S-CH-2로 잡는다.
+CH_ADAPTER = "crates/adapters/mookko-store-clickhouse/"
+CH_LIGHT_MUTATION = re.compile(r"(?:^|;)\s*(?:DELETE\s+FROM\b|UPDATE\s+[A-Za-z_`\"{])", re.I)
+# 서비스·실행 파일이 바로 의존하면 안 되는 ClickHouse 클라이언트 crate(이름 앞부분, S-CH-8).
+CH_CLIENT_CRATES = ("clickhouse", "klickhouse")
+
+
 def exception_paths(registry: dict, today: datetime.date | None = None, root: Path | None = None) -> tuple[dict[str, set[str]], list[Finding]]:
     """기한 안의 예외 {파일: 비켜 가는 규칙들}과, 등록부 문제(칸 빠짐·근거 문서 없음·기한 지남). gates.md waived(근거 문서 + 만료일).
     예외는 그 항목 `rule`(하나 또는 목록)의 지적만 비켜 간다(DB 담당 11-04 (b): S-CH-2로 오른 파일이 S-BND-7까지 비켜 가지 않게)."""
@@ -1424,8 +1433,33 @@ def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
             line = text.count("\n", 0, start) + 1
             if "S-BND-7" not in waived and SERVICE_DDL.search(flat):
                 findings.append(Finding(rel, line, "S-BND-7", "서비스 코드의 DDL·권한 문장 금지 — 이관 파일(migrations/)이나 엔진 유지보수 작업으로(기한 있는 예외는 exceptions.json)"))
+            if "S-CH-2" not in waived and rel.startswith(CH_ADAPTER) and CH_LIGHT_MUTATION.search(flat):
+                findings.append(Finding(rel, line, "S-CH-2", "ClickHouse 어댑터의 경량 DELETE FROM·UPDATE 금지(변이) — TTL·파티션 떼기로(비상 예외는 exceptions.json, S-CH-8)"))
             if "S-CH-2" not in waived and SERVICE_CH_REWRITE.search(flat):
                 findings.append(Finding(rel, line, "S-CH-2", "서비스 코드의 ClickHouse 조각 다시 쓰기·변이(OPTIMIZE … FINAL·ALTER … UPDATE/DELETE·MATERIALIZE) 금지 — TTL·파티션 떼기로(비상 예외는 exceptions.json)"))
+    return findings
+
+
+def lint_ch_client_deps(root: Path) -> list[Finding]:
+    """서비스·실행 파일 crate가 ClickHouse 클라이언트 crate에 바로 의존하면 실패(S-CH-8: ClickHouse SQL은 엔진 ClickHouse 포트 뒤
+    어댑터 crate에서만). dependencies·dev-dependencies·build-dependencies와 target별 의존, `package =` 이름 바꾸기도 본다."""
+    findings: list[Finding] = []
+    for base in (root / "crates" / "services", root / "crates" / "apps"):
+        for manifest in walk(base, lambda name: name == "Cargo.toml"):
+            rel = manifest.relative_to(root).as_posix()
+            try:
+                data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            except tomllib.TOMLDecodeError as e:
+                findings.append(Finding(rel, 1, "S-CH-8", f"Cargo.toml을 읽지 못함: {e}"))
+                continue
+            tables = [data] + [t for t in (data.get("target") or {}).values() if isinstance(t, dict)]
+            for table in tables:
+                for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    for key, spec in (table.get(section) or {}).items():
+                        name = spec.get("package", key) if isinstance(spec, dict) else key
+                        if name.startswith(CH_CLIENT_CRATES):
+                            findings.append(Finding(rel, 1, "S-CH-8", f"서비스·실행 파일이 ClickHouse 클라이언트 `{name}`에 바로 의존함 — 엔진 ClickHouse 포트와 "
+                                                                      f"{CH_ADAPTER} 어댑터로만"))
     return findings
 
 
@@ -1597,6 +1631,7 @@ def main(argv: list[str] | None = None) -> int:
     rust_findings, rust_files = lint_rust(root)
     rust_findings += lint_embedded(root)
     rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
+    rust_findings += lint_ch_client_deps(root)
     rust_findings += lint_key_material_code(root)
     rust_findings += engine_fixed_tests(root, json.loads(args.engine_generated.read_text(encoding="utf-8")))
     rust_findings += lint_partitioned(root)

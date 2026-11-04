@@ -52,4 +52,5 @@ description: MooKKo SQL 규약(PostgreSQL, ClickHouse 일부). DB 스키마·이
 - 변이·`MATERIALIZE …`·`OPTIMIZE … FINAL` 금지, 지우기는 TTL·`DROP PARTITION`(S-CH-2).
 - 이름은 `db.표` 또는 `__DB__.표`(S-CH-4). 복제 아닌 MergeTree는 `non_replicated_deduplication_window` + 넣는 프로필 `deduplicate_blocks_in_dependent_materialized_views = 1` + 묶음 토큰(S-CH-5).
 - 조회 프로필은 `readonly = 1`, `= 2`면 상한을 `MAX`·`CONST`로(S-CH-6).
+- ClickHouse SQL은 `crates/adapters/mookko-store-clickhouse`(엔진 ClickHouse 포트 뒤)에서만. 서비스는 ClickHouse 문자열·클라이언트 crate를 바로 쓰지 않음, 어댑터 안에서는 경량 `DELETE FROM`·`UPDATE`도 금지(S-CH-8).
 - 모든 DDL은 `IF [NOT] EXISTS`(트랜잭션 DDL 없음, S-CH-7). `SELECT *` 금지, 매개변수 `{name:Type}`만, 정렬 키·파티션 키 바꾸기는 세 배포(S-MIG-4).
