@@ -335,6 +335,9 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
         if FLOW_FORBIDDEN.search(line):
             problems.append(f"{rel}:{start + offset}: {label}: 흐름 모양({line.strip()[:40]})은 검사하지 못합니다. 블록 모양으로 쓰세요")
     if kind == "Rollout" and re.search(r"^\s+workloadRef:", doc, re.MULTILINE) and not re.search(r"^\s+template:", doc, re.MULTILINE):
+        replicas = child_value(section(doc, "spec"), "replicas")
+        if replicas is not None and (not replicas.isdigit() or int(replicas) < MIN_REPLICAS):
+            problems.append(f"{rel}:{start}: {label}: replicas {replicas}는 {MIN_REPLICAS} 이상이어야 합니다(AZ 하나를 잃어도 버티는 수)")
         return  # 파드 틀은 가리키는 Deployment에 있고, 그쪽에서 검사함(짝·zone은 Rollout 이름으로)
     pod = pod_level(lines, start)
     pod_sc = section(section(pod, "spec") or pod, "securityContext")
@@ -615,6 +618,7 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", section(doc, "workloadRef"), re.MULTILINE)
             if kind == "Rollout" and ref:
                 pairs["refs"].add((ns, ref.group(1)))
+                pairs["ref_from"][(ns, ref.group(1))] = (where, label)
             if kind in ZONE_SPREAD:
                 pairs["workloads"][(ns, name)] = (where, label)
         elif kind == "List":
@@ -662,7 +666,7 @@ def main() -> int:
     counts = {"dockerfile": 0, "compose": 0, "kubernetes": 0}
     namespaces: dict[str, str] = {}
     deny: set[str] = set()
-    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set()}
+    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set(), "ref_from": {}}
     sec = load_security(root, problems)
     for kind, path, rel in files(root):
         counts[kind] += 1
@@ -673,6 +677,9 @@ def main() -> int:
             check_dockerfile(rel.as_posix(), text, problems, sec)
         else:
             check_compose(rel.as_posix(), text, problems, sec)
+    for key, (where, label) in sorted(pairs["ref_from"].items()):
+        if key not in pairs["workloads"]:
+            problems.append(f"{where}: {label}: workloadRef가 가리키는 Deployment {key[1]}(네임스페이스 {key[0]})가 저장소에 없습니다")
     for key, (where, label) in sorted(pairs["workloads"].items()):
         if key in pairs["refs"]:
             continue  # Argo Rollout이 workloadRef로 가리키는 Deployment: 짝은 Rollout이 가짐
