@@ -373,3 +373,176 @@ spec:
             limits:
               cpu: 500m
               memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: exists-all
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - operator: Exists
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: token-no-mark
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: some-sa
+      volumes:
+        - name: kube-api-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3600
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: borrow-sa
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: reg-no-token
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ds-like
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sa-token
+  namespace: mookko-links
+  annotations:
+    kubernetes.io/service-account.name: reg-no-token
+type: kubernetes.io/service-account-token
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: unlisted-ds
+  namespace: mookko-security
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - key: mookko.io/pool
+          operator: Exists
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/unlisted@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              port: 8080
+          livenessProbe:
+            httpGet:
+              port: 8080

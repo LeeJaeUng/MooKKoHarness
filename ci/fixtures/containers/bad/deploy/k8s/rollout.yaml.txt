@@ -28,3 +28,25 @@ metadata:
   namespace: mookko-bad
 spec:
   maxUnavailable: 1
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: same
+  namespace: mookko-bad
+spec:
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: same
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: same
+  namespace: mookko-bad
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: same
+  minReplicas: 3
