@@ -557,6 +557,9 @@ class DroppedTables(unittest.TestCase):
         """qa-design D4-1: 지운 뒤(DROP TABLE·DROP TABLE IF EXISTS) 같은 이름으로 다시 만든 표는 append_only·등급 대조를 비켜 가지 않음."""
         root = FIXTURES / "repo-drop-recreate"
         self.assertEqual(migration_lint.dropped_tables(root / "crates" / "services" / "svc" / "migrations"), set())
+        # 끝까지: 다시 만든 audit_records는 append_only 지정이 없으면 S-MONEY-2로 잡힘(이름이 이관 꼴이 아닌 notes.sql의 DROP은 안 봄)
+        found = [f for f in migration_lint.lint_embedded(root) if f.rule == "S-MONEY-2"]
+        self.assertTrue(any("audit_records" in f.message for f in found), [str(f) for f in found])
 
 
 class DroppedStillRead(unittest.TestCase):

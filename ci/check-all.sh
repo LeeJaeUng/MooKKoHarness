@@ -2,6 +2,9 @@
 # 커밋 전 전체 검사(Linux). 제품이 Linux에서 돌므로 검사도 Linux에서 합니다.
 # 이 PC에서는 WSL 배포판 MooKKo-Linux에서 돌립니다(README › 검사).
 set -euo pipefail
+# git 기록·기준 판을 읽지 못하면 "건너뜀"이 아니라 실패(migration_lock 잠금 기록, vuln-register 기준 판 대조 ⑤). 보안 담당·QAManager
+# 요청 2026-11-04. 표본 시험은 검사 폴더가 git 최상위가 아니라 대조 자체를 하지 않으므로 영향 없음.
+export MOOKKO_REQUIRE_GIT_HISTORY="${MOOKKO_REQUIRE_GIT_HISTORY:-1}"
 
 H="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
 if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then

@@ -770,7 +770,7 @@ def dropped_tables(directory: Path) -> set[str]:
     """그 폴더 이관이 `DROP TABLE`로 지우고 그 뒤에 다시 만들지 않은 표(좁히기 contract). 지운 표는 덧붙이기만 지정·등급 대조에서
     뺀다(links 0024 audit_records). 파일·문장 순서대로 보므로 지운 뒤 같은 이름으로 다시 만든 표는 빼지 않는다(qa-design D4-1)."""
     out: set[str] = set()
-    for path in sorted(directory.glob("*.sql")):
+    for path in sorted(p for p in directory.glob("*.sql") if FILE_NAME.match(p.name)):  # 이관 파일 이름만(qa-design D4-1 낮음)
         for st in sqltext.split(path.read_text(encoding="utf-8")).statements:
             m = DROP_TABLE.match(st.text)
             if m:
