@@ -694,3 +694,142 @@ metadata:
   namespace: mookko-links
   annotations:
     iam.gke.io/gcp-service-account: rogue@p.iam.gserviceaccount.com
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: old-sa-field
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      serviceAccount: legacy
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gate-noselector
+  namespace: mookko-staff-gate
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              namespaces: [mookko-operations]
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: to-unregistered
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: too-wide
+subjects:
+  - kind: ServiceAccount
+    name: nobody
+    namespace: mookko-links
+  - kind: User
+    name: system:serviceaccount:mookko-links:nobody2
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: all-sa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agg
+subjects:
+  - kind: Group
+    name: system:serviceaccounts:mookko-links
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agg
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        x: y
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nonres
+  namespace: mookko-links
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agg-and-nonres
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agg
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nonres-bind
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nonres
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links
