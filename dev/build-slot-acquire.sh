@@ -82,6 +82,8 @@ PY
                 exec {slot_fd}>"$SLOT_DIR/slot-$i"
                 if flock -n "$slot_fd"; then
                     export MOOKKO_BUILD_SLOT="$i"
+                    # 자리 잠금 fd 번호. 오래 남을 수 있는 자식(시험 컨테이너의 conmon 등)에는 닫고 넘깁니다(with-test-*.sh, 2026-11-04 사고).
+                    export MOOKKO_BUILD_SLOT_FD="$slot_fd"
                     break
                 fi
                 exec {slot_fd}>&-

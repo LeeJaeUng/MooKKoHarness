@@ -38,6 +38,20 @@ cleanup() {
     rm -rf -- "$RUN_DIR"
 }
 trap cleanup EXIT
+# 멈춤 신호(TERM·INT·HUP)에도 EXIT 정리가 돌아 컨테이너를 지우게 합니다(2026-11-04: 멈춘 check-all의 시험 컨테이너가 남음).
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
+# podman이 띄우는 오래 사는 프로세스(conmon·rootlessport·slirp4netns·pause)가 빌드 자리 잠금 fd를 물려받으면 감싸개가 죽어도 자리를
+# 쥔 채 남습니다(2026-11-04 3시간 막힘). 이 파일의 podman 호출은 모두 그 fd를 닫고 부릅니다.
+podman() {
+    if [[ "${MOOKKO_BUILD_SLOT_FD:-}" =~ ^[0-9]+$ ]]; then
+        # fd 번호는 숫자만 받으므로 eval로 `N>&-`를 만듭니다({var}>&- 꼴은 함수 안에서 닫히지 않음, 시험으로 확인)
+        eval 'command podman "$@" '"$MOOKKO_BUILD_SLOT_FD"'>&-'
+    else
+        command podman "$@"
+    fi
+}
 
 mkdir -p "$TEST_ROOT"
 mkdir -m 700 "$RUN_DIR"
