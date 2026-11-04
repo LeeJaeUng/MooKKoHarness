@@ -252,6 +252,9 @@ def cmd_watch(cfg: dict) -> None:
         peak["used"] = max(peak["used"], used)
         peak["swap"] = max(peak["swap"], swap)
         log(f"Windows {pct}%, WSL 사용 {used} MiB, swap {swap} MiB")
+        beat = os.environ.get("MOOKKO_SLOT_HEARTBEAT")
+        if beat:
+            Path(beat).touch()  # 빌드 자리 진행 기록(dev/build-slot-watch.py가 stallMinutes와 견줌)
         if pct >= cfg["emergencyPercent"]:
             drop_cache(cfg)
         for _ in range(int(cfg["pollSeconds"])):

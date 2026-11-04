@@ -84,6 +84,9 @@ PY
                     export MOOKKO_BUILD_SLOT="$i"
                     # 자리 잠금 fd 번호. 오래 남을 수 있는 자식(시험 컨테이너의 conmon 등)에는 닫고 넘깁니다(with-test-*.sh, 2026-11-04 사고).
                     export MOOKKO_BUILD_SLOT_FD="$slot_fd"
+                    # 진행 기록: memory-guard watch가 pollSeconds마다 고침. 자리 감시가 stallMinutes보다 오래되면 경보(build-slot-watch.py).
+                    export MOOKKO_SLOT_HEARTBEAT="$SLOT_DIR/heartbeat-$i"
+                    touch "$MOOKKO_SLOT_HEARTBEAT"
                     break
                 fi
                 exec {slot_fd}>&-
@@ -96,6 +99,8 @@ PY
             fi
             [ -z "$announced" ] && echo "== 빌드 자리 기다림(우선순위 $priority, 차례 $rank, 지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
             announced=1
+            # 자리 감시(PM 11-04): 죽은 실행의 시험 컨테이너가 쥔 잠금은 풀고, 진행 기록 없이 오래 쥔 실행은 경보. 감시가 실패해도 기다림은 이어감.
+            python3 -X utf8 "$H/dev/build-slot-watch.py" check || echo "== 빌드 자리 감시 실패(rc=$?) — 기다림은 이어감" >&2
             sleep "$SLOT_POLL"
         fi
     done

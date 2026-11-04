@@ -4,6 +4,8 @@
   "jobs": 4,
   "pollSeconds": 10,
   "maxWaitMinutes": 180,
+  "stallMinutes": 15,
+  "stallNote": "자리 감시(dev/build-slot-watch.py, PM 2026-11-04): 기다리는 실행이 기다리는 동안 부름. 쥔 쪽에 실행 입구가 없고 죽은 감싸개의 시험 컨테이너면 그것만 멈춤, 진행 기록(heartbeat-<자리>)이 stallMinutes보다 오래되면 경보만(<dir>/watch.log).",
   "dir": "~/.local/state/mookko/build-slots",
   "targetRoot": "~/target",
   "targetNote": "빌드 캐시는 자리마다 하나(<targetRoot>/slot-<n>), worktree끼리 나눠 씀. check-all이 CARGO_TARGET_DIR를 이 값으로 바꾸고 CARGO_INCREMENTAL=0(2026-11-02 세션별 캐시 8개·약 100GB로 C 드라이브 바닥)."

@@ -4,6 +4,7 @@ ci/fixtures/는 파일 표본이라 커밋·브랜치·머지를 담지 못한�
 - check-owner-paths.py(SC-REG-3): 보안 밖 커밋, cherry-pick, 충돌을 푼 머지, 깨끗한 머지, 하네스 사본 같음, owners.json 보안 줄 지움,
   보안 브랜치 다시 씀(앞으로만), 사본은 커밋 내용으로 비교, 보안 브랜치 없음 + MOOKKO_REQUIRE_GIT_HISTORY=1
 - dev/memory-guard.py: 비상 기다림이 한 실행(MOOKKO_RUN_ID)에서 maxWaitMinutes를 한 번만 쓰는지(추가 6 ⑥)
+- dev/build-slot-watch.py: 죽은 감싸개의 시험 컨테이너가 쥔 잠금은 그 컨테이너만 멈춤, 진행 기록이 오래된 실행은 경보만(PM 11-04)
 test_ci_checks.py가 불러 같은 임시 폴더 아래에서 돌린다. 단독 실행도 된다.
 """
 
@@ -183,8 +184,72 @@ def memory_cases(base: Path) -> list[str]:
     return failures
 
 
+def slot_cases(base: Path) -> list[str]:
+    """빌드 자리 감시(PM 11-04): ① 감싸개가 죽은 시험 컨테이너(conmon)가 쥔 잠금 → 그 컨테이너만 멈춤(가짜 podman이 받음)
+    ② 실행 입구가 쥐었는데 진행 기록이 오래됨 → 경보만, 멈추지 않음. 가짜 프로세스는 이름이 conmon·check-all.sh인 셸 스크립트."""
+    import shutil as _sh
+    import signal as _sig
+    watch = HARNESS / "dev" / "build-slot-watch.py"
+    failures: list[str] = []
+    slots = base / "slots"
+    slots.mkdir(parents=True)
+    settings = base / "build-slots.json"
+    settings.write_text(json.dumps({"count": 1, "dir": str(slots), "stallMinutes": 15}), encoding="utf-8")
+    stopped = base / "podman-args"
+    fake_podman = base / "podman"
+    fake_podman.write_text(f"#!/bin/sh\necho \"$@\" >> {stopped}\nkill $(cat {base}/holder.pid)\n", encoding="utf-8")
+    fake_podman.chmod(0o755)
+    env = clean_env(MOOKKO_BUILD_SLOTS_SETTINGS=str(settings), MOOKKO_PODMAN=str(fake_podman))
+
+    def hold(name: str, *args: str) -> subprocess.Popen:
+        script = base / name
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text(f"#!/bin/bash\nexec 9>{slots}/slot-1\nflock 9\necho $$ > {base}/holder.pid\nsleep 300 9>&-\n", encoding="utf-8")
+        script.chmod(0o755)
+        proc = subprocess.Popen([str(script), *args], env=env, start_new_session=True)
+        for _ in range(50):
+            if (base / "holder.pid").exists():
+                break
+            time.sleep(0.1)
+        return proc
+
+    # ① 죽은 감싸개(pid 999999)의 시험 컨테이너 이름을 단 conmon이 쥠 → podman stop <id>
+    proc = hold("conmon", "-c", "abc123", "-n", "mookko-test-pg-20261104133308-999999")
+    time.sleep(0.3)
+    r = subprocess.run([sys.executable, "-X", "utf8", str(watch), "check"], capture_output=True, text=True, encoding="utf-8", env=env)
+    proc.wait(timeout=10)
+    try:
+        os.killpg(proc.pid, _sig.SIGTERM)  # 남은 sleep(잠금 fd는 닫음)까지
+    except ProcessLookupError:
+        pass
+    args = stopped.read_text(encoding="utf-8").strip() if stopped.exists() else ""
+    if args != "stop -t 10 abc123" or "멈춤" not in r.stderr:
+        failures.append(f"ci/test_git_checks.py:1: 자리 감시 주인 없는 잠금: podman 인자 {args!r}, 경보 {r.stderr.strip()[:200]!r}")
+    (base / "holder.pid").unlink()
+
+    # ② 실행 입구(check-all.sh)가 쥐고 진행 기록이 20분 전 → 경보만, podman 안 부름
+    stopped.unlink(missing_ok=True)
+    proc = hold("ci/check-all.sh")
+    beat = slots / "heartbeat-1"
+    beat.touch()
+    old = time.time() - 20 * 60
+    os.utime(beat, (old, old))
+    time.sleep(0.3)
+    r = subprocess.run([sys.executable, "-X", "utf8", str(watch), "check"], capture_output=True, text=True, encoding="utf-8", env=env)
+    alive = proc.poll() is None
+    try:
+        os.killpg(proc.pid, _sig.SIGTERM)
+    except ProcessLookupError:
+        pass
+    proc.wait(timeout=10)
+    if not alive or stopped.exists() or "진행 기록 없이" not in r.stderr:
+        failures.append(f"ci/test_git_checks.py:1: 자리 감시 진행 멈춤: 살아 있음 {alive}, podman 부름 {stopped.exists()}, 경보 {r.stderr.strip()[:200]!r}")
+    _sh.rmtree(slots, ignore_errors=False)
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
-    return owner_cases(base / "owner-paths") + memory_cases(base)
+    return owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch")
 
 
 def main() -> int:
