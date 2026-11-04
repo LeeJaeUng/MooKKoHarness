@@ -8,7 +8,7 @@
 - 만료·기록 없음은 경고이고, `--l4`(또는 MOOKKO_L4=1, 출시 관문)에서는 실패. 칸·모양이 틀린 항목은 늘 실패
 - path는 저장소 안 상대 경로만(절대 경로·`..` 금지)
 - 기준 판(MOOKKO_REGISTER_BASE, 기본 foundation/engine)과 대조(mookko-rust-qa 11-04): 기준 판의 (path, section) 항목이 사라지거나,
-  sha256이 바뀌었는데 date가 기준 판보다 뒤가 아니고 reviewedAt도 같으면(다시 보지 않고 해시만 고침) 실패, date를 되돌리면 실패.
+  sha256이 바뀌었는데 reviewedAt(검토한 커밋)이 그대로면(다시 보지 않고 해시만 고침) 실패, date를 되돌리면 실패(같은 날 다시 보는 것은 됨).
   검사 폴더가 git 최상위가 아니면(표본) 대조하지 않고, git·기준 판을 읽지 못하면 MOOKKO_REQUIRE_GIT_HISTORY=1일 때 실패
 `경고:`로 시작하는 줄은 경고, `파일:줄: 이유`는 실패.
 
@@ -107,9 +107,8 @@ def compare_base(root: Path, reviews: list) -> list[str]:
             continue
         if str(cur.get("date", "")) < str(prev.get("date", "")):
             out.append(f"{REL}:1: {name}: date를 기준 판 {prev.get('date')}보다 앞으로 되돌렸습니다")
-        if cur.get("sha256") != prev.get("sha256") and not (str(cur.get("date", "")) > str(prev.get("date", ""))
-                                                            and cur.get("reviewedAt") != prev.get("reviewedAt")):
-            out.append(f"{REL}:1: {name}: sha256이 바뀌었는데 date·reviewedAt이 새 검토를 가리키지 않습니다(다시 보지 않고 해시만 고치지 않음)")
+        if cur.get("sha256") != prev.get("sha256") and cur.get("reviewedAt") == prev.get("reviewedAt"):
+            out.append(f"{REL}:1: {name}: sha256이 바뀌었는데 reviewedAt이 그대로입니다(다시 볼 때는 검토한 새 커밋을 적음, 해시만 고치지 않음)")
     return out
 
 
