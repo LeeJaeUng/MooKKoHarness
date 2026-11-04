@@ -24,8 +24,20 @@ MEMORY_GUARD = HARNESS / "dev" / "memory-guard.py"
 SECURITY = "docs/policy/sec.json"
 
 
+def clean_env(**extra: str) -> dict[str, str]:
+    """git·MOOKKO_ 환경 변수를 뺀 환경. check-all은 Windows worktree에서 GIT_DIR·GIT_WORK_TREE를 내보내므로, 그대로 물려받으면
+    표본 저장소가 아니라 제품 저장소에 git init·add가 닿는다(2026-11-04 11차 check-all에서 제품 .git/config에 core.worktree가 써짐).
+    전역·시스템 git 설정도 읽지 않는다(서명·훅 설정이 표본을 흔들지 않게)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "MOOKKO_"))}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t", **extra)
+    return env
+
+
 def sh(repo: Path, *args: str) -> str:
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    env = clean_env()
+    if not repo.resolve().is_relative_to(Path(tempfile.gettempdir()).resolve()) and "mookko-test" not in repo.parts:
+        raise RuntimeError(f"표본 git 저장소는 임시 폴더 아래여야 합니다: {repo}")
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True, env=env).stdout
 
 
@@ -58,8 +70,7 @@ def new_repo(base: Path, name: str) -> Path:
 
 
 def owner_check(repo: Path, harness: Path, **env: str) -> tuple[int, list[str]]:
-    full = {k: v for k, v in os.environ.items() if not k.startswith("MOOKKO_")}
-    full.update(env)
+    full = clean_env(**env)
     r = subprocess.run([sys.executable, "-X", "utf8", str(OWNER_PATHS), str(repo), str(harness)],
                        capture_output=True, text=True, encoding="utf-8", env=full)
     return r.returncode, [line for line in r.stdout.splitlines() if ":1: " in line]
@@ -105,7 +116,7 @@ def owner_cases(base: Path) -> list[str]:
     commit(repo, "보안", **{SECURITY.replace("/", "__"): "1\n"})
     sh(repo, "checkout", "-q", "work")
     commit(repo, "통합 쪽", **{"docs__a.md": "a\n"})
-    subprocess.run(["git", "-C", str(repo), "merge", "-q", "--no-ff", "--no-commit", "claude/security"], capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "merge", "-q", "--no-ff", "--no-commit", "claude/security"], capture_output=True, env=clean_env())
     write(repo, SECURITY, "2\n")
     sh(repo, "add", "-A")
     sh(repo, "commit", "-q", "-m", "보안 통합(풀며 고침)")
@@ -157,7 +168,7 @@ def memory_cases(base: Path) -> list[str]:
                runStateFile=str(base / "memory-runs.json"), dropCacheStamp=str(base / "drop-stamp"))
     settings = base / "memory-guard.json"
     settings.write_text(json.dumps(cfg), encoding="utf-8")
-    env = dict(os.environ, MOOKKO_MEMORY_GUARD_SETTINGS=str(settings), MOOKKO_RUN_ID="t-1")
+    env = clean_env(MOOKKO_MEMORY_GUARD_SETTINGS=str(settings), MOOKKO_RUN_ID="t-1")
     failures: list[str] = []
     timings = []
     for _ in range(2):
