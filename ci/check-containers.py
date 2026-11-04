@@ -469,8 +469,8 @@ def check_anti_affinity(where: str, label: str, pod: dict, rule: dict, problems:
               .get("requiredDuringSchedulingIgnoredDuringExecution")) or [])
 
     def covers(term: dict, other: str) -> bool:
-        if not isinstance(term, dict) or term.get("topologyKey") != rule["topologyKey"]:
-            return False
+        if not isinstance(term, dict) or term.get("topologyKey") != rule["topologyKey"] or not isinstance(term.get("labelSelector"), dict):
+            return False  # labelSelector가 없으면(null) 어떤 Pod도 고르지 않아 분리가 없음(mookko-rust-qa 11-04)
         if other in (term.get("namespaces") or []):
             return True
         sel = term.get("namespaceSelector") or {}
@@ -607,6 +607,9 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
                                 f"(와일드카드·하위 자원 금지)")
                 continue
+            if item["serviceAccount"] == "default":
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: default 서비스 계정은 등록하지 않습니다(네임스페이스 전체가 권한을 받음)")
+                continue
             sec["api_clients"][(item["namespace"], item["workload"])] = item
     registries = read("image-registries.json")
     if registries is not None:
@@ -624,6 +627,9 @@ def load_security(root: Path, problems: list[str]) -> dict:
         for i, item in enumerate(identities.get("identities", [])):
             if not (isinstance(item, dict) and all(item.get(k) for k in WI_FIELDS)):
                 problems.append(f"docs/policy/workload-identities.json:1: identities[{i}]에 {'·'.join(WI_FIELDS)}가 있어야 합니다")
+                continue
+            if item["serviceAccount"] == "default":
+                problems.append(f"docs/policy/workload-identities.json:1: identities[{i}]: default 서비스 계정은 등록하지 않습니다(네임스페이스 전체가 GCP 자격을 받음)")
                 continue
             key = (item["namespace"], item["serviceAccount"])
             sec["wi"]["by_sa"].setdefault(key, []).append(item)
@@ -681,14 +687,26 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
         if binding.get("kind") not in ("RoleBinding", "ClusterRoleBinding"):
             continue
         bns = (binding.get("metadata") or {}).get("namespace")
+        label = f"{binding.get('kind')} {(binding.get('metadata') or {}).get('name')}"
         for subject in binding.get("subjects") or []:
-            if not isinstance(subject, dict) or subject.get("kind") != "ServiceAccount":
+            if not isinstance(subject, dict):
+                continue
+            kind, sname = subject.get("kind"), str(subject.get("name") or "")
+            if kind == "Group" and sname.startswith("system:serviceaccounts"):
+                problems.append(f"{where}: {label}: 서비스 계정 묶음 Group {sname}에 권한을 주지 않습니다(SA마다 api-clients.json 등록, SC-NODE-6)")
+                continue
+            if kind == "User" and sname.startswith("system:serviceaccount:"):
+                parts = sname.split(":")
+                subject = {"kind": "ServiceAccount", "namespace": parts[2] if len(parts) > 3 else None,
+                           "name": parts[3] if len(parts) > 3 else ""}
+            elif kind != "ServiceAccount":
                 continue
             entry = next((e for e in clients.values()
                           if e["namespace"] == subject.get("namespace", bns) and e["serviceAccount"] == subject.get("name")), None)
             if entry is None:
+                problems.append(f"{where}: {label}: 서비스 계정 {subject.get('namespace', bns)}/{subject.get('name')}는 api-clients.json에 없어 "
+                                f"Kubernetes 권한을 묶지 않습니다(SC-NODE-6)")
                 continue
-            label = f"{binding.get('kind')} {(binding.get('metadata') or {}).get('name')}"
             if binding.get("kind") == "ClusterRoleBinding" and entry["scope"] != "cluster":
                 problems.append(f"{where}: {label}: {entry['serviceAccount']}는 scope namespace라 ClusterRoleBinding으로 묶지 않습니다(api-clients.json)")
             ref = binding.get("roleRef") or {}
@@ -698,7 +716,11 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
                 problems.append(f"{where}: {label}: 묶은 {ref.get('kind')} {ref.get('name')}가 저장소에 없어 rules 상한과 대조하지 못합니다")
                 continue
             role_where, role = found
+            if role.get("aggregationRule"):
+                problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: aggregationRule ClusterRole은 규칙을 대조하지 못하므로 등록 SA에 묶지 않습니다")
             for rule in role.get("rules") or []:
+                if rule.get("nonResourceURLs"):
+                    problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: nonResourceURLs는 api-clients.json rules에 없으므로 주지 않습니다")
                 for group in rule.get("apiGroups") or [""]:
                     for resource in rule.get("resources") or []:
                         for verb in rule.get("verbs") or []:
@@ -728,7 +750,9 @@ def check_service_account(rel: str, start: int, lines: list[str], doc: str, labe
     if pod.get("automountServiceAccountToken") is not False:
         problems.append(f"{where}: {label}에 automountServiceAccountToken: false가 없습니다(파드 틀, API 토큰은 projected 볼륨으로만)")
     name = label.split(" ", 1)[1]
-    sa = pod.get("serviceAccountName")
+    if "serviceAccount" in pod:
+        problems.append(f"{where}: {label}: 옛 칸 serviceAccount 대신 serviceAccountName을 씁니다(대조를 비켜 가지 않게)")
+    sa = pod.get("serviceAccountName") or pod.get("serviceAccount") or "default"  # 칸이 없으면 default SA
     identities = sec.get("wi")
     if identities is not None and (ns, sa) in identities["by_sa"] and (obj.get("kind"), ns, name) not in identities["workloads"].get((ns, sa), set()):
         problems.append(f"{where}: {label}: 서비스 계정 {sa}는 Workload Identity로 GCP 자격을 받으므로 workload-identities.json에 "
@@ -779,8 +803,8 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", ref_block, re.MULTILINE)
             ref_kind = re.search(r"^\s+kind:\s*[\"']?([\w.-]+)", ref_block, re.MULTILINE)
             if kind == "Rollout" and ref:
-                if ref_kind and ref_kind.group(1) != "Deployment":
-                    problems.append(f"{where}: {label}: workloadRef.kind는 Deployment여야 합니다(지금 {ref_kind.group(1)})")
+                if not ref_kind or ref_kind.group(1) != "Deployment":
+                    problems.append(f"{where}: {label}: workloadRef.kind는 Deployment여야 합니다(지금 {ref_kind.group(1) if ref_kind else '없음'})")
                 target = (ns, "Deployment", ref.group(1))  # 종류까지 키로(같은 이름 Rollout이 자기 자신으로 통과하지 않게, N3)
                 pairs["refs"].add(target)
                 pairs["ref_from"][target] = (where, label)
@@ -793,7 +817,8 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         elif kind == "ServiceAccount" and yaml is not None and (sec or {}).get("wi") is not None:
             try:
                 obj = yaml.safe_load(doc)
-            except yaml.YAMLError:
+            except yaml.YAMLError as e:
+                problems.append(f"{where}: {label}: YAML을 풀지 못했습니다({str(e).splitlines()[0]})")
                 obj = None
             gsa = (((obj or {}).get("metadata") or {}).get("annotations") or {}).get(WI_ANNOTATION) if isinstance(obj, dict) else None
             entries = sec["wi"]["by_sa"].get((ns, name), [])
@@ -805,7 +830,8 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             if yaml is not None:
                 try:
                     obj = yaml.safe_load(doc)
-                except yaml.YAMLError:
+                except yaml.YAMLError as e:
+                    problems.append(f"{where}: {label}: YAML을 풀지 못했습니다({str(e).splitlines()[0]})")
                     obj = None
                 if isinstance(obj, dict):
                     pairs["rbac"].append((where, obj))

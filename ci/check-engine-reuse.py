@@ -64,7 +64,7 @@ RULES: dict[str, tuple[re.Pattern[str], str]] = {
 WIDE: dict[str, re.Pattern[str]] = {
     "C3": re.compile(
         r"\bfn\s+(is_service_id|is_valid_service_id|is_database_name|is_valid_name|valid_name|is_keyword|is_key_word)\b"
-        r"|\.(bytes|chars)\(\)\s*\.all\(.*\bis_ascii_(alphanumeric|lowercase|digit)"
+        r"|\.(bytes|chars)\(\)\s*\.all\(.*\bis_ascii_(alphanumeric|lowercase)\b"
     ),
     "C4": re.compile(r"\bstruct\s+\w*AuditLedger\b|CREATE\s+TABLE[^\"]*\baudit_events\b"),
 }

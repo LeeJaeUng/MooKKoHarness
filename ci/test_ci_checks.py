@@ -69,7 +69,9 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   키 없는 Exists toleration 1(N2, 어디서나 금지), 표시 없이 projected 토큰 1·등록 SA를 다른 워크로드가 씀 1(N1), automount true 1(트리),
 #   service-account-token Secret 1, 등록 안 된 이미지 DaemonSet이 전용 풀 2,
 #   antiAffinity 없는 mookko-staff-gate 1, 등록 SA Role이 rules 넘음 2(secrets·와일드카드), scope namespace인데 ClusterRoleBinding 1·
-#   묶은 ClusterRole 없음 1, Workload Identity: 등록 안 된 워크로드가 WI SA 씀 1·SA 주석 값 다름 1·주석 SA 등록 없음 1, 합 31. good: staff-gate namespaceSelector podAntiAffinity.
+#   묶은 ClusterRole 없음 1, Workload Identity: 등록 안 된 워크로드가 WI SA 씀 1·SA 주석 값 다름 1·주석 SA 등록 없음 1,
+#   default SA 등록 1, 옛 칸 serviceAccount 1, labelSelector 없는 podAntiAffinity 1, 등록 밖 SA에 묶기 2(ServiceAccount·User 주체),
+#   서비스 계정 묶음 Group 1, aggregationRule 1, nonResourceURLs 1(mookko-rust-qa 추가 5), 합 39. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
@@ -116,7 +118,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 71,
-    "containers-sec": 31,
+    "containers-sec": 39,
     "vuln-register": 15,
     "security-reviews": 3,
     "design-sources": 4,
