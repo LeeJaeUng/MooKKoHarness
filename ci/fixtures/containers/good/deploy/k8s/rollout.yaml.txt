@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: registry.example/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            grpc:
+              port: 8443
+          livenessProbe:
+            grpc:
+              port: 8443
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: web-rollout
+  namespace: mookko-links
+spec:
+  replicas: 3
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web-rollout
+  namespace: mookko-links
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: web-rollout
+  minReplicas: 3
+  maxReplicas: 6
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-rollout
+  namespace: mookko-links
+spec:
+  maxUnavailable: 1

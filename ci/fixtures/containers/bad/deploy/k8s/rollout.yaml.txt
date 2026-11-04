@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: ghost
+  namespace: mookko-bad
+spec:
+  replicas: 2
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ghost-deploy
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ghost
+  namespace: mookko-bad
+spec:
+  scaleTargetRef:
+    kind: Rollout
+    name: ghost
+  minReplicas: 3
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ghost
+  namespace: mookko-bad
+spec:
+  maxUnavailable: 1

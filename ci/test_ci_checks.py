@@ -53,7 +53,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
-#   등록부 셋 없음 3(매니페스트가 있으면 실패, mookko-rust-qa 11-04). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리).
+#   등록부 셋 없음 3(매니페스트가 있으면 실패, mookko-rust-qa 11-04). Rollout workloadRef: 대상 Deployment 없음 1·replicas 2 1(mookko-rust-qa 11-04 추가 2). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리), workloadRef Rollout(대상 Deployment·HPA·PDB 있음).
 #   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
@@ -105,7 +105,7 @@ EXPECTED_BAD = {
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 60,
+    "containers": 62,
     "containers-sec": 14,
     "vuln-register": 15,
     "design-sources": 4,

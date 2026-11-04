@@ -66,9 +66,12 @@ def check_entry(item: dict, name: str, today: datetime.date, problems: list[str]
         return
     decision = item.get("userDecision")
     if (dates["expires"] - dates["opened"]).days > MAX_DAYS:
-        decided = day(decision.get("date")) if isinstance(decision, dict) and decision.get("ref") else None
+        ref = decision.get("ref") if isinstance(decision, dict) else None
+        decided = day(decision.get("date")) if isinstance(ref, str) and ref.strip() else None
         if decided is None:
             problems.append(f"{REL}:1: {name}: expires가 opened부터 {MAX_DAYS}일을 넘습니다 — userDecision {{date, ref}}가 있어야 합니다")
+        elif not dates["opened"] <= decided <= today:
+            problems.append(f"{REL}:1: {name}: userDecision.date {decision['date']}는 opened~오늘 사이여야 합니다(미래 날짜로 기한을 늘리지 않음)")
         elif (dates["expires"] - decided).days > MAX_DAYS:
             problems.append(f"{REL}:1: {name}: expires는 userDecision.date {decision['date']}부터 {MAX_DAYS}일 안이어야 합니다")
     if not dates["opened"] <= dates["reviewBy"] <= dates["expires"]:
@@ -126,7 +129,7 @@ def base_entries(root: Path) -> tuple[dict[str, dict] | None, str]:
     try:
         data = json.loads(text)
     except ValueError:
-        return {}, ""
+        return None, f"기준 판 {ref}의 기록부 JSON이 깨져 있음"  # 대조 없이 지나가지 않게(mookko-rust-qa 11-04)
     entries = data.get("entries") if isinstance(data, dict) else None
     return {str(e["id"]): e for e in entries or [] if isinstance(e, dict) and e.get("id")}, ""
 
@@ -158,7 +161,9 @@ def main() -> int:
     problems, warnings = check(data, datetime.date.today())
     base, why = base_entries(root)
     if base is None:
-        if os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1" and why != NOT_TOP:
+        if why.startswith("기준 판") and "JSON" in why:
+            problems.append(f"{REL}:1: {why}")
+        elif os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1" and why != NOT_TOP:
             problems.append(f"{REL}:1: 기준 판과 대조하지 못했습니다({why})")
         else:
             print(f"기준 판 대조 건너뜀(통과 아님): {why}")
