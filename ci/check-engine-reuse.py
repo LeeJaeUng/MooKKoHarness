@@ -40,7 +40,7 @@ RULES: dict[str, tuple[re.Pattern[str], str]] = {
     "C3": (
         re.compile(
             r"\bfn\s+(is_identifier|is_valid_identifier|valid_identifier|is_slug|is_valid_slug)\b"
-            r"|\\u\{(200[b-f]|202[a-e]|206[0-9]|feff)\}"
+            r"|(?i:\\u\{(200[b-f]|202[a-e]|206[0-9]|feff)\})"
         ),
         "이름 검사·보이지 않는 문자 목록은 엔진 공용 이름 규칙(C3 mookko_core::NameKind::{StaffId, ActorId, Action, Slug, "
         "ReceiptKey, ServiceId, SqlIdentifier}, mookko_core::StaffId, mookko_core::has_hidden_characters)을 쓰세요",
@@ -56,6 +56,17 @@ RULES: dict[str, tuple[re.Pattern[str], str]] = {
         re.compile(r"\bfn\s+(rw|read_only)\s*\(\s*\)\s*->\s*TxOptions\b|\"SETTINGS\s+max_execution_time"),
         "트랜잭션 옵션·질의 기한은 엔진 공용 저장소 틀(C7 read_tx/write_tx, 남은 기한)을 쓰세요",
     ),
+}
+
+
+# 넓힌 모양(mookko-rust-qa 11-04: 이름 함수 더, 글자 검사 모양, 서비스 쪽 감사 원장 형·표). 처음에는 경고만 내고, 각 담당이
+# 엔진 것으로 옮긴 뒤 RULES로 올린다(하네스 할 일). crates/adapters 아래는 담당이 엔진·서비스로 갈려 모든 규칙을 경고로 본다.
+WIDE: dict[str, re.Pattern[str]] = {
+    "C3": re.compile(
+        r"\bfn\s+(is_service_id|is_valid_service_id|is_database_name|is_valid_name|valid_name|is_keyword|is_key_word)\b"
+        r"|\.(bytes|chars)\(\)\s*\.all\(.*\bis_ascii_(alphanumeric|lowercase|digit)"
+    ),
+    "C4": re.compile(r"\bstruct\s+\w*AuditLedger\b|CREATE\s+TABLE[^\"]*\baudit_events\b"),
 }
 
 
@@ -84,11 +95,13 @@ def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     waived = waivers(root)
     problems: list[str] = []
+    soft: list[str] = []
     found: dict[str, set[str]] = {}
     scanned = 0
-    for base in (root / "crates" / "services", root / "crates" / "apps"):
+    for base in (root / "crates" / "services", root / "crates" / "apps", root / "crates" / "adapters"):
         if not base.exists():
             continue
+        adapter = base.name == "adapters"
         for path in sorted(base.rglob("*.rs")):
             rel = path.relative_to(root)
             if "src" not in rel.parts or any(p in SKIP_DIRS for p in rel.parts):
@@ -97,19 +110,25 @@ def main() -> int:
             key = rel.as_posix()
             for no, line in code_lines(path.read_text(encoding="utf-8")):
                 for rule, (pattern, message) in RULES.items():
-                    if pattern.search(line):
+                    if pattern.search(line) and rule not in waived.get(key, set()):
+                        text = f"{key}:{no}: {message}. 서비스가 공용 기능을 따로 만들지 않습니다({rule})"
+                        (soft if adapter else problems).append(text)
+                    if pattern.search(line) and not adapter:
                         found.setdefault(key, set()).add(rule)
-                        if rule not in waived.get(key, set()):
-                            problems.append(f"{key}:{no}: {message}. 서비스가 공용 기능을 따로 만들지 않습니다({rule})")
+                for rule, pattern in WIDE.items():
+                    if pattern.search(line) and rule not in waived.get(key, set()):
+                        soft.append(f"{key}:{no}: {RULES[rule][1]}(넓힌 모양, 경고 단계, {rule})")
     for key, rules in sorted(waived.items()):
         for rule in sorted(rules - found.get(key, set())):
             problems.append(f"docs/policy/waivers.json:1: {key}에 {rule} 복사본이 없어졌습니다. ENG-REUSE-{rule} 예외에서 빼세요")
     for p in problems:
         print(p)
+    for s in soft:
+        print(f"경고: {s}")
     if problems:
         print(f"engine reuse check failed ({len(problems)} problems)")
         return 1
-    print(f"engine reuse check passed ({scanned} files, {sum(len(v) for v in waived.values())} waived)")
+    print(f"engine reuse check passed ({scanned} files, {sum(len(v) for v in waived.values())} waived, {len(soft)} warnings)")
     return 0
 
 
