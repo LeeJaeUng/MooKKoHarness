@@ -218,3 +218,40 @@ spec:
             limits:
               cpu: 500m
               memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gate
+  namespace: mookko-staff-gate
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: mookko-operations
+              labelSelector: {}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi

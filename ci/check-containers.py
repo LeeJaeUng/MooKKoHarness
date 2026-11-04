@@ -439,8 +439,6 @@ def pool_used(pod: dict, pool: dict) -> bool:
     for tol in pod.get("tolerations") or []:
         if not isinstance(tol, dict):
             continue
-        if not tol.get("key") and tol.get("operator") == "Exists":
-            return True  # 키 없는 Exists는 모든 taint를 받음(mookko-rust-qa 11-04 N2)
         if tol.get("key") == key and (tol.get("operator") == "Exists" or str(tol.get("value")) == value):
             return True
     if str((pod.get("nodeSelector") or {}).get(key)) == value:
@@ -464,6 +462,29 @@ def pool_required(pod: dict, pool: dict) -> bool:
         for term in terms)
 
 
+def check_anti_affinity(where: str, label: str, pod: dict, rule: dict, problems: list[str]) -> None:
+    """node-pools.json antiAffinity: notWith 네임스페이스마다 required podAntiAffinity 항목(같은 topologyKey,
+    namespaces 또는 namespaceSelector가 그 네임스페이스를 가리킴)이 있어야 함(security.md §4.1 S-8)."""
+    terms = ((((pod.get("affinity") or {}).get("podAntiAffinity") or {})
+              .get("requiredDuringSchedulingIgnoredDuringExecution")) or [])
+
+    def covers(term: dict, other: str) -> bool:
+        if not isinstance(term, dict) or term.get("topologyKey") != rule["topologyKey"]:
+            return False
+        if other in (term.get("namespaces") or []):
+            return True
+        sel = term.get("namespaceSelector") or {}
+        if (sel.get("matchLabels") or {}).get("kubernetes.io/metadata.name") == other:
+            return True
+        return any(isinstance(e, dict) and e.get("key") == "kubernetes.io/metadata.name" and e.get("operator") == "In"
+                   and other in (e.get("values") or []) for e in sel.get("matchExpressions") or [])
+
+    missing = [other for other in rule["notWith"] if not any(covers(t, other) for t in terms)]
+    if missing:
+        problems.append(f"{where}: {label}: required podAntiAffinity({rule['topologyKey']})로 {missing} Pod와 같은 노드를 피해야 합니다"
+                        f"(node-pools.json antiAffinity, SC-NODE-2)")
+
+
 def check_security(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
                    problems: list[str]) -> None:
     """보안 등록부 규칙(SEC-02): 노드 풀 대응표, 바깥 입력 샌드박스. YAML을 풀어 읽는다(SC-SBX-1)."""
@@ -481,6 +502,12 @@ def check_security(rel: str, start: int, lines: list[str], doc: str, label: str,
     pod, label_maps = pod_template(obj)
     if not isinstance(pod, dict):
         return
+    if any(isinstance(t, dict) and not t.get("key") and t.get("operator") == "Exists" for t in pod.get("tolerations") or []):
+        problems.append(f"{where}: {label}: 키 없는 `operator: Exists` toleration은 모든 taint를 받으므로 쓰지 않습니다"
+                        f"(받을 풀 키를 하나씩, SC-NODE-2·QA N2)")
+    for rule in sec.get("anti", []):
+        if ns == rule["namespace"]:
+            check_anti_affinity(where, label, pod, rule, problems)
     images = [c.get("image") for key in ("containers", "initContainers") for c in pod.get(key) or [] if isinstance(c, dict)]
     # 모든 노드에 뜨는 DaemonSet: daemonSetNamespaces + 모든 이미지가 privileged-allowlist.json에 있을 때만(mookko-rust-qa 11-04)
     every_node = (obj.get("kind") == "DaemonSet" and ns in sec.get("daemon_ns", set()) and bool(images)
@@ -544,6 +571,13 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/node-pools.json:1: pools[{i}]에 name·key·value·namespaces(목록)가 있어야 합니다")
                 continue
             sec["pools"].append(pool)
+        anti = pools.get("antiAffinity", [])
+        for i, rule in enumerate(anti if isinstance(anti, list) else [None]):
+            if not (isinstance(rule, dict) and all(rule.get(k) for k in ("namespace", "notWith", "topologyKey", "reason"))
+                    and isinstance(rule["notWith"], list)):
+                problems.append(f"docs/policy/node-pools.json:1: antiAffinity[{i}]에 namespace·notWith(목록)·topologyKey·reason이 있어야 합니다")
+            else:
+                sec.setdefault("anti", []).append(rule)
         daemon_ns = pools.get("daemonSetNamespaces", [])
         if not (isinstance(daemon_ns, list) and all(isinstance(n, str) and n for n in daemon_ns)):
             problems.append("docs/policy/node-pools.json:1: daemonSetNamespaces는 네임스페이스 이름 목록이어야 합니다")
@@ -563,8 +597,15 @@ def load_security(root: Path, problems: list[str]) -> dict:
     if clients is not None:
         sec["api_clients"] = {}
         for i, item in enumerate(clients.get("clients", [])):
-            if not (isinstance(item, dict) and all(item.get(k) for k in ("namespace", "workload", "serviceAccount", "reason", "reviewed"))):
-                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]에 namespace·workload·serviceAccount·reason·reviewed가 있어야 합니다")
+            if not (isinstance(item, dict) and all(item.get(k) for k in API_CLIENT_FIELDS)):
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]에 {'·'.join(API_CLIENT_FIELDS)}가 있어야 합니다")
+                continue
+            if item["scope"] not in ("namespace", "cluster") or not isinstance(item["rules"], list) or not all(
+                    isinstance(r, dict) and all(isinstance(r.get(k), list) and r[k] for k in ("apiGroups", "resources", "verbs"))
+                    and not any("*" in v for k in ("apiGroups", "resources", "verbs") for v in r[k])
+                    and not any("/" in v for v in r["resources"]) for r in item["rules"]):
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
+                                f"(와일드카드·하위 자원 금지)")
                 continue
             sec["api_clients"][(item["namespace"], item["workload"])] = item
     registries = read("image-registries.json")
@@ -614,6 +655,45 @@ def child_value(block: str, key: str) -> str | None:
 
 
 MAX_TOKEN_SECONDS = 3600  # projected serviceAccountToken 만료 상한(보안 담당 api-clients.json note)
+API_CLIENT_FIELDS = ("namespace", "workload", "serviceAccount", "reason", "reviewed", "scope", "rules", "reviewer")
+RBAC_KINDS = {"Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding"}
+
+
+def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> None:
+    """api-clients.json 등록 SA에 묶인 Role·ClusterRole이 rules(상한)를 넘지 않는지(SC-NODE-6). 와일드카드·하위 자원 금지,
+    scope가 namespace면 ClusterRoleBinding으로 묶지 않음."""
+    clients = sec.get("api_clients") or {}
+    roles = {(o.get("kind"), (o.get("metadata") or {}).get("namespace"), (o.get("metadata") or {}).get("name")): (where, o)
+             for where, o in rbac if o.get("kind") in ("Role", "ClusterRole")}
+    for where, binding in rbac:
+        if binding.get("kind") not in ("RoleBinding", "ClusterRoleBinding"):
+            continue
+        bns = (binding.get("metadata") or {}).get("namespace")
+        for subject in binding.get("subjects") or []:
+            if not isinstance(subject, dict) or subject.get("kind") != "ServiceAccount":
+                continue
+            entry = next((e for e in clients.values()
+                          if e["namespace"] == subject.get("namespace", bns) and e["serviceAccount"] == subject.get("name")), None)
+            if entry is None:
+                continue
+            label = f"{binding.get('kind')} {(binding.get('metadata') or {}).get('name')}"
+            if binding.get("kind") == "ClusterRoleBinding" and entry["scope"] != "cluster":
+                problems.append(f"{where}: {label}: {entry['serviceAccount']}는 scope namespace라 ClusterRoleBinding으로 묶지 않습니다(api-clients.json)")
+            ref = binding.get("roleRef") or {}
+            role_ns = None if ref.get("kind") == "ClusterRole" else bns
+            found = roles.get((ref.get("kind"), role_ns, ref.get("name")))
+            if found is None:
+                problems.append(f"{where}: {label}: 묶은 {ref.get('kind')} {ref.get('name')}가 저장소에 없어 rules 상한과 대조하지 못합니다")
+                continue
+            role_where, role = found
+            for rule in role.get("rules") or []:
+                for group in rule.get("apiGroups") or [""]:
+                    for resource in rule.get("resources") or []:
+                        for verb in rule.get("verbs") or []:
+                            if "*" in (group, resource, verb) or "/" in resource or not any(
+                                    group in r["apiGroups"] and resource in r["resources"] and verb in r["verbs"] for r in entry["rules"]):
+                                problems.append(f"{role_where}: {ref.get('kind')} {ref.get('name')}: {group or 'core'}/{resource} {verb}는 "
+                                                f"{entry['serviceAccount']}의 api-clients.json rules 상한을 넘습니다(와일드카드·하위 자원 금지)")
 
 
 def check_service_account(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
@@ -647,6 +727,8 @@ def check_service_account(rel: str, start: int, lines: list[str], doc: str, labe
     if owner is not None and owner[1] != name:
         problems.append(f"{where}: {label}: 서비스 계정 {sa}는 api-clients.json에 {owner[1]} 몫으로 등록돼 있어 다른 워크로드가 쓰지 않습니다")
     entry = clients.get((ns, name))
+    if entry is not None and entry.get("kind") not in (None, obj.get("kind")):
+        entry = None  # 워크로드는 (kind, ns, name)으로 가림(QA N3)
     if entry is None:
         if api_client(lines) or seconds:
             problems.append(f"{where}: {label}: API 토큰(api-client 표시·projected serviceAccountToken)은 docs/policy/api-clients.json에 "
@@ -692,6 +774,14 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             problems.append(f"{where}: kind List는 검사하지 못합니다. 문서를 `---`로 나눠 쓰세요")
         elif re.search(r"^\s+template:", doc, re.MULTILINE) and re.search(r"^\s+(-\s*)?containers:", doc, re.MULTILINE):
             problems.append(f"{where}: {label}: 모르는 워크로드 종류라 검사하지 못합니다(검사에 종류를 더하세요)")
+        elif kind in RBAC_KINDS:
+            if yaml is not None:
+                try:
+                    obj = yaml.safe_load(doc)
+                except yaml.YAMLError:
+                    obj = None
+                if isinstance(obj, dict):
+                    pairs["rbac"].append((where, obj))
         elif kind == "Secret" and re.search(r"^type:\s*[\"']?kubernetes\.io/service-account-token", doc, re.MULTILINE):
             problems.append(f"{where}: {label}: 서비스 계정 토큰 Secret은 쓰지 않습니다(오래 가는 토큰, projected 토큰으로만, SC-NODE-6)")
         elif kind == "PodDisruptionBudget":
@@ -739,7 +829,7 @@ def main() -> int:
     counts = {"dockerfile": 0, "compose": 0, "kubernetes": 0}
     namespaces: dict[str, str] = {}
     deny: set[str] = set()
-    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set(), "ref_from": {}}
+    pairs: dict[str, dict] = {"workloads": {}, "hpa": set(), "pdb": set(), "refs": set(), "ref_from": {}, "rbac": []}
     sec = load_security(root, problems)
     for kind, path, rel in files(root):
         counts[kind] += 1
@@ -763,6 +853,7 @@ def main() -> int:
     for ns, where in sorted(namespaces.items()):
         if ns not in deny:
             problems.append(f"{where}: Namespace {ns}에 기본 차단 NetworkPolicy(podSelector: {{}}, Ingress·Egress, 허용 규칙 없음)가 없습니다")
+    check_rbac(sec, pairs["rbac"], problems)
     warnings = missing_registers(sec, sum(counts.values()), problems)
     for p in problems:
         print(p)

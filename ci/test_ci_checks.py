@@ -65,8 +65,10 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 라벨의 untrusted(gvisor 없음) 1(보안 규칙은 YAML을 풀어 읽어 흐름 모양
 #   tolerations도 읽음), mookko-security(daemonSetNamespaces)라도 DaemonSet이 아닌 Job의
 #   `mookko.io/pool` Exists toleration은 그 key의 풀마다 1(control·keys 2), 합 14. api-client 표시가 있지만 등록 없음 1, 등록됐지만 토큰 만료 7200초 1,
-#   키 없는 Exists toleration이 풀 셋 1씩 3(N2), 표시 없이 projected 토큰 1·등록 SA를 다른 워크로드가 씀 1(N1), automount true 1(트리),
-#   service-account-token Secret 1, 등록 안 된 이미지 DaemonSet이 전용 풀 2, 합 25.
+#   키 없는 Exists toleration 1(N2, 어디서나 금지), 표시 없이 projected 토큰 1·등록 SA를 다른 워크로드가 씀 1(N1), automount true 1(트리),
+#   service-account-token Secret 1, 등록 안 된 이미지 DaemonSet이 전용 풀 2,
+#   antiAffinity 없는 mookko-staff-gate 1, 등록 SA Role이 rules 넘음 2(secrets·와일드카드), scope namespace인데 ClusterRoleBinding 1·
+#   묶은 ClusterRole 없음 1, 합 28. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
@@ -79,7 +81,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 # hardcoded-warn(enforce false): bad 기준보다 늘어 경고 모드여도 실패(그 파일 줄 2), good 줄어듦은 경고만.
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
-# production-config bad: 세션 절대·유휴 2, rpc staffRecentMfa 없음 1, 파일 KEK 1, devLocal 1, 평문 HTTP 1, tls disable 1, requireMfa 없음 1, 덮어쓰기의 파일 객체 저장소 1·requireMfa false 1. good: 운영 값, development 설정은 안 봄.
+# production-config bad: 세션 절대·유휴 2, rpc staffRecentMfa 없음 1, 파일 KEK 1, devLocal 1, 평문 HTTP 1, tls disable 1, requireMfa 없음 1, 덮어쓰기의 파일 객체 저장소 1·requireMfa false 1. good: 운영 값, development 설정은 안 봄. requireMfa 둘은 엔진 칸이 생길 때까지 경고(QE-SEC-3)라 세지 않음(10→8).
 # prr bad(enforce true, qa-services T1~T4): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), 필수 낱말 없음 2(SLO·SLI 넷, 백업·복구 둘),
 #   경보: runbook 링크 없음 1·빈 칸(소진율 창) 1·증상/원인 값 1·링크 대상 없음 1, 사고 대응 훈련 열 없음 1, 정기 훈련·시험 표 없음 1.
 #   good: 미정 칸은 낱말을 보지 않음, 앵커 붙은 링크, 열 이름으로 읽는 표(틀의 '적을 것' 열 있어도 됨), 두 훈련 표.
@@ -111,14 +113,14 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 70,
-    "containers-sec": 25,
+    "containers-sec": 28,
     "vuln-register": 15,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,
     "test-time": 5,
     "prr": 12,
-    "production-config": 10,
+    "production-config": 8,
     "harness-copies": 5,
     "folder-layout": 5,
 }

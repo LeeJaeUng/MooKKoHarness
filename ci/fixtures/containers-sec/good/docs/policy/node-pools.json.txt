@@ -29,5 +29,15 @@
   ],
   "daemonSetNamespaces": [
     "mookko-security"
+  ],
+  "antiAffinity": [
+    {
+      "namespace": "mookko-staff-gate",
+      "notWith": [
+        "mookko-operations"
+      ],
+      "topologyKey": "kubernetes.io/hostname",
+      "reason": "표본"
+    }
   ]
 }
