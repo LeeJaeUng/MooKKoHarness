@@ -1407,16 +1407,17 @@ def strip_sql_comments(text: str) -> str:
 
 def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
     """서비스·실행 파일 crate(`crates/services/*/src`, `crates/apps/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7)과
-    ClickHouse 조각 다시 쓰기·변이(S-CH-2: OPTIMIZE … FINAL, ALTER TABLE … UPDATE·DELETE WHERE, MATERIALIZE).
+    ClickHouse 조각 다시 쓰기·변이(S-CH-2: OPTIMIZE … FINAL, ALTER TABLE … UPDATE·DELETE WHERE, MATERIALIZE). S-CH-2는 어댑터 crate
+    (`crates/adapters/*/src`)도 본다 — SQL이 평소 사는 곳이지만 전체 다시 쓰기는 거기서도 예외 등록부를 거친다(DB 담당 11-04).
     DDL은 이관 파일과 엔진 유지보수 작업(엔진 crate)만 — 서비스나 실행 파일이 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를
     모두 비켜 간다(운영툴이 파티션 DDL을 apps로 옮긴 일, QA 6b7fdfe). 기한 있는 예외는 exceptions.json(그 rule만 비켜 감)."""
     allowed, findings = exception_paths(registry, root=root)
-    sources: list[Path] = []
-    for base in (root / "crates" / "services", root / "crates" / "apps"):
-        sources += [p for p in walk(base, lambda name: name.endswith(".rs")) if "src" in p.relative_to(base).parts]
-    for path in sources:
+    sources: list[tuple[Path, bool]] = []  # (파일, S-BND-7도 보는지)
+    for base, ddl in ((root / "crates" / "services", True), (root / "crates" / "apps", True), (root / "crates" / "adapters", False)):
+        sources += [(p, ddl) for p in walk(base, lambda name: name.endswith(".rs")) if "src" in p.relative_to(base).parts]
+    for path, ddl in sources:
         rel = path.relative_to(root).as_posix()
-        waived = allowed.get(rel, set())
+        waived = allowed.get(rel, set()) | (set() if ddl else {"S-BND-7"})
         text = path.read_text(encoding="utf-8")
         for start, body in rust_strings(text):
             flat = " ".join(strip_sql_comments(body).split())

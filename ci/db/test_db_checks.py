@@ -162,15 +162,21 @@ class ServiceDdl(unittest.TestCase):
     def test_clickhouse_rewrite_in_code_and_rule_scoped_exception(self) -> None:
         # DB 담당 11-04 (a): 서비스 Rust 문자열의 OPTIMIZE … FINAL·ALTER … UPDATE·MATERIALIZE는 S-CH-2. Postgres DELETE·SELECT … FINAL은 아님.
         root, path = FIXTURES / "repo-ch-code", "crates/services/logs/src/sec.rs"
-        found = sorted((f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": []}))
-        self.assertEqual(found, [("S-BND-7", 3), ("S-BND-7", 4), ("S-CH-2", 2), ("S-CH-2", 3), ("S-CH-2", 4)])
+        found = sorted((f.path, f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": []}))
+        adapter = "crates/adapters/mookko-store-clickhouse/src/rekey.rs"
+        # 어댑터는 S-CH-2만 봄(DDL은 어댑터에서 S-BND-7 대상 아님)
+        self.assertEqual(found, sorted([(adapter, "S-CH-2", 1), (path, "S-BND-7", 3), (path, "S-BND-7", 4),
+                                        (path, "S-CH-2", 2), (path, "S-CH-2", 3), (path, "S-CH-2", 4)]))
+        adapter_item = {"id": "DBX-CH2-a", "paths": [adapter], "rule": "S-CH-2", "reason": "시험", "adr": f"{adapter} 시험",
+                        "condition": "시험", "expires": "2099-01-01", "approvedBy": "DB 담당"}
+        self.assertFalse(any(f.path == adapter for f in migration_lint.lint_service_ddl(root, {"exceptions": [adapter_item]})))
         # (b): 예외는 그 rule의 지적만 비켜 감(S-CH-2로 오른 파일은 S-BND-7을 그대로 받음), rule은 목록도 됨
         item = {"id": "DBX-CH2-t", "paths": [path], "rule": "S-CH-2", "reason": "시험", "adr": f"{path} 시험",
                 "condition": "시험", "expires": "2099-01-01", "approvedBy": "DB 담당"}
-        only_ch = sorted((f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": [item]}))
+        only_ch = sorted((f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": [item]}) if f.path == path)
         self.assertEqual(only_ch, [("S-BND-7", 3), ("S-BND-7", 4)])
         both = migration_lint.lint_service_ddl(root, {"exceptions": [dict(item, rule=["S-BND-7", "S-CH-2"])]})
-        self.assertEqual(both, [])
+        self.assertEqual([f for f in both if f.path == path], [])
         wrong = migration_lint.lint_service_ddl(root, {"exceptions": [dict(item, rule="S-Q-2")]})
         self.assertTrue(any("rule" in f.message for f in wrong))
 
