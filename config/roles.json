@@ -77,7 +77,7 @@
     },
     {
       "id": "security/lead", "title": "보안 전문 담당", "kind": "lead", "service": "security", "owner": "보안", "permission": "edit", "parent": "pm", "code": "",
-      "owns": ["docs/architecture/security.md", "docs/architecture/incident-response.md", "docs/architecture/host-security.md", "docs/policy/conventions/security.md", ".claude/skills/mookko-security/", "docs/policy/vuln-register.json", "docs/policy/privileged-allowlist.json", "docs/policy/node-pools.json", "docs/policy/image-registries.json", "deploy/k8s/mookko-security/"],
+      "owns": ["docs/architecture/security.md", "docs/architecture/incident-response.md", "docs/architecture/host-security.md", "docs/policy/conventions/security.md", ".claude/skills/mookko-security/", "docs/policy/vuln-register.json", "docs/policy/privileged-allowlist.json", "docs/policy/node-pools.json", "docs/policy/image-registries.json", "deploy/k8s/mookko-security/", "docs/policy/api-clients.json"],
       "excludes": [],
       "canSend": ["pm", "integration", "foundation/lead", "spec/lead"],
       "engine": "claude", "model": "", "effort": "high",
