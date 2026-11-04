@@ -8,17 +8,19 @@
 
 ## 0. 등록부는 닫힌 쪽 (QA 2026-11-04 ①, 보안 담당 결정)
 
-- SC-REG-1 등록부 `docs/policy/node-pools.json`·`privileged-allowlist.json`·`vuln-register.json`은 제품에 **늘 있어야** 한다(빈 목록이어도). 파일이 없으면 검사가 꺼지는 대신 **실패**한다. `image-registries.json`은 레지스트리가 정해지기 전이라, 저장소에 Dockerfile·Compose·Kubernetes 이미지가 하나라도 있는데 이 파일이 없으면 실패한다. **[검사]** `ci/check-containers.py`·`ci/check-vuln-register.py`(하네스 cfdcc63)
+- SC-REG-1 등록부 `docs/policy/node-pools.json`·`privileged-allowlist.json`·`vuln-register.json`은 제품에 **늘 있어야** 한다(빈 목록이어도). 파일이 없으면 검사가 꺼지는 대신 **실패**한다. `image-registries.json`은 레지스트리가 정해지기 전이라, 저장소에 Dockerfile·Compose·Kubernetes 이미지가 하나라도 있는데 이 파일이 없으면 실패한다. **[검사]** `ci/check-containers.py`·`ci/check-vuln-register.py`(하네스 cfdcc63) `api-clients.json`도 늘 있어야 하고, 없으면 실패한다(QA 2026-11-04).
 - SC-REG-2 빈 등록부는 "아무것도 허용하지 않음"이다. 전용 풀 네임스페이스에 등록되지 않은 워크로드는 그 풀을 고를 수 없다. 특권 이미지가 비면 특권 컨테이너는 하나도 받지 않는다. 등록부를 고치는 것은 보안 담당이다(owners.json). 다른 담당은 보안 담당에게 요청한다.
 
 ## 1. 노드 풀·피해 범위 (SEC-02)
 
 - SC-NODE-1 신뢰 등급이 다른 워크로드를 같은 노드에 두지 않는다. 풀은 `system`·`general`·`sandbox`·`control`·`keys`·`db-money`·`db-general`(일반 DB를 뗀 뒤, security.md §2.2). 키 DB는 `keys`, 운영툴·Argo CD·Argo Rollouts·cert-manager·External Secrets는 `control`, 돈 DB는 `db-money`. 새 풀은 security.md를 먼저 고친다. **[QA]**(어느 워크로드가 어느 풀인지) **[검사]** SC-NODE-2와 같은 `ci/check-containers.py` 대응표 검사(네임스페이스 → 풀)
 - SC-NODE-2 `control`·`keys`·`db-money`·`db-general`·`sandbox` 풀의 toleration·nodeSelector·nodeAffinity는 그 풀에 정해진 네임스페이스만 쓴다. 정해진 네임스페이스의 워크로드는 반드시 `requiredDuringScheduling…` nodeAffinity로 자기 풀만 고른다(taint만으로는 막히지 않음). 클러스터에서는 ValidatingAdmissionPolicy로 다시 막는다. 대응표는 제품 `docs/policy/node-pools.json`(`{"schema":1,"pools":[{"name","key","value","namespaces":[…]}]}`, `sandbox`는 key `sandbox.gke.io/runtime`·value `gvisor`). **[검사]** `ci/check-containers.py` (정책 파일이 있을 때만 켜짐, bacb580)
+  - 키 없는 `operator: Exists` 토렐레이션(모든 taint를 받음)은 어디서도 쓰지 않는다. DaemonSet도 받을 풀 키를 하나씩 적는다(QA N2). 노드 분리가 필요한 네임스페이스는 `node-pools.json`의 `antiAffinity`(`{namespace, notWith[], topologyKey, reason}`)에 두고, 그 워크로드는 notWith 네임스페이스 Pod와 같은 노드에 서지 않게 required podAntiAffinity를 가진다(지금 `mookko-staff-gate` ↔ 운영툴·Argo CD, security.md §4.1). **[검사]** `ci/check-containers.py` 확장(하네스에 요청)
   - 모든 노드에 떠야 하는 DaemonSet(노드 검사·런타임 감지·호스트 기록 수집)은 `node-pools.json`의 `daemonSetNamespaces`(지금 `mookko-security`)에 있는 네임스페이스에서만, **kind가 DaemonSet일 때만** 모든 전용 풀 taint를 받고 자기 풀 nodeAffinity를 요구받지 않는다. **[검사]** `ci/check-containers.py`(하네스 2e8037b)
 - SC-NODE-3 노드 풀마다 전용 노드 서비스 계정(최소 역할 `roles/container.defaultNodeServiceAccount` + 레지스트리 읽기), Workload Identity(`GKE_METADATA`), Shielded·보안 부팅·무결성 모니터링, 사설 노드, 자동 업그레이드·자동 복구, kubelet 읽기 전용 포트 끔. Compute 기본 서비스 계정 금지. **[검사]** OpenTofu plan 정책(IaC 저장소가 생기면, 하네스에 요청) **[QA]**
 - SC-NODE-4 Kubernetes 서비스 계정 하나에 Workload Identity 주체 하나, 권한은 그 서비스가 실제로 부르는 것만. 여러 서비스가 한 IAM 서비스 계정을 함께 쓰지 않는다. **[QA]**
 - SC-NODE-6 Kubernetes API 토큰은 제품 `docs/policy/api-clients.json`(`{"clients":[{namespace, workload, serviceAccount, rbac, reason, reviewed}]}`)에 등록된 워크로드만 받는다. 모든 워크로드는 `automountServiceAccountToken: false`이고, 등록된 것은 등록한 `serviceAccountName`과 projected `serviceAccountToken` 볼륨(`expirationSeconds` ≤ 3600)으로만 토큰을 붙인다. RBAC는 필요한 자원·동사만(와일드카드·하위 자원 금지, 클러스터 범위는 security.md §5.1에 적은 것만). 등록은 보안 검토(SC-REV-1)를 거친다. **[검사]** `ci/check-containers.py`(하네스 2e8037b: 등록 대조·SA 이름·토큰 만료, 등록부가 없으면 실패) **[QA]**(RBAC가 실제 호출과 맞는지)
+  - 등록 항목은 `scope`(namespace|cluster), `rules`(그 SA에 묶인 Role·ClusterRole의 상한: apiGroups·resources·verbs, 와일드카드·하위 자원 금지), `reviewer`(보안 검토 기록)를 가진다. 묶인 RBAC가 `rules`를 넘으면 실패한다. 등록한 SA·projected 토큰은 표시가 없어도 등록 밖 워크로드가 쓰면 실패한다(QA N1). 워크로드는 (kind, namespace, name)으로 가린다. Rollout과 Deployment가 이름이 같아도 섞지 않는다(QA N3). **[검사]** `ci/check-containers.py` 확장(하네스에 요청)
 - SC-NODE-5 제어부는 사설 끝점 + 승인된 네트워크. 사람의 kubectl·콘솔 쓰기는 비상 경로(두 사람·경보·감사)뿐. **[QA]**
 
 ## 2. 바깥 입력 샌드박스 (SEC-02)
