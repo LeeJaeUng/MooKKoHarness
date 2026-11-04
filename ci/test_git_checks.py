@@ -2,7 +2,7 @@
 
 ci/fixtures/는 파일 표본이라 커밋·브랜치·머지를 담지 못한다. 그래서 임시 git 저장소를 만들어 시험한다(mookko-rust-qa 추가 6 ④).
 - check-owner-paths.py(SC-REG-3): 보안 밖 커밋, cherry-pick, 충돌을 푼 머지, 깨끗한 머지, 하네스 사본 같음, owners.json 보안 줄 지움,
-  보안 브랜치 없음 + MOOKKO_REQUIRE_GIT_HISTORY=1
+  보안 브랜치 다시 씀(앞으로만), 사본은 커밋 내용으로 비교, 보안 브랜치 없음 + MOOKKO_REQUIRE_GIT_HISTORY=1
 - dev/memory-guard.py: 비상 기다림이 한 실행(MOOKKO_RUN_ID)에서 maxWaitMinutes를 한 번만 쓰는지(추가 6 ⑥)
 test_ci_checks.py가 불러 같은 임시 폴더 아래에서 돌린다. 단독 실행도 된다.
 """
@@ -121,6 +121,26 @@ def owner_cases(base: Path) -> list[str]:
     commit(repo, "줄 지움", **{"docs__coordination__owners.json": owners(".claude/skills/")})
     commit(repo, "몰래", **{SECURITY.replace("/", "__"): "9\n"})
     expect("보안 줄 지움", repo, 1, 2)
+
+    # 앞으로만: 기준 판에 들어간 보안 커밋을 보안 브랜치에서 지워 다시 씀 → 1
+    repo = new_repo(base, "rewritten")
+    first = sh(repo, "rev-parse", "HEAD").strip()
+    sh(repo, "checkout", "-q", "claude/security")
+    commit(repo, "보안", **{SECURITY.replace("/", "__"): "1\n"})
+    sh(repo, "checkout", "-q", "work")
+    sh(repo, "merge", "-q", "--no-ff", "-m", "보안 통합", "claude/security")
+    sh(repo, "branch", "-f", "foundation/engine", "work")
+    sh(repo, "checkout", "-q", "claude/security")
+    sh(repo, "reset", "-q", "--hard", first)
+    commit(repo, "보안 다시 씀", **{SECURITY.replace("/", "__"): "3\n"})
+    sh(repo, "checkout", "-q", "work")
+    expect("보안 브랜치 다시 씀", repo, 1, 1)
+
+    # 사본 같음은 커밋 내용으로: 커밋 뒤 작업 트리만 정본과 같게 바꿔도 통과하지 않음 → 1
+    repo = new_repo(base, "copy-worktree")
+    commit(repo, "사본 다름", **{".claude__skills__x.md": "다름\n"})
+    write(repo, ".claude/skills/x.md", "새\n")
+    expect("사본은 커밋 내용", repo, 1, 1)
 
     # 보안 브랜치가 없고 REQUIRE=1 → 대조 못 함 실패 1
     repo = new_repo(base, "no-branch")
