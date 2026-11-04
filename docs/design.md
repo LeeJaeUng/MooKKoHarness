@@ -46,7 +46,7 @@
 | 포트·주소·경로·숫자는 설정 목록에서만 | 코드·상수에 두지 않음, 늘리면 래칫 실패 | `check-no-hardcoded-endpoints.py`, `check-hardcoded-values.py` |
 | 웹 화면은 React + TypeScript + Tailwind (`web/` pnpm) | 다른 프레임워크·lock 금지, Next.js는 공개 SEO 화면만 | `check-stack.py`, WEB-01 |
 | 라이브는 Docker + Kubernetes(GKE Standard, COS 노드, 서울 3영역), GitOps(Argo CD·Rollouts), 앞단 Envoy Gateway | 매니페스트 규칙·컨테이너 보안·짝 HPA/PDB·멀티 AZ | `check-containers.py`(노드 풀·샌드박스·특권·레지스트리 포함), `check-production-config.py`, `check-prr.py`(훈련 기록 포함), `check-vuln-register.py` |
-| 시험은 내부 서버(생기기 전까지 WSL `MooKKo-Linux`), 빌드·시험은 Linux | Linux 밖 결과는 통과 아님. 빌드 자리·메모리 관문(Windows 전체 85%/90%) | `dev/build-slots.sh`, `dev/memory-guard.py` |
+| 시험은 내부 서버(생기기 전까지 WSL `MooKKo-Linux`), 빌드·시험은 Linux | Linux 밖 결과는 통과 아님. MooKKoRust 몫(WSL 6GB·빌드 자리 1개), PC 전체는 비상 관문(95%면 92%까지 기다리고 30분 넘으면 진행, PM 11-04) | `dev/build-slots.sh`, `dev/memory-guard.py` |
 | 이름에 Rust를 붙이지 않음 | crate·실행 파일·이미지·설정 id에 `rust` 금지 | `check-stack.py` |
 | 언어별 코딩 규약 | 정본 `policy/conventions/`와 `skills/`. lint 끄기는 예외 등록부(만료일)에 없으면 실패 | clippy·eslint·tsc, `check-lint-escapes.py`, QA CONV-01 |
 | 메모리 안전·오류 처리 | `#![forbid(unsafe_code)]`, unwrap·expect·panic 금지, clippy -D warnings | `check-forbid-unsafe.py`, clippy |

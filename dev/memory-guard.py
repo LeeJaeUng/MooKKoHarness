@@ -1,4 +1,5 @@
-"""PC 물리 메모리 관문(WSL 안에서 씀). 사용자 2026-11-03 "램 90%이하로 만 먹어야해"(PM 전달).
+"""PC 물리 메모리 비상 관문(WSL 안에서 씀). PM 결정 2026-11-04(사용자 "알아서 판단좀해"): MooKKoRust 사용량은 자기 몫
+(WSL 상한 6GB, 빌드 자리 1개)으로 묶고, PC 전체 사용률은 비상일 때만 본다. 옛 85%·90% 문턱과 180분 대기-실패는 없앴다.
 
 판정 기준(설정 source): WSL 안이면 Windows 전체 사용률로 한다. WSL VM 안의 /proc/meminfo는 page cache 때문에
 Windows가 보는 vmmemWSL 크기와 다르므로 판정에 쓰지 않는다(기록용으로만 봄). WSL이 아닌 Linux(내부 시험 서버,
@@ -7,17 +8,18 @@ powershell.exe·wsl.exe 위치는 기계마다 달라 저장소에 적지 않는
 data/dev-machine.json의 memoryGuard.powershell·wslExe → PATH → /mnt/<드라이브>/ 아래 Windows 기본 위치 순으로 찾는다
 (dev/machine.py, PM 2026-11-03 "하드코딩으로 경로같은거").
 
+비상 기다림: emergencyPercent 이상이면 page cache를 비우고 resumePercent 미만이 될 때까지 새로 시작하지 않는다.
+maxWaitMinutes를 넘겨도 안 내려가면 기록을 남기고 그대로 진행한다(빌드 자리 1개라 더 줄일 것이 없음, 실패로 끝내지 않음).
+
   memory-guard.py slots <자리 수>
-                                빌드 자리를 잡기 전. hard 이상이면 resume 미만이 될 때까지 기다린다. soft 이상이면
-                                page cache를 비우고 1을, 아니면 받은 자리 수를 표준 출력에 낸다(PM 11-03: 85% 이상이면 자리 1개).
-  memory-guard.py open <이름>   시험 컨테이너를 열기 전. hard 이상이면 resume 미만이 될 때까지 기다린다.
+                                빌드 자리를 잡기 전. 비상 기다림 뒤 받은 자리 수를 그대로 표준 출력에 낸다.
+  memory-guard.py open <이름>   시험 컨테이너를 열기 전. 비상 기다림.
   memory-guard.py step <이름> <작업 수>
-                                단계를 시작하기 전. hard 이상이면 resume 미만이 될 때까지 기다린다.
-                                soft 이상이면 page cache를 비우고 줄인 작업 수를, 아니면 받은 작업 수를 표준 출력에 낸다.
-  memory-guard.py watch         빌드 중 pollSeconds마다 사용률을 기록하고 soft 이상이면 page cache를 비운다.
+                                단계를 시작하기 전. 비상 기다림 뒤 받은 작업 수를 그대로 표준 출력에 낸다.
+  memory-guard.py watch         빌드 중 pollSeconds마다 사용률을 기록하고 emergency 이상이면 page cache를 비운다.
                                 부모 프로세스가 끝나거나 SIGTERM을 받으면 최고값(Windows %, WSL 사용, swap)을 내고 끝난다.
   memory-guard.py percent       지금 사용률만 낸다(WSL이면 Windows 전체, 아니면 이 기계).
-기록은 표준 오류에 `== 메모리 …` 한 줄씩 낸다. 기한(maxWaitMinutes)을 넘기면 1로 끝난다.
+기록은 표준 오류에 `== 메모리 …` 한 줄씩 낸다.
 """
 
 from __future__ import annotations
@@ -162,48 +164,39 @@ def drop_cache(cfg: dict) -> None:
         log("WSL page cache를 비웠습니다")
 
 
-def wait_below(cfg: dict, name: str, limit: float, target: float) -> float:
-    """사용률이 limit 이상이면 target 미만이 될 때까지 기다린다. 기다린 초를 기록하고 마지막 사용률을 돌려준다."""
+def wait_emergency(cfg: dict, name: str) -> float:
+    """사용률이 emergencyPercent 이상이면 resumePercent 미만이 될 때까지 기다린다. maxWaitMinutes를 넘기면 기록을 남기고
+    그대로 진행한다(PM 11-04: 기다리다 실패로 끝내지 않음). 마지막 사용률을 돌려준다."""
     pct = used_percent(cfg)
-    if pct < limit:
+    if pct < cfg["emergencyPercent"]:
         return pct
     start = time.monotonic()
     deadline = start + cfg["maxWaitMinutes"] * 60
-    log(f"{name}: {pct}% ≥ {limit}%라 {target}% 아래까지 새로 시작하지 않고 기다립니다")
+    log(f"{name}: {pct}% ≥ 비상 {cfg['emergencyPercent']}%라 {cfg['resumePercent']}% 아래까지 새로 시작하지 않고 기다립니다")
     drop_cache(cfg)
     while True:
         pct = used_percent(cfg)
-        if pct < target:
+        if pct < cfg["resumePercent"]:
             log(f"{name}: 기다림 끝 {int(time.monotonic() - start)}초, {pct}%")
             return pct
         if time.monotonic() >= deadline:
-            log(f"{name}: {cfg['maxWaitMinutes']}분을 기다려도 {pct}%라 멈춥니다. 다른 큰 프로그램을 줄이세요")
-            sys.exit(1)
+            log(f"{name}: {cfg['maxWaitMinutes']}분을 기다려도 {pct}%라 그대로 진행합니다(빌드 자리 1개, MooKKoRust 몫 안)")
+            return pct
         time.sleep(cfg["pollSeconds"])
 
 
 def cmd_open(cfg: dict, name: str) -> None:
-    pct = wait_below(cfg, name, cfg["hardPercent"], cfg["resumePercent"])
-    if pct >= cfg["softPercent"]:
-        drop_cache(cfg)
+    pct = wait_emergency(cfg, name)
     log(f"{name}: {pct}%, 엽니다")
 
 
 def cmd_slots(cfg: dict, count: int) -> None:
-    pct = wait_below(cfg, "빌드 자리", cfg["hardPercent"], cfg["resumePercent"])
-    if pct >= cfg["softPercent"] and count > 1:
-        drop_cache(cfg)
-        log(f"빌드 자리: {pct}% ≥ {cfg['softPercent']}%라 자리 1개만 씁니다")
-        count = 1
+    wait_emergency(cfg, "빌드 자리")
     print(count)
 
 
 def cmd_step(cfg: dict, name: str, jobs: int) -> None:
-    pct = wait_below(cfg, name, cfg["hardPercent"], cfg["resumePercent"])
-    if pct >= cfg["softPercent"]:
-        drop_cache(cfg)
-        jobs = min(jobs, cfg["reducedJobs"])
-        log(f"{name}: {pct}% ≥ {cfg['softPercent']}%라 작업 수를 {jobs}로 줄입니다")
+    wait_emergency(cfg, name)
     print(jobs)
 
 
@@ -224,7 +217,7 @@ def cmd_watch(cfg: dict) -> None:
         peak["used"] = max(peak["used"], used)
         peak["swap"] = max(peak["swap"], swap)
         log(f"Windows {pct}%, WSL 사용 {used} MiB, swap {swap} MiB")
-        if pct >= cfg["softPercent"]:
+        if pct >= cfg["emergencyPercent"]:
             drop_cache(cfg)
         for _ in range(int(cfg["pollSeconds"])):
             if stop or os.getppid() != parent:

@@ -66,7 +66,7 @@ if [ -n "$stale" ]; then
     echo "경고: 끝나지 않고 남은 시험 컨테이너가 있습니다(지우지 않음, 통합 담당에 알리세요): $(printf '%s ' $stale)" >&2
 fi
 
-# PC 메모리 관문: Windows 전체 사용률이 hard 이상이면 내려갈 때까지 새 시험 컨테이너를 열지 않습니다(config/dev/memory-guard.json).
+# PC 메모리 비상 관문: Windows 전체 사용률이 emergency 이상이면 resume 아래까지 새 시험 컨테이너를 열지 않고, 기한을 넘기면 엽니다(config/dev/memory-guard.json).
 python3 -X utf8 "$ROOT/dev/memory-guard.py" open "시험 ClickHouse"
 
 podman run -d --rm --name "$NAME" \

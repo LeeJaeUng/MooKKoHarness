@@ -68,8 +68,8 @@ PY
     }
     announced=""
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
-        # PC 메모리 관문(사용자 2026-11-03 "램 90%이하로 만 먹어야해"): Windows 전체 사용률이 hard 이상이면 내려갈 때까지
-        # 기다리고, soft 이상이면 자리를 1개만 씁니다(config/dev/memory-guard.json).
+        # PC 메모리 비상 관문(PM 11-04): Windows 전체 사용률이 emergency 이상이면 resume 아래까지 기다리고, 기한을 넘기면
+        # 그대로 진행합니다(config/dev/memory-guard.json). 평소 몫은 WSL 상한과 자리 수(build-slots.json)로 묶습니다.
         usable="$(python3 -X utf8 "$H/dev/memory-guard.py" slots "$SLOT_COUNT")"
         rank="$(queue_rank)"
         if ! slots_closing && [ "$rank" -lt "$usable" ]; then
