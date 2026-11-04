@@ -43,7 +43,7 @@ if [ -z "${MOOKKO_DISK_GUARD_DONE:-}" ]; then
     export MOOKKO_DISK_GUARD_DONE=1
 fi
 
-# 도는 동안 메모리 사용률을 기록하고 soft 이상이면 WSL page cache를 비웁니다(check-all과 같음).
+# 도는 동안 메모리 사용률을 기록하고 비상(emergency) 이상이면 WSL page cache를 비웁니다(check-all과 같음).
 python3 -X utf8 "$H/dev/memory-guard.py" watch &
 MEMORY_WATCH=$!
 trap 'kill "$MEMORY_WATCH" 2>/dev/null || true; wait "$MEMORY_WATCH" 2>/dev/null || true' EXIT
@@ -55,7 +55,7 @@ fi
 if [ -n "$postgres" ]; then
     command=(bash "$H/dev/with-test-postgres.sh" "${command[@]}")
 fi
-# 시작 전에 메모리를 봅니다: hard 이상이면 내려갈 때까지 기다리고, soft 이상이면 cargo 작업 수를 줄입니다(check-all의 run과 같음).
+# 시작 전에 메모리를 봅니다: 비상(emergency) 이상이면 resume 아래까지 기다리고, 기한을 넘기면 그대로 진행합니다(check-all의 run과 같음).
 # 이미 자리 안에서 불려 자리 잡기를 건너뛰었으면 작업 수 기본값을 설정에서 읽음(set -u로 멈추지 않게, mookko-rust-qa 11-04)
 base_jobs="${MOOKKO_BASE_JOBS:-${CARGO_BUILD_JOBS:-$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["jobs"])' "$H/config/dev/build-slots.json")}}"
 CARGO_BUILD_JOBS="$(python3 -X utf8 "$H/dev/memory-guard.py" step "with-build-slot" "$base_jobs")"

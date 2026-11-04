@@ -51,12 +51,12 @@ if [ -z "${MOOKKO_TEST_POSTGRES:-}" ]; then
 fi
 export MOOKKO_REQUIRE_TEST_POSTGRES=1
 
-# 빌드 중에는 메모리 사용률을 30초마다 기록하고 soft 이상이면 WSL page cache를 비웁니다. 끝날 때 최고값을 남깁니다.
+# 빌드 중에는 메모리 사용률을 30초마다 기록하고 비상(emergency) 이상이면 WSL page cache를 비웁니다. 끝날 때 최고값을 남깁니다.
 python3 -X utf8 "$H/dev/memory-guard.py" watch &
 MEMORY_WATCH=$!
 trap 'kill "$MEMORY_WATCH" 2>/dev/null || true; wait "$MEMORY_WATCH" 2>/dev/null || true' EXIT
 
-# 단계마다 시작 전에 메모리를 봅니다: hard 이상이면 내려갈 때까지 기다리고, soft 이상이면 cargo 작업 수를 줄입니다.
+# 단계마다 시작 전에 메모리를 봅니다: 비상(emergency) 이상이면 resume 아래까지 기다리고, 기한을 넘기면 그대로 진행합니다.
 run() {
     CARGO_BUILD_JOBS="$(python3 -X utf8 "$H/dev/memory-guard.py" step "$1" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
     export CARGO_BUILD_JOBS
