@@ -26,5 +26,8 @@
         "mookko-sandbox"
       ]
     }
+  ],
+  "daemonSetNamespaces": [
+    "mookko-security"
   ]
 }

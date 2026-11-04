@@ -61,7 +61,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   nodeAffinity 없음 1, untrusted인데 gvisor 없음 1·secret 볼륨 1·serviceAccountName 1, untrusted가 sandbox 네임스페이스 밖 1,
 #   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1,
 #   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 라벨의 untrusted(gvisor 없음) 1(보안 규칙은 YAML을 풀어 읽어 흐름 모양
-#   tolerations도 읽음, 합 12). 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
+#   tolerations도 읽음), mookko-security(daemonSetNamespaces)라도 DaemonSet이 아닌 Job의
+#   `mookko.io/pool` Exists toleration은 그 key의 풀마다 1(control·keys 2), 합 14. good: Falco DaemonSet은 전용 풀 taint를 받음. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
 #   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
@@ -105,7 +106,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 60,
-    "containers-sec": 12,
+    "containers-sec": 14,
     "vuln-register": 15,
     "design-sources": 4,
     "hardcoded": 9,
