@@ -72,7 +72,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   묶은 ClusterRole 없음 1, Workload Identity: 등록 안 된 워크로드가 WI SA 씀 1·SA 주석 값 다름 1·주석 SA 등록 없음 1,
 #   default SA 등록 1, 옛 칸 serviceAccount 1, labelSelector 없는 podAntiAffinity 1, 등록 밖 SA에 묶기 2(ServiceAccount·User 주체),
 #   서비스 계정 묶음 Group 1, aggregationRule 1, nonResourceURLs 1(mookko-rust-qa 추가 5),
-#   default SA WI 주석 1, 권한 넓히는 권한 3(secrets·rolebindings create·impersonate, 보안 755f466), 합 43. good: staff-gate namespaceSelector podAntiAffinity.
+#   default SA WI 주석 1, 권한 넓히는 권한 3(secrets·rolebindings create·impersonate, 보안 755f466),
+#   bindNamespaces 밖 RoleBinding 1(9j 결정), 합 44. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
@@ -119,7 +120,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 71,
-    "containers-sec": 43,
+    "containers-sec": 44,
     "vuln-register": 15,
     "security-reviews": 3,
     "design-sources": 4,
