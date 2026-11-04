@@ -546,3 +546,75 @@ spec:
           livenessProbe:
             httpGet:
               port: 8080
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gate-loose
+  namespace: mookko-staff-gate
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: too-wide
+  namespace: mookko-links
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: too-wide
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: too-wide
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-bind
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: missing-role
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links

@@ -7,7 +7,23 @@
       "rbac": "표본",
       "namespace": "mookko-links",
       "workload": "operations-deployer",
-      "serviceAccount": "operations-deployer"
+      "serviceAccount": "operations-deployer",
+      "scope": "namespace",
+      "reviewer": "security:reviewed 2026-11-04 표본",
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        }
+      ]
     }
   ]
 }
