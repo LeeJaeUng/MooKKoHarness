@@ -74,8 +74,9 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
 # production-config bad: 세션 절대·유휴 2, rpc staffRecentMfa 없음 1, 파일 KEK 1, devLocal 1, 평문 HTTP 1, tls disable 1, requireMfa 없음 1, 덮어쓰기의 파일 객체 저장소 1·requireMfa false 1. good: 운영 값, development 설정은 안 봄.
-# prr bad(enforce true): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), runbook 링크 없음 1, 링크 대상 없음 1,
-#   훈련 표의 탁상 훈련 줄 없음 1·기술 훈련 날짜 "-" 1·기록 링크 대상 없음 1. good: 미정 칸, 앵커 붙은 링크, 훈련 표.
+# prr bad(enforce true, qa-services T1~T4): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), 필수 낱말 없음 2(SLO·SLI 넷, 백업·복구 둘),
+#   경보: runbook 링크 없음 1·빈 칸(소진율 창) 1·증상/원인 값 1·링크 대상 없음 1, 사고 대응 훈련 열 없음 1, 정기 훈련·시험 표 없음 1.
+#   good: 미정 칸은 낱말을 보지 않음, 앵커 붙은 링크, 열 이름으로 읽는 표(틀의 '적을 것' 열 있어도 됨), 두 훈련 표.
 # systemd-units bad: User=root 1, NoNewPrivileges 없음 1, ExecStart=+ 1, .socket 1. good은 mookko-links-maintain.service 사본.
 # lint-escapes bad: src #[allow] 1, #![allow] 1, cfg_attr(…allow) 1, tests의 정해진 머리줄이 아닌 allow 1, web eslint-disable 1,
 #   acceptance/ 아래 #[allow] 1.
@@ -110,7 +111,7 @@ EXPECTED_BAD = {
     "hardcoded": 9,
     "hardcoded-warn": 2,
     "test-time": 5,
-    "prr": 9,
+    "prr": 12,
     "production-config": 10,
     "harness-copies": 5,
     "folder-layout": 5,
