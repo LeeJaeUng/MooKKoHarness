@@ -927,3 +927,42 @@ subjects:
     namespace: mookko-links
   - kind: Group
     name: system:authenticated
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: escalate-fb18
+  namespace: mookko-links
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["update"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["create"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    verbs: ["approve"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: escalate-fb18
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: escalate-fb18
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links
