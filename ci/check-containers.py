@@ -352,10 +352,7 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
     privileged_ok = (ns == PRIV_NAMESPACE and sec.get("privileged") is not None and bool(images)
                      and len(images) == len(items) and all(img in sec["privileged"] for img in images))
     check_security(rel, start, lines, doc, label, ns, sec, problems)
-    if not re.search(r"^\s*automountServiceAccountToken:\s*" + FALSE + r"\b", pod, re.MULTILINE):
-        problems.append(f"{rel}:{start}: {label}에 automountServiceAccountToken: false가 없습니다(API 토큰은 projected 볼륨으로만)")
-    if api_client(lines):
-        check_api_client(rel, start, doc, label, ns, sec, problems)
+    check_service_account(rel, start, lines, doc, label, ns, sec, problems)
     for ckind, cstart, body in items:
         block = "\n".join(body)
         cname = re.search(r"name:\s*[\"']?([^\"'#\s]+)", block)
@@ -440,7 +437,11 @@ def pool_used(pod: dict, pool: dict) -> bool:
     """파드가 tolerations·nodeSelector·nodeAffinity로 그 풀을 고르는지."""
     key, value = pool["key"], pool["value"]
     for tol in pod.get("tolerations") or []:
-        if isinstance(tol, dict) and tol.get("key") == key and (tol.get("operator") == "Exists" or str(tol.get("value")) == value):
+        if not isinstance(tol, dict):
+            continue
+        if not tol.get("key") and tol.get("operator") == "Exists":
+            return True  # 키 없는 Exists는 모든 taint를 받음(mookko-rust-qa 11-04 N2)
+        if tol.get("key") == key and (tol.get("operator") == "Exists" or str(tol.get("value")) == value):
             return True
     if str((pod.get("nodeSelector") or {}).get(key)) == value:
         return True
@@ -480,7 +481,10 @@ def check_security(rel: str, start: int, lines: list[str], doc: str, label: str,
     pod, label_maps = pod_template(obj)
     if not isinstance(pod, dict):
         return
-    every_node = obj.get("kind") == "DaemonSet" and ns in sec.get("daemon_ns", set())  # 모든 노드에 뜨는 DaemonSet
+    images = [c.get("image") for key in ("containers", "initContainers") for c in pod.get(key) or [] if isinstance(c, dict)]
+    # 모든 노드에 뜨는 DaemonSet: daemonSetNamespaces + 모든 이미지가 privileged-allowlist.json에 있을 때만(mookko-rust-qa 11-04)
+    every_node = (obj.get("kind") == "DaemonSet" and ns in sec.get("daemon_ns", set()) and bool(images)
+                  and all(img in (sec.get("privileged") or set()) for img in images))
     for pool in pools or []:
         if pool_used(pod, pool) and ns not in pool["namespaces"] and not every_node:
             problems.append(f"{where}: {label}: 네임스페이스 {ns}는 {pool['name']} 풀을 쓸 수 없습니다"
@@ -612,19 +616,16 @@ def child_value(block: str, key: str) -> str | None:
 MAX_TOKEN_SECONDS = 3600  # projected serviceAccountToken 만료 상한(보안 담당 api-clients.json note)
 
 
-def check_api_client(rel: str, start: int, doc: str, label: str, ns: str, sec: dict, problems: list[str]) -> None:
-    """api-client 표시가 있는 워크로드: api-clients.json 등록, 등록한 서비스 계정, projected 토큰 만료 ≤ MAX_TOKEN_SECONDS."""
-    clients = sec.get("api_clients")
-    if clients is None:
-        return  # 등록부 없음은 missing_registers가 실패로 알림
-    name = label.split(" ", 1)[1]
-    entry = clients.get((ns, name))
+def check_service_account(rel: str, start: int, lines: list[str], doc: str, label: str, ns: str, sec: dict,
+                          problems: list[str]) -> None:
+    """서비스 계정·API 토큰(SC-NODE-6, mookko-rust-qa 11-04 N1). 파드 틀 트리에서 판정한다.
+    - automountServiceAccountToken: false(예외 없음)
+    - api-client 표시나 projected serviceAccountToken이 있으면 (네임스페이스, 워크로드)가 api-clients.json에 있어야 함
+    - api-clients.json에 등록한 serviceAccount는 그 등록 워크로드만 씀(다른 워크로드가 같은 SA로 RBAC를 얻지 못하게)
+    - 등록 워크로드는 등록한 serviceAccountName과 projected 토큰 expirationSeconds ≤ MAX_TOKEN_SECONDS"""
     where = f"{rel}:{start}"
-    if entry is None:
-        problems.append(f"{where}: {label}: api-client 표시가 있지만 docs/policy/api-clients.json에 ({ns}, {name})가 없습니다(보안 담당 검토 뒤 등록)")
-        return
     if yaml is None:
-        return
+        return  # load_security가 실패로 알림
     try:
         obj = yaml.safe_load(doc)
     except yaml.YAMLError:
@@ -632,11 +633,27 @@ def check_api_client(rel: str, start: int, doc: str, label: str, ns: str, sec: d
     pod, _ = pod_template(obj if isinstance(obj, dict) else {})
     if not isinstance(pod, dict):
         return
-    if pod.get("serviceAccountName") != entry["serviceAccount"]:
-        problems.append(f"{where}: {label}: serviceAccountName은 등록한 {entry['serviceAccount']}여야 합니다(api-clients.json)")
+    if pod.get("automountServiceAccountToken") is not False:
+        problems.append(f"{where}: {label}에 automountServiceAccountToken: false가 없습니다(파드 틀, API 토큰은 projected 볼륨으로만)")
+    clients = sec.get("api_clients")
+    if clients is None:
+        return  # 등록부 없음은 missing_registers가 실패로 알림
+    name = label.split(" ", 1)[1]
+    sa = pod.get("serviceAccountName")
     seconds = [s["serviceAccountToken"].get("expirationSeconds")
                for v in pod.get("volumes") or [] if isinstance(v, dict)
                for s in ((v.get("projected") or {}).get("sources") or []) if isinstance(s, dict) and isinstance(s.get("serviceAccountToken"), dict)]
+    owner = next((key for key, item in clients.items() if key[0] == ns and item["serviceAccount"] == sa), None)
+    if owner is not None and owner[1] != name:
+        problems.append(f"{where}: {label}: 서비스 계정 {sa}는 api-clients.json에 {owner[1]} 몫으로 등록돼 있어 다른 워크로드가 쓰지 않습니다")
+    entry = clients.get((ns, name))
+    if entry is None:
+        if api_client(lines) or seconds:
+            problems.append(f"{where}: {label}: API 토큰(api-client 표시·projected serviceAccountToken)은 docs/policy/api-clients.json에 "
+                            f"({ns}, {name})가 있어야 합니다(보안 담당 검토 뒤 등록)")
+        return
+    if sa != entry["serviceAccount"]:
+        problems.append(f"{where}: {label}: serviceAccountName은 등록한 {entry['serviceAccount']}여야 합니다(api-clients.json)")
     if not seconds or not all(isinstance(x, int) and 0 < x <= MAX_TOKEN_SECONDS for x in seconds):
         problems.append(f"{where}: {label}: API 토큰은 projected serviceAccountToken(expirationSeconds ≤ {MAX_TOKEN_SECONDS})으로만 붙입니다")
 
@@ -660,24 +677,35 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
         label = f"{kind} {name}"
         if kind in WORKLOADS:
             check_workload(rel, start, lines, kind, label, problems, ns, sec)
-            ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", section(doc, "workloadRef"), re.MULTILINE)
+            ref_block = section(doc, "workloadRef")
+            ref = re.search(r"^\s+name:\s*[\"']?([\w.-]+)", ref_block, re.MULTILINE)
+            ref_kind = re.search(r"^\s+kind:\s*[\"']?([\w.-]+)", ref_block, re.MULTILINE)
             if kind == "Rollout" and ref:
-                pairs["refs"].add((ns, ref.group(1)))
-                pairs["ref_from"][(ns, ref.group(1))] = (where, label)
+                if ref_kind and ref_kind.group(1) != "Deployment":
+                    problems.append(f"{where}: {label}: workloadRef.kind는 Deployment여야 합니다(지금 {ref_kind.group(1)})")
+                target = (ns, "Deployment", ref.group(1))  # 종류까지 키로(같은 이름 Rollout이 자기 자신으로 통과하지 않게, N3)
+                pairs["refs"].add(target)
+                pairs["ref_from"][target] = (where, label)
             if kind in ZONE_SPREAD:
-                pairs["workloads"][(ns, name)] = (where, label)
+                pairs["workloads"][(ns, kind, name)] = (where, label)
         elif kind == "List":
             problems.append(f"{where}: kind List는 검사하지 못합니다. 문서를 `---`로 나눠 쓰세요")
         elif re.search(r"^\s+template:", doc, re.MULTILINE) and re.search(r"^\s+(-\s*)?containers:", doc, re.MULTILINE):
             problems.append(f"{where}: {label}: 모르는 워크로드 종류라 검사하지 못합니다(검사에 종류를 더하세요)")
+        elif kind == "Secret" and re.search(r"^type:\s*[\"']?kubernetes\.io/service-account-token", doc, re.MULTILINE):
+            problems.append(f"{where}: {label}: 서비스 계정 토큰 Secret은 쓰지 않습니다(오래 가는 토큰, projected 토큰으로만, SC-NODE-6)")
         elif kind == "PodDisruptionBudget":
             pairs["pdb"].add((ns, name))
             for value in re.findall(r"[\w./-]+:\s*\"?([\w.-]+)", section(doc, "matchLabels")):
                 pairs["pdb"].add((ns, value))
         elif kind == "HorizontalPodAutoscaler":
-            target = re.search(r"^\s*name:\s*\"?([\w.-]+)", section(doc, "scaleTargetRef"), re.MULTILINE)
-            if target:
-                pairs["hpa"].add((ns, target.group(1)))
+            scale = section(doc, "scaleTargetRef")
+            target = re.search(r"^\s*name:\s*\"?([\w.-]+)", scale, re.MULTILINE)
+            target_kind = re.search(r"^\s*kind:\s*\"?([\w.-]+)", scale, re.MULTILINE)
+            if target and not target_kind:
+                problems.append(f"{where}: {label}: scaleTargetRef.kind가 없습니다(Deployment·StatefulSet·Rollout, 짝을 종류까지 맞춤)")
+            elif target:
+                pairs["hpa"].add((ns, target_kind.group(1), target.group(1)))
             m = re.search(r"^\s+minReplicas:\s*(\d+)", doc, re.MULTILINE)
             if not m or int(m.group(1)) < MIN_REPLICAS:
                 found = m.group(1) if m else "없음(기본 1)"
@@ -724,13 +752,13 @@ def main() -> int:
             check_compose(rel.as_posix(), text, problems, sec)
     for key, (where, label) in sorted(pairs["ref_from"].items()):
         if key not in pairs["workloads"]:
-            problems.append(f"{where}: {label}: workloadRef가 가리키는 Deployment {key[1]}(네임스페이스 {key[0]})가 저장소에 없습니다")
+            problems.append(f"{where}: {label}: workloadRef가 가리키는 Deployment {key[2]}(네임스페이스 {key[0]})가 저장소에 없습니다")
     for key, (where, label) in sorted(pairs["workloads"].items()):
         if key in pairs["refs"]:
-            continue  # Argo Rollout이 workloadRef로 가리키는 Deployment: 짝은 Rollout이 가짐
+            continue  # Argo Rollout이 workloadRef로 가리키는 Deployment(종류까지 같을 때만): 짝은 Rollout이 가짐
         if key not in pairs["hpa"]:
-            problems.append(f"{where}: {label}에 짝 HorizontalPodAutoscaler(scaleTargetRef.name: {key[1]})가 없습니다")
-        if key not in pairs["pdb"]:
+            problems.append(f"{where}: {label}에 짝 HorizontalPodAutoscaler(scaleTargetRef kind: {key[1]}, name: {key[2]})가 없습니다")
+        if (key[0], key[2]) not in pairs["pdb"]:
             problems.append(f"{where}: {label}에 짝 PodDisruptionBudget이 없습니다")
     for ns, where in sorted(namespaces.items()):
         if ns not in deny:
@@ -745,7 +773,7 @@ def main() -> int:
         return 1
     print(
         f"container check passed ({counts['dockerfile']} Dockerfiles, {counts['compose']} compose files, "
-        f"{counts['kubernetes']} Kubernetes manifests, security registers {sum(v is not None for v in sec.values())}/3)"
+        f"{counts['kubernetes']} Kubernetes manifests, security registers {sum(v is not None for v in sec.values())}/{len(sec)})"
     )
     return 0
 

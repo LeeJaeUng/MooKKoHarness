@@ -51,5 +51,8 @@ fi
 if [ -n "$postgres" ]; then
     command=(bash "$H/dev/with-test-postgres.sh" "${command[@]}")
 fi
-echo "== 빌드 자리 $MOOKKO_BUILD_SLOT 안에서 실행: $*"
+# 시작 전에 메모리를 봅니다: hard 이상이면 내려갈 때까지 기다리고, soft 이상이면 cargo 작업 수를 줄입니다(check-all의 run과 같음).
+CARGO_BUILD_JOBS="$(python3 -X utf8 "$H/dev/memory-guard.py" step "with-build-slot" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
+export CARGO_BUILD_JOBS
+echo "== 빌드 자리 $MOOKKO_BUILD_SLOT 안에서 실행(jobs $CARGO_BUILD_JOBS): $*"
 "${command[@]}"
