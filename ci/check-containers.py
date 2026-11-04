@@ -15,8 +15,10 @@
 - Kubernetes 매니페스트(apiVersion·kind가 맨 앞 칸에 있는 *.y(a)ml, `---`로 나눈 문서마다, §3)
   - 워크로드(Deployment·StatefulSet·DaemonSet·Job·CronJob·Pod·Argo Rollout): **컨테이너마다**(initContainer 포함)
     runAsNonRoot: true·seccompProfile RuntimeDefault(파드 기본값 물려받음), allowPrivilegeEscalation: false,
-    readOnlyRootFilesystem: true, capabilities.drop [ALL]. 파드에 automountServiceAccountToken: false(Kubernetes API를 부르는
-    운영툴 배포기만 맨 앞 metadata.annotations의 `mookko.dev/kubernetes-api-client: "true"`로 예외). Rollout이 workloadRef로
+    readOnlyRootFilesystem: true, capabilities.drop [ALL]. 파드에 automountServiceAccountToken: false(예외 없음). Kubernetes API를
+    부르는 워크로드는 맨 앞 metadata.annotations의 `mookko.dev/kubernetes-api-client: "true"` 표시와 제품
+    docs/policy/api-clients.json 등록(네임스페이스·워크로드 이름)이 둘 다 있어야 하고, 토큰은 등록한 serviceAccountName의
+    projected serviceAccountToken(expirationSeconds ≤ 3600)으로만 붙인다(보안 담당 2026-11-04, security.md §5.1). Rollout이 workloadRef로
     Deployment를 가리키면 파드 칸은 그 Deployment에서 보고, 짝(HPA·PDB)은 Rollout이 가짐(mookko-rust-qa 11-03)
   - 보안 칸의 흐름 모양(`containers: [ … ]`·`securityContext: { … }`), kind List, template·containers가 있는 모르는 종류는
     검사하지 못하므로 실패
@@ -350,8 +352,10 @@ def check_workload(rel: str, start: int, lines: list[str], kind: str, label: str
     privileged_ok = (ns == PRIV_NAMESPACE and sec.get("privileged") is not None and bool(images)
                      and len(images) == len(items) and all(img in sec["privileged"] for img in images))
     check_security(rel, start, lines, doc, label, ns, sec, problems)
-    if not re.search(r"^\s*automountServiceAccountToken:\s*" + FALSE + r"\b", pod, re.MULTILINE) and not api_client(lines):
-        problems.append(f"{rel}:{start}: {label}에 automountServiceAccountToken: false가 없습니다")
+    if not re.search(r"^\s*automountServiceAccountToken:\s*" + FALSE + r"\b", pod, re.MULTILINE):
+        problems.append(f"{rel}:{start}: {label}에 automountServiceAccountToken: false가 없습니다(API 토큰은 projected 볼륨으로만)")
+    if api_client(lines):
+        check_api_client(rel, start, doc, label, ns, sec, problems)
     for ckind, cstart, body in items:
         block = "\n".join(body)
         cname = re.search(r"name:\s*[\"']?([^\"'#\s]+)", block)
@@ -524,7 +528,7 @@ def load_security(root: Path, problems: list[str]) -> dict:
             problems.append(f"docs/policy/{name}:1: JSON을 읽지 못했습니다: {e}")
             return {}
 
-    sec: dict = {"pools": None, "privileged": None, "registries": None}
+    sec: dict = {"pools": None, "privileged": None, "registries": None, "api_clients": None}
     if yaml is None:
         problems.append("docs/policy/node-pools.json:1: PyYAML(python3-yaml)이 없어 보안 규칙을 볼 수 없습니다(하네스 CI 환경 확인)")
     pools = read("node-pools.json")
@@ -551,6 +555,14 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/privileged-allowlist.json:1: images[{i}] {item['image']}는 다이제스트로 고정해야 합니다")
             else:
                 sec["privileged"].add(item["image"])
+    clients = read("api-clients.json")
+    if clients is not None:
+        sec["api_clients"] = {}
+        for i, item in enumerate(clients.get("clients", [])):
+            if not (isinstance(item, dict) and all(item.get(k) for k in ("namespace", "workload", "serviceAccount", "reason", "reviewed"))):
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]에 namespace·workload·serviceAccount·reason·reviewed가 있어야 합니다")
+                continue
+            sec["api_clients"][(item["namespace"], item["workload"])] = item
     registries = read("image-registries.json")
     if registries is not None:
         sec["registries"] = []
@@ -564,8 +576,9 @@ def load_security(root: Path, problems: list[str]) -> dict:
     return sec
 
 
-REGISTERS = {"pools": "node-pools.json", "privileged": "privileged-allowlist.json", "registries": "image-registries.json"}
-ALWAYS = {"pools", "privileged"}  # SC-REG-1: 늘 있어야 함. image-registries는 매니페스트가 있을 때만
+REGISTERS = {"pools": "node-pools.json", "privileged": "privileged-allowlist.json", "registries": "image-registries.json",
+             "api_clients": "api-clients.json"}
+ALWAYS = {"pools", "privileged", "api_clients"}  # SC-REG-1: 늘 있어야 함. image-registries는 매니페스트가 있을 때만
 
 
 def missing_registers(sec: dict, manifests: int, problems: list[str]) -> list[str]:
@@ -594,6 +607,38 @@ def child_value(block: str, key: str) -> str | None:
         if level == indent and m:
             return m.group(1)
     return None
+
+
+MAX_TOKEN_SECONDS = 3600  # projected serviceAccountToken 만료 상한(보안 담당 api-clients.json note)
+
+
+def check_api_client(rel: str, start: int, doc: str, label: str, ns: str, sec: dict, problems: list[str]) -> None:
+    """api-client 표시가 있는 워크로드: api-clients.json 등록, 등록한 서비스 계정, projected 토큰 만료 ≤ MAX_TOKEN_SECONDS."""
+    clients = sec.get("api_clients")
+    if clients is None:
+        return  # 등록부 없음은 missing_registers가 실패로 알림
+    name = label.split(" ", 1)[1]
+    entry = clients.get((ns, name))
+    where = f"{rel}:{start}"
+    if entry is None:
+        problems.append(f"{where}: {label}: api-client 표시가 있지만 docs/policy/api-clients.json에 ({ns}, {name})가 없습니다(보안 담당 검토 뒤 등록)")
+        return
+    if yaml is None:
+        return
+    try:
+        obj = yaml.safe_load(doc)
+    except yaml.YAMLError:
+        return  # check_security가 알림
+    pod, _ = pod_template(obj if isinstance(obj, dict) else {})
+    if not isinstance(pod, dict):
+        return
+    if pod.get("serviceAccountName") != entry["serviceAccount"]:
+        problems.append(f"{where}: {label}: serviceAccountName은 등록한 {entry['serviceAccount']}여야 합니다(api-clients.json)")
+    seconds = [s["serviceAccountToken"].get("expirationSeconds")
+               for v in pod.get("volumes") or [] if isinstance(v, dict)
+               for s in ((v.get("projected") or {}).get("sources") or []) if isinstance(s, dict) and isinstance(s.get("serviceAccountToken"), dict)]
+    if not seconds or not all(isinstance(x, int) and 0 < x <= MAX_TOKEN_SECONDS for x in seconds):
+        problems.append(f"{where}: {label}: API 토큰은 projected serviceAccountToken(expirationSeconds ≤ {MAX_TOKEN_SECONDS})으로만 붙입니다")
 
 
 def api_client(lines: list[str]) -> bool:
