@@ -607,6 +607,10 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: scope는 namespace|cluster, rules는 apiGroups·resources·verbs 목록"
                                 f"(와일드카드·하위 자원 금지)")
                 continue
+            if "bindNamespaces" in item and not (isinstance(item["bindNamespaces"], list)
+                                                 and all(isinstance(n, str) and n for n in item["bindNamespaces"])):
+                problems.append(f"docs/policy/api-clients.json:1: clients[{i}]: bindNamespaces는 네임스페이스 이름 목록이어야 합니다")
+                continue
             wide = sorted({f"{g or 'core'}/{r} {v}" for rule in item["rules"] for g in rule["apiGroups"] for r in rule["resources"]
                            for v in rule["verbs"] if escalating(g, r, v)})
             if wide:
@@ -712,6 +716,10 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
                 problems.append(f"{where}: {label}: 서비스 계정 {subject.get('namespace', bns)}/{subject.get('name')}는 api-clients.json에 없어 "
                                 f"Kubernetes 권한을 묶지 않습니다(SC-NODE-6)")
                 continue
+            allowed = set(entry.get("bindNamespaces") or [entry["namespace"]])
+            if binding.get("kind") == "RoleBinding" and bns not in allowed:
+                problems.append(f"{where}: {label}: {entry['serviceAccount']}를 묶는 RoleBinding은 bindNamespaces {sorted(allowed)}에만 둡니다"
+                                f"(지금 {bns}, api-clients.json)")
             if binding.get("kind") == "ClusterRoleBinding" and entry["scope"] != "cluster":
                 problems.append(f"{where}: {label}: {entry['serviceAccount']}는 scope namespace라 ClusterRoleBinding으로 묶지 않습니다(api-clients.json)")
             ref = binding.get("roleRef") or {}
