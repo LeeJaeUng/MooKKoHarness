@@ -895,3 +895,35 @@ subjects:
   - kind: ServiceAccount
     name: reg-no-token
     namespace: mookko-links
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: escalate-more
+  namespace: mookko-links
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    verbs: ["bind", "escalate"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: escalate-more
+  namespace: mookko-links
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: escalate-more
+subjects:
+  - kind: ServiceAccount
+    name: reg-no-token
+    namespace: mookko-links
+  - kind: Group
+    name: system:authenticated

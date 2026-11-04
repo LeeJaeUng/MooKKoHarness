@@ -10,6 +10,8 @@ data/dev-machine.json의 memoryGuard.powershell·wslExe → PATH → /mnt/<드�
 
 비상 기다림: emergencyPercent 이상이면 page cache를 비우고 resumePercent 미만이 될 때까지 새로 시작하지 않는다.
 maxWaitMinutes를 넘겨도 안 내려가면 기록을 남기고 그대로 진행한다(빌드 자리 1개라 더 줄일 것이 없음, 실패로 끝내지 않음).
+maxWaitMinutes는 한 실행(MOOKKO_RUN_ID, dev/build-slot-acquire.sh가 정함) 전체의 몫이다. 자리 대기·시험 컨테이너·단계마다 부르므로
+부를 때마다 새로 세면 몇 시간이 쌓인다(mookko-rust-qa 추가 6 ⑥). 실행별 기다린 초는 runStateFile에 두고 하루 지난 줄은 덮어쓸 때 뺀다.
 
   memory-guard.py slots <자리 수>
                                 빌드 자리를 잡기 전. 비상 기다림 뒤 받은 자리 수를 그대로 표준 출력에 낸다.
@@ -24,6 +26,7 @@ maxWaitMinutes를 넘겨도 안 내려가면 기록을 남기고 그대로 진�
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -164,25 +167,57 @@ def drop_cache(cfg: dict) -> None:
         log("WSL page cache를 비웠습니다")
 
 
+def run_waited(cfg: dict, add: float = 0.0) -> float:
+    """이 실행(MOOKKO_RUN_ID)이 지금까지 비상으로 기다린 초. add를 더해 적는다. 실행 id가 없으면 부를 때마다 0부터."""
+    run = os.environ.get("MOOKKO_RUN_ID")
+    if not run:
+        return 0.0
+    path = Path(os.path.expanduser(cfg["runStateFile"]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            state = json.loads(f.read() or "{}")
+        except ValueError:
+            state = {}  # 깨진 기록은 버리고 새로 씀(기다림이 더 길어지는 쪽이라 닫힌 쪽)
+        now = time.time()
+        state = {k: v for k, v in state.items() if now - v[1] < 86400}
+        waited = state.get(run, [0.0, now])[0] + add
+        if add:
+            state[run] = [waited, now]
+            f.seek(0)
+            f.truncate()
+            f.write(json.dumps(state))
+        return waited
+
+
 def wait_emergency(cfg: dict, name: str) -> float:
-    """사용률이 emergencyPercent 이상이면 resumePercent 미만이 될 때까지 기다린다. maxWaitMinutes를 넘기면 기록을 남기고
-    그대로 진행한다(PM 11-04: 기다리다 실패로 끝내지 않음). 마지막 사용률을 돌려준다."""
+    """사용률이 emergencyPercent 이상이면 resumePercent 미만이 될 때까지 기다린다. 이 실행의 기다림이 maxWaitMinutes를 넘기면
+    기록을 남기고 그대로 진행한다(PM 11-04: 기다리다 실패로 끝내지 않음). 마지막 사용률을 돌려준다."""
     pct = used_percent(cfg)
     if pct < cfg["emergencyPercent"]:
         return pct
+    budget = cfg["maxWaitMinutes"] * 60 - run_waited(cfg)
+    if budget <= 0:
+        log(f"{name}: {pct}% ≥ 비상 {cfg['emergencyPercent']}%지만 이 실행의 기다림 {cfg['maxWaitMinutes']}분을 다 써서 그대로 진행합니다")
+        return pct
     start = time.monotonic()
-    deadline = start + cfg["maxWaitMinutes"] * 60
-    log(f"{name}: {pct}% ≥ 비상 {cfg['emergencyPercent']}%라 {cfg['resumePercent']}% 아래까지 새로 시작하지 않고 기다립니다")
+    log(f"{name}: {pct}% ≥ 비상 {cfg['emergencyPercent']}%라 {cfg['resumePercent']}% 아래까지 새로 시작하지 않고 기다립니다"
+        f"(이 실행에 남은 기다림 {int(budget)}초)")
     drop_cache(cfg)
-    while True:
-        pct = used_percent(cfg)
-        if pct < cfg["resumePercent"]:
-            log(f"{name}: 기다림 끝 {int(time.monotonic() - start)}초, {pct}%")
-            return pct
-        if time.monotonic() >= deadline:
-            log(f"{name}: {cfg['maxWaitMinutes']}분을 기다려도 {pct}%라 그대로 진행합니다(빌드 자리 1개, MooKKoRust 몫 안)")
-            return pct
-        time.sleep(cfg["pollSeconds"])
+    try:
+        while True:
+            pct = used_percent(cfg)
+            if pct < cfg["resumePercent"]:
+                log(f"{name}: 기다림 끝 {int(time.monotonic() - start)}초, {pct}%")
+                return pct
+            if time.monotonic() - start >= budget:
+                log(f"{name}: 이 실행에서 {cfg['maxWaitMinutes']}분을 기다려도 {pct}%라 그대로 진행합니다(빌드 자리 1개, MooKKoRust 몫 안)")
+                return pct
+            time.sleep(min(cfg["pollSeconds"], max(1.0, budget - (time.monotonic() - start))))
+    finally:
+        run_waited(cfg, time.monotonic() - start)
 
 
 def cmd_open(cfg: dict, name: str) -> None:

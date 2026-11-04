@@ -73,7 +73,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   default SA 등록 1, 옛 칸 serviceAccount 1, labelSelector 없는 podAntiAffinity 1, 등록 밖 SA에 묶기 2(ServiceAccount·User 주체),
 #   서비스 계정 묶음 Group 1, aggregationRule 1, nonResourceURLs 1(mookko-rust-qa 추가 5),
 #   default SA WI 주석 1, 권한 넓히는 권한 3(secrets·rolebindings create·impersonate, 보안 755f466),
-#   bindNamespaces 밖 RoleBinding 1(9j 결정), 합 44. good: staff-gate namespaceSelector podAntiAffinity.
+#   bindNamespaces 밖 RoleBinding 1(9j 결정),
+#   권한 넓히기 4(roles bind·escalate, clusterroles update, serviceaccounts create)·system:authenticated Group 1(추가 6 ⑤), 합 49. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
@@ -120,7 +121,7 @@ EXPECTED_BAD = {
     "forbid-unsafe": 2,
     "systemd-units": 4,
     "containers": 71,
-    "containers-sec": 44,
+    "containers-sec": 49,
     "vuln-register": 15,
     "security-reviews": 3,
     "design-sources": 4,
@@ -191,13 +192,18 @@ def main() -> int:
                     f"ci/fixtures/{name}/bad:1: 잡아야 할 표본 {EXPECTED_BAD[name]}건 중 {len(lines)}건(rc={code})"
                     + "".join(f"\n  {line}" for line in lines)
                 )
+    # git 기록을 보는 검사(check-owner-paths)와 메모리 관문은 임시 git 저장소·설정으로 시험(test_git_checks.py)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import test_git_checks  # noqa: E402
+
+    failures += test_git_checks.run_all(run_dir / "git")
     for failure in failures:
         print(failure)
     if failures:
         print(f"ci check samples failed; kept {run_dir}")
         return 1
     shutil.rmtree(run_dir)
-    print(f"ci check samples passed ({len(CHECKS)} checks)")
+    print(f"ci check samples passed ({len(CHECKS)} checks, git·메모리 표본 포함)")
     return 0
 
 

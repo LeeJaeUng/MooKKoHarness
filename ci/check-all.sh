@@ -5,6 +5,18 @@ set -euo pipefail
 # git 기록·기준 판을 읽지 못하면 "건너뜀"이 아니라 실패(migration_lock 잠금 기록, vuln-register 기준 판 대조 ⑤). 보안 담당·QAManager
 # 요청 2026-11-04. 표본 시험은 검사 폴더가 git 최상위가 아니라 대조 자체를 하지 않으므로 영향 없음.
 export MOOKKO_REQUIRE_GIT_HISTORY="${MOOKKO_REQUIRE_GIT_HISTORY:-1}"
+# 검사를 끄거나 대조 기준을 옮기는 환경 변수는 check-all 안에서 받지 않습니다(mookko-rust-qa 추가 6 ②: REGISTER_BASE=HEAD,
+# SECURITY_BRANCH=HEAD, REQUIRE=0이면 보안 대조가 꺼짐). 표본 시험은 검사를 직접 부르므로 영향 없음.
+for name in MOOKKO_REGISTER_BASE MOOKKO_SECURITY_BRANCH MOOKKO_MEMORY_GUARD_SETTINGS; do
+    if [ -n "${!name:-}" ]; then
+        echo "check-all: $name는 check-all 안에서 쓰지 않습니다(검사 기준을 옮김). 지우고 다시 돌리세요" >&2
+        exit 1
+    fi
+done
+if [ "$MOOKKO_REQUIRE_GIT_HISTORY" != "1" ]; then
+    echo "check-all: MOOKKO_REQUIRE_GIT_HISTORY는 1이어야 합니다(git 기록 대조를 건너뛰지 않음)" >&2
+    exit 1
+fi
 
 H="$(cd "$(dirname "$0")/.." && pwd)"  # 하네스 저장소 최상위
 if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then

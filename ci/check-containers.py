@@ -701,8 +701,10 @@ def check_rbac(sec: dict, rbac: list[tuple[str, dict]], problems: list[str]) -> 
             if not isinstance(subject, dict):
                 continue
             kind, sname = subject.get("kind"), str(subject.get("name") or "")
-            if kind == "Group" and sname.startswith("system:serviceaccounts"):
-                problems.append(f"{where}: {label}: 서비스 계정 묶음 Group {sname}에 권한을 주지 않습니다(SA마다 api-clients.json 등록, SC-NODE-6)")
+            if kind == "Group" and sname.startswith("system:"):
+                # system:serviceaccounts*뿐 아니라 system:authenticated·unauthenticated 등도 모든 SA(또는 누구나)를 담아
+                # 등록·bindNamespaces를 비켜 감(mookko-rust-qa 추가 6 ⑤)
+                problems.append(f"{where}: {label}: 시스템 Group {sname}에 권한을 주지 않습니다(SA마다 api-clients.json 등록, SC-NODE-6)")
                 continue
             if kind == "User" and sname.startswith("system:serviceaccount:"):
                 parts = sname.split(":")
