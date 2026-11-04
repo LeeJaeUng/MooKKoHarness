@@ -1,8 +1,10 @@
 # MooKKoHarness 설계
 
-처음 정한 날: 2026-10-29(하네스를 Rust로 새로 만듦). 고친 날: 2026-11-03.
+처음 정한 날: 2026-10-29(하네스를 Rust로 새로 만듦). 고친 날: 2026-11-03, 2026-11-04.
 - 이름을 MooKKoRustDev에서 MooKKoHarness로 바꿈(사용자 "MooKKoRustDev 이름을 하네스로 바꿔야하는거 아니야? 영어로").
 - 제품에 흩어져 있던 검사·관문·규약을 여기로 모음(사용자 "하네스 한쪽에 몰아줘").
+- 개발은 AI 매니저를 거치지 않고 Claude 앱 세션(PM → 하네스 담당 → 하위 세션)에서 함, 하네스는 허브에 등록하지 않음
+  (사용자 2026-11-03 "ai매니져 안쓰고 여기서 할꺼야", "허브에도 등록안할꺼고"). 그래서 서버 H3·H4는 멈춤(아래 단계).
 
 관리 대상은 제품 저장소 MooKKo(로컬 폴더 `MooKKoRust`, 원격 `LeeJaeUng/MooKKo`)입니다. 저장소 경로는 설정 JSON에서 읽습니다.
 
@@ -10,11 +12,11 @@
 
 **하네스는 개발될 서비스들을 강하게 잡습니다.** 워커(AI)에게는 정해진 방식대로만 개발하도록 규칙을 줍니다. 어긋난 커밋은 검사·관문에서 막아 `foundation/engine`·`main`에 들어가지 못하게 합니다. 하네스 자신은 화면이 없습니다(API와 실시간 알림만).
 
-지금(서버 H3~H5 전) 일의 흐름은 이렇습니다.
+일의 흐름은 이렇습니다. 워커는 Claude 앱 세션입니다(PM이 지시 → 하네스 담당이 일감을 나눔 → 하위 세션이 개발·QA).
 1. 담당 세션이 자기 worktree에서 커밋합니다.
 2. Linux check-all을 돌립니다. 하네스 `ci/check-all.sh`가 제품 `harness.lock` 판으로 돕니다.
 3. 분야별 QA 세션이 판정합니다.
-4. 통합 담당(RustDev)이 `integrate/*`에 모은 뒤 check-all을 다시 돌립니다.
+4. 하네스 담당(통합)이 `integrate/*`에 모은 뒤 check-all을 다시 돌립니다.
 5. `foundation/engine` fast-forward를 합니다.
 6. 같은 커밋을 `main`에 push합니다.
 
@@ -68,49 +70,41 @@ policy/           관문(gates.md·gates.json), 언어별 규약(conventions/)
 rules/            워커에게 주는 담당 규칙          skills/  언어별 AI 스킬
 ci/               check-all.sh와 검사 본체, 검사 표본(fixtures/), DB 검사(db/)
 dev/              개발 도구: 빌드 자리·메모리·디스크 관문·시험 DB·WSL 실행
-config/           dev.example.json(하네스 서버), dev/(개발 도구 설정), roles.json(담당 구성 초안)
-apps/ crates/     하네스 서버(Rust): mookko-dev 실행 파일, dev-config·dev-hub·dev-server
+config/           dev.example.json(하네스 서버), dev/(개발 도구 설정), roles.json(담당 구성: 담당표 owners.json과 맞춤)
+apps/ crates/     하네스 서버(Rust, H1 뼈대에서 멈춤): mookko-dev 실행 파일, dev-config·dev-hub·dev-server
 data/             실행 데이터(git 제외)
 ```
 
 폴더마다 README에 "여기 두는 것 / 두지 않는 것"을 적습니다. `ci/check-folder-layout.py`가 하네스 저장소의 자리를 검사합니다(처음에는 경고).
 
-하네스 서버는 Rust(axum, tokio)입니다. 모든 crate 루트는 `#![forbid(unsafe_code)]`이고, 제품과 같은 lint를 씁니다. 제품 엔진 crate는 다른 저장소이므로 가져다 쓰지 않습니다(프로젝트끼리는 HTTP로만).
+하네스 서버(Rust, axum·tokio, H1 뼈대)는 **멈춰 둡니다**(2026-11-04). 서버가 하려던 담당·일감·워커 턴(H3·H4)은 Claude 앱
+세션이 맡고, 허브·AI 매니저에 붙이지 않습니다. 코드는 그대로 두되 새로 키우지 않고 띄우지 않습니다. 다시 쓸지(예: GitHub에서 도는
+반영 관문 H5) 지울지는 PM이 정합니다. 모든 crate 루트는 `#![forbid(unsafe_code)]`이고, 제품과 같은 lint를 씁니다.
 
-서버의 다음 단계 crate는 이렇습니다.
-- dev-core: 담당, 일감, 보고서, 관문 판정
-- dev-store: 덧붙이기만 하는 사건 기록
-- dev-ai: AI 매니저 자리·세션
-- dev-git: 담당별 worktree·경계 판정
-- dev-worker: 격리 실행
-- dev-qa: 판 고정 check-all 실행
-- dev-merge: `foundation/engine`·`main` fast-forward·push
-
-## 운영 교훈 → 서버에 넣을 요구
+## 운영 교훈 (세션 운영에 그대로 씀)
 
 예전 C# 실행부의 기록에서 가져왔습니다(`docs/reference/`. 그 문서의 경로·명령은 쓰지 않습니다).
-- 일감이 있을 때만 워커를 띄우고, 담당 하나는 한 번에 일감 하나만 맡습니다. 전역 동시 수는 남은 메모리를 보고 정합니다(MooKKo 작업은 Windows 전체 90% 관문).
-- 턴이 끝나면 자식 프로세스까지 끝냅니다. 그다음 **AI 자리를 먼저 반납**하고, git 결과·보고서를 기록합니다.
-- 일감을 done/blocked/failed로 바꾸는 것은 워커의 명시적 보고서뿐입니다. AI 턴 성공을 QA 통과나 반영으로 세지 않습니다.
-- 경계 판정은 그 턴이 만든 커밋만 봅니다(병합 커밋 규칙 포함).
-- QA fail은 끝난 QA로 기록하고 개발 담당에게 되돌립니다. 멈춘 턴은 pending으로 되돌립니다. AI 매니저 끊김은 담당 실패로 세지 않습니다.
+- 일감이 있을 때만 하위 세션에 주고, 담당 하나는 한 번에 일감 하나만 맡습니다. 무거운 단계(빌드·시험)는 빌드 자리 2개와
+  메모리 관문(Windows 전체 85%/90%, MooKKo 작업만)을 거칩니다.
+- 일감을 끝냈다고 세는 것은 담당의 보고와 커밋 해시뿐입니다. 세션 턴이 끝난 것을 QA 통과나 반영으로 세지 않습니다.
+- 경계 판정은 그 담당이 만든 커밋만 봅니다(owners.json, 병합 커밋 규칙 포함).
+- QA fail은 끝난 QA로 기록하고 개발 담당에게 되돌립니다.
 - 담당 사이 파일 전달은 커밋 SHA와 저장소 안 경로로만 합니다.
 
 ## 단계
 
-| 단계 | 끝난 상태 |
+| 단계 | 상태 |
 |---|---|
-| H1 뼈대 | 설정·포트, `/health`, SSE (있음) |
+| H1 뼈대 | 설정·포트, `/health`, SSE (있음, 멈춤) |
 | H2 강제 검사 | check-all과 검사 전부, 판 고정(`harness.lock`) (있음, 계속 늘림: `docs/coordination/harness-backlog.md`) |
-| H3 담당·일감 | 사건 기록 저장, 담당 구성, 일감 상태 API |
-| H4 워커 한 턴 | AI 매니저 자리 또는 API 크레딧, 격리 실행, 규칙 주입, 보고서, 경계 판정 |
-| H5 QA·반영 | QA 판정 모으기, 판 고정 check-all, `foundation/engine`·`main` fast-forward·push(GitHub에 반영) |
+| H3 담당·일감 | Claude 앱 세션으로 대신함(PM → 하네스 담당 → 하위 세션, 담당표 owners.json·roles.json) |
+| H4 워커 한 턴 | Claude 앱 세션으로 대신함(세션마다 자기 worktree, 규칙은 `rules/`·`skills/`·제품 사본, 경계는 owners.json) |
+| H5 QA·반영 | 지금은 하네스 담당이 함(분야별 QA 판정 → 판 고정 check-all → `foundation/engine`·`main` fast-forward·push). 배포 관문(이미지 서명·SLSA·Binary Authorization, 이관 묶기 S-MIG-14)은 H5에 들어감 |
 
-## 정해야 할 것 (H3 전에)
+## 정해야 할 것
 
-1. **하네스 서버 실행 위치.** 내부 시험 서버(Linux)로 둡니다. 서버가 생기기 전까지는 WSL `MooKKo-Linux`입니다. 허브(5280)에는 HTTP로 닿게 합니다. 내부 서버 사양·OS·계정은 사용자 결정 대기입니다.
-2. **워커 실행 자원.** AI 매니저 자리(구독)와 API 크레딧($200) 중 무엇을 언제 쓸지 정해야 합니다. PM이 사용자에게 확인합니다.
-3. **워커 격리.** Linux 컨테이너(Podman 또는 내부 서버의 컨테이너)로 합니다. Windows 격리는 쓰지 않습니다.
-4. **GitHub.**
+1. **검사 실행 위치.** 내부 시험 서버(Linux)로 옮깁니다. 서버가 생기기 전까지는 WSL `MooKKo-Linux`입니다. 내부 서버 사양·OS·계정은 사용자 결정 대기입니다.
+2. **H5 배포 관문을 어디서 돌릴지.** GitHub Actions(비공개 저장소)나 내부 서버. 라이브 배포를 시작하기 전에 정합니다.
+3. **GitHub.**
    - `LeeJaeUng/MooKKoHarness` 저장소는 사용자가 만들고, PM이 처음 push합니다.
    - `LeeJaeUng/MooKKo` 기본 브랜치를 `main`으로 바꾸는 것은 사용자가 합니다.

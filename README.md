@@ -1,6 +1,6 @@
 # MooKKoHarness
 
-공통 안내: MooKKo 폴더의 `CLAUDE.md`(이 저장소의 상위 폴더) · AI 매니저: 허브 `GET /v1/ports/<매니저 id>`로 주소를 읽음 (연동 안내 `MooKKoAIManager/docs/연동-안내.md`)
+공통 안내: MooKKo 폴더의 `CLAUDE.md`(이 저장소의 상위 폴더). AI 매니저와 허브는 쓰지 않습니다(사용자 2026-11-03, 개발은 Claude 앱 세션).
 
 MooKKo 제품의 개발 하네스입니다. **개발될 서비스들이 정해진 방식대로만 개발되도록 강하게 잡는 것**이 역할입니다(`docs/design.md` › 강제하는 것). 정해진 방식은 공용 엔진, 모듈화, 설정 목록, React·TS·Tailwind 화면, Linux 빌드, Kubernetes 라이브입니다.
 
@@ -10,8 +10,9 @@ MooKKo 제품의 개발 하네스입니다. **개발될 서비스들이 정해�
 
 | 항목 | 값 |
 |---|---|
-| 허브 앱 id | `harness` (포트는 허브 `GET /v1/ports/harness`, 전 id `rustdev`) |
-| 서버 | Rust(axum, tokio). API와 실시간 알림(SSE)만, 화면 없음. 지금은 H1 뼈대 |
+| 허브 | 등록하지 않음(사용자 2026-11-03, 옛 id `rustdev`·포트 5292는 쓰지 않음) |
+| 개발·워커 | Claude 앱 세션(PM → 하네스 담당 → 하위 세션). AI 매니저 안 씀 |
+| 서버 | Rust(axum, tokio), H1 뼈대에서 멈춤(`docs/design.md` › 단계). 띄우지 않음 |
 | 원격 | `LeeJaeUng/MooKKoHarness`(비공개, 만들면 PM이 처음 push) |
 | 실행 데이터 | `data/` (git 제외) |
 
@@ -25,7 +26,7 @@ MooKKo 제품의 개발 하네스입니다. **개발될 서비스들이 정해�
 | `ci/` | `check-all.sh`와 검사 본체, 검사 표본 |
 | `dev/` | 개발 도구: 빌드 자리, 메모리·디스크 관문, 시험 DB, WSL 실행 |
 | `config/` | 하네스 서버 설정 예, 개발 도구 설정(`dev/`), 담당 구성 초안(`roles.json`) |
-| `apps/` · `crates/` | 하네스 서버(Rust) |
+| `apps/` · `crates/` | 하네스 서버(Rust, 멈춤) |
 
 ## 검사를 바꾸려면
 
