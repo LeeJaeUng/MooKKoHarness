@@ -20,8 +20,10 @@
 - SC-NODE-3 노드 풀마다 전용 노드 서비스 계정(최소 역할 `roles/container.defaultNodeServiceAccount` + 레지스트리 읽기), Workload Identity(`GKE_METADATA`), Shielded·보안 부팅·무결성 모니터링, 사설 노드, 자동 업그레이드·자동 복구, kubelet 읽기 전용 포트 끔. Compute 기본 서비스 계정 금지. **[검사]** OpenTofu plan 정책(IaC 저장소가 생기면, 하네스에 요청) **[QA]**
 - SC-NODE-4 Kubernetes 서비스 계정 하나에 Workload Identity 주체 하나, 권한은 그 서비스가 실제로 부르는 것만. 여러 서비스가 한 IAM 서비스 계정을 함께 쓰지 않는다. **[QA]**
   - GCP 자격을 받는 SA(`iam.gke.io/gcp-service-account` 주석, 또는 IaC에서 IAM 주체로 직접 권한을 받는 SA)는 제품 `docs/policy/workload-identities.json`(`{"identities":[{kind, namespace, workload, serviceAccount, gcpServiceAccount, gcpRoles, reason, reviewer}]}`)에 등록하고, 등록한 (kind, ns, name)만 그 SA를 쓴다. **토큰 마운트와 상관없다**(WI는 메타데이터 서버로 자격을 줌). 등록 밖 SA에 WI 주석이 붙거나 주석 값이 등록과 다르면 실패다. 등록부는 늘 있어야 한다(SC-REG-1). **[검사]** `ci/check-containers.py` 확장(하네스에 요청), IaC 바인딩 대조는 OpenTofu plan 정책(IaC 저장소가 생기면)
+  - `default` 서비스 계정에는 WI 주석을 달지 않고, IaC에서도 IAM 주체로 쓰지 않는다(SA를 적지 않은 Pod가 모르게 자격을 받음, QA 추가 5). **[검사]** `ci/check-containers.py` 확장(하네스에 요청)
 - SC-NODE-6 Kubernetes API 토큰은 제품 `docs/policy/api-clients.json`(`{"clients":[{namespace, workload, serviceAccount, rbac, reason, reviewed}]}`)에 등록된 워크로드만 받는다. 모든 워크로드는 `automountServiceAccountToken: false`이고, 등록된 것은 등록한 `serviceAccountName`과 projected `serviceAccountToken` 볼륨(`expirationSeconds` ≤ 3600)으로만 토큰을 붙인다. RBAC는 필요한 자원·동사만(와일드카드·하위 자원 금지, 클러스터 범위는 security.md §5.1에 적은 것만). 등록은 보안 검토(SC-REV-1)를 거친다. **[검사]** `ci/check-containers.py`(하네스 2e8037b: 등록 대조·SA 이름·토큰 만료, 등록부가 없으면 실패) **[QA]**(RBAC가 실제 호출과 맞는지)
   - 등록 항목은 `scope`(namespace|cluster), `rules`(그 SA에 묶인 Role·ClusterRole의 상한: apiGroups·resources·verbs, 와일드카드·하위 자원 금지), `reviewer`(보안 검토 기록)를 가진다. 묶인 RBAC가 `rules`를 넘으면 실패한다. 등록한 SA·projected 토큰은 표시가 없어도 등록 밖 워크로드가 쓰면 실패한다(QA N1). 워크로드는 (kind, namespace, name)으로 가린다. Rollout과 Deployment가 이름이 같아도 섞지 않는다(QA N3). **[검사]** `ci/check-containers.py` 확장(하네스에 요청)
+  - 권한을 넓히는 권한은 `rules`에 넣지 않는다. 금지 대상은 `rbac.authorization.k8s.io`의 roles·rolebindings·clusterroles·clusterrolebindings 쓰기 동사, `bind`·`escalate`·`impersonate` 동사, `secrets`, `serviceaccounts` 토큰 만들기다. RBAC 바꾸기는 GitOps(Argo CD)로만 한다. 그래서 RoleBinding을 만들 네임스페이스 칸(bindNamespaces)은 두지 않는다(QA 추가 5). **[검사]** `ci/check-containers.py` 확장(하네스에 요청)
 - SC-NODE-5 제어부는 사설 끝점 + 승인된 네트워크. 사람의 kubectl·콘솔 쓰기는 비상 경로(두 사람·경보·감사)뿐. **[QA]**
 
 ## 2. 바깥 입력 샌드박스 (SEC-02)
@@ -67,6 +69,7 @@
   - 특권·샌드박스 예외, 감지 규칙 끄기
 - SC-REV-2 보안 담당은 받은 뒤 **한 영업일 안에** 검토하거나 고칠 점을 낸다(qa-design 설계 승인과 같은 기한). **[QA]**
 - SC-REV-3 설계서의 `security:reviewed` 줄은 안내다. L4 근거는 제품 `docs/policy/security-reviews.json`(보안 담당만 고침)의 항목이다. 항목은 그 절(머리줄부터 같은 단계 이하 다음 머리줄 앞까지, 줄 끝 공백 지움, `
+- SC-REG-3 보안 담당 파일(owners.json에서 "보안"인 경로, 특히 `docs/policy/security-reviews.json`과 다른 보안 등록부)은 **`claude/security` 브랜치 커밋으로만** 바뀐다. 모든 세션이 같은 git 사용자라 작성자로는 가릴 수 없다. 그래서 통합 때 하네스가 기준 판(`foundation/engine`)부터 HEAD까지 그 경로를 바꾼 커밋마다 `origin/claude/security`에 들어 있는지 본다. 들어 있지 않으면 실패한다. `security-reviews.json`은 기준 판과 견줘 항목의 해시·판정이 바뀌거나 만료 항목이 되살아난 것도 이 규칙으로 막는다. 같은 방식을 owners.json의 다른 담당 경로에도 넓힐지는 하네스·통합이 정한다. 나중에는 세션별 커밋 서명(SSH 서명 키)으로 바꾼다. **[검사]** 새 검사(하네스에 요청, L4 전 필수)
 `으로 이은 UTF-8)의 sha256을 가진다. 현재 절의 해시가 다르면 검토는 만료다. 설계서에 줄은 있는데 기록이 없거나 만료면 경고이고, L4에서는 실패다. 그 기록 파일을 보안 담당 밖에서 고치면 담당표 검사가 잡는다. **[검사]** 새 검사(하네스에 요청) **[QA]**
 
 ## 8. 표준
