@@ -53,7 +53,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
-#   등록부 셋 없음 3(매니페스트가 있으면 실패, mookko-rust-qa 11-04). Rollout workloadRef: 대상 Deployment 없음 1·replicas 2 1(mookko-rust-qa 11-04 추가 2). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리), workloadRef Rollout(대상 Deployment·HPA·PDB 있음).
+#   등록부 넷 없음 4(node-pools·privileged-allowlist·api-clients는 늘, image-registries는 매니페스트가 있으면). Rollout workloadRef: 대상 Deployment 없음 1·replicas 2 1(mookko-rust-qa 11-04 추가 2). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리), workloadRef Rollout(대상 Deployment·HPA·PDB 있음).
 #   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
 #   컨테이너 5(다이제스트·limits cpu·memory·probe 둘), Service NodePort 1, StorageClass Delete 1, PV Retain 없음 1).
 #   good: 한 줄 맵 resources, 운영툴 배포기 주석 예외, Job은 probe 없어도 됨.
@@ -62,7 +62,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   mookko-security인데 등록 안 된 이미지의 privileged 1, 바깥 레지스트리 image 1·Dockerfile FROM 1, 등록부 빠진 칸 1,
 #   `/`로 안 끝나는 레지스트리 접두어 1, 흐름 모양 라벨의 untrusted(gvisor 없음) 1(보안 규칙은 YAML을 풀어 읽어 흐름 모양
 #   tolerations도 읽음), mookko-security(daemonSetNamespaces)라도 DaemonSet이 아닌 Job의
-#   `mookko.io/pool` Exists toleration은 그 key의 풀마다 1(control·keys 2), 합 14. good: Falco DaemonSet은 전용 풀 taint를 받음. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
+#   `mookko.io/pool` Exists toleration은 그 key의 풀마다 1(control·keys 2), 합 14. api-client 표시가 있지만 등록 없음 1, 등록됐지만 토큰 만료 7200초 1, 합 16.
+#   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
 #   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
@@ -105,8 +106,8 @@ EXPECTED_BAD = {
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 62,
-    "containers-sec": 14,
+    "containers": 63,
+    "containers-sec": 16,
     "vuln-register": 15,
     "design-sources": 4,
     "hardcoded": 9,

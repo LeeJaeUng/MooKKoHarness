@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "clients": [
+    {
+      "reason": "표본",
+      "reviewed": "2026-11-04",
+      "rbac": "표본",
+      "namespace": "mookko-links",
+      "workload": "operations-deployer",
+      "serviceAccount": "operations-deployer"
+    }
+  ]
+}

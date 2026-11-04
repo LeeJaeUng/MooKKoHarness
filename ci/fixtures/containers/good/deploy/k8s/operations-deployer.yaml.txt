@@ -14,6 +14,15 @@ spec:
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels: {app: operations-deployer}
+      automountServiceAccountToken: false
+      serviceAccountName: operations-deployer
+      volumes:
+        - name: kube-api-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
       securityContext:
         runAsNonRoot: true
         seccompProfile:
