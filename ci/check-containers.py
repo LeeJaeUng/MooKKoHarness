@@ -43,7 +43,9 @@
   PyYAML이 없으면 실패한다.
   - node-pools.json(SC-NODE-2): 풀마다 {name, key, value, namespaces}. 워크로드의 tolerations·nodeSelector·nodeAffinity가
     전용 풀(key·value)을 가리키면 네임스페이스가 그 풀의 namespaces에 있어야 하고, 그 namespaces의 워크로드는
-    nodeAffinity requiredDuringSchedulingIgnoredDuringExecution으로 자기 풀을 골라야 함(taint만으로는 막히지 않음)
+    nodeAffinity requiredDuringSchedulingIgnoredDuringExecution으로 자기 풀을 골라야 함(taint만으로는 막히지 않음).
+    daemonSetNamespaces(목록)의 네임스페이스는 DaemonSet에 한해 모든 전용 풀을 받을 수 있음(노드 검사·런타임 감지처럼 모든
+    노드에 떠야 하는 것, host-security §7.2). 다른 종류(Deployment·Job 등)는 그 네임스페이스여도 예외 없음
   - 라벨 mookko.io/input: untrusted(metadata·파드 틀 labels, SC-SBX-1·3): runtimeClassName: gvisor, 이름이 sandbox인 풀이 있으면 그 namespaces 안,
     secret 볼륨·serviceAccountToken 투영·serviceAccountName(default 빼고)·Kubernetes API 예외 주석 없음
   - privileged-allowlist.json(SC-PRIV-1): 항목마다 {image(다이제스트), reason, owner, reviewed}. 네임스페이스 mookko-security의
@@ -471,8 +473,9 @@ def check_security(rel: str, start: int, lines: list[str], doc: str, label: str,
     pod, label_maps = pod_template(obj)
     if not isinstance(pod, dict):
         return
+    every_node = obj.get("kind") == "DaemonSet" and ns in sec.get("daemon_ns", set())  # 모든 노드에 뜨는 DaemonSet
     for pool in pools or []:
-        if pool_used(pod, pool) and ns not in pool["namespaces"]:
+        if pool_used(pod, pool) and ns not in pool["namespaces"] and not every_node:
             problems.append(f"{where}: {label}: 네임스페이스 {ns}는 {pool['name']} 풀을 쓸 수 없습니다"
                             f"(docs/policy/node-pools.json, SC-NODE-2)")
         if ns in pool["namespaces"] and not pool_required(pod, pool):
@@ -530,6 +533,11 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 problems.append(f"docs/policy/node-pools.json:1: pools[{i}]에 name·key·value·namespaces(목록)가 있어야 합니다")
                 continue
             sec["pools"].append(pool)
+        daemon_ns = pools.get("daemonSetNamespaces", [])
+        if not (isinstance(daemon_ns, list) and all(isinstance(n, str) and n for n in daemon_ns)):
+            problems.append("docs/policy/node-pools.json:1: daemonSetNamespaces는 네임스페이스 이름 목록이어야 합니다")
+        else:
+            sec["daemon_ns"] = set(daemon_ns)
     allow = read("privileged-allowlist.json")
     if allow is not None:
         sec["privileged"] = set()

@@ -109,7 +109,10 @@ spec:
       automountServiceAccountToken: false
       hostPID: true
       tolerations:
-        - operator: Exists
+        - key: mookko.io/pool
+          operator: Exists
+        - key: sandbox.gke.io/runtime
+          operator: Exists
       containers:
         - name: falco
           image: registry.example/falco@sha256:0000000000000000000000000000000000000000000000000000000000000000
