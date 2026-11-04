@@ -618,3 +618,79 @@ subjects:
   - kind: ServiceAccount
     name: reg-no-token
     namespace: mookko-links
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wi-owner
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: links-wi
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wi-borrow
+  namespace: mookko-links
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: links-wi
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: main
+          image: registry.example/app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: links-wi
+  namespace: mookko-links
+  annotations:
+    iam.gke.io/gcp-service-account: other@p.iam.gserviceaccount.com
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rogue
+  namespace: mookko-links
+  annotations:
+    iam.gke.io/gcp-service-account: rogue@p.iam.gserviceaccount.com

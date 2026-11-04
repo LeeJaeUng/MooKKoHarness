@@ -1,0 +1,15 @@
+# 표본 설계서
+
+## 1. 바깥 입구
+
+security:reviewed 2026-11-04 security — 표본
+
+입구 설명.
+
+### 1.1 세부
+
+세부 설명.
+
+## 2. 다른 절
+
+security:reviewed 2026-11-04 security — 기록 없는 절(경고만)

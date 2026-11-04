@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "identities": [
+    {
+      "kind": "Job",
+      "namespace": "mookko-links",
+      "workload": "wi-owner",
+      "serviceAccount": "links-wi",
+      "gcpServiceAccount": "links@p.iam.gserviceaccount.com",
+      "gcpRoles": [
+        "storage.objectViewer"
+      ],
+      "reason": "표본",
+      "reviewer": "표본"
+    }
+  ]
+}

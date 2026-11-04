@@ -559,7 +559,7 @@ def load_security(root: Path, problems: list[str]) -> dict:
             problems.append(f"docs/policy/{name}:1: JSON을 읽지 못했습니다: {e}")
             return {}
 
-    sec: dict = {"pools": None, "privileged": None, "registries": None, "api_clients": None}
+    sec: dict = {"pools": None, "privileged": None, "registries": None, "api_clients": None, "wi": None}
     if yaml is None:
         problems.append("docs/policy/node-pools.json:1: PyYAML(python3-yaml)이 없어 보안 규칙을 볼 수 없습니다(하네스 CI 환경 확인)")
     pools = read("node-pools.json")
@@ -618,12 +618,24 @@ def load_security(root: Path, problems: list[str]) -> dict:
                 sec["registries"].append(value)
         if not sec["registries"]:
             problems.append("docs/policy/image-registries.json:1: registries(이미지 접두어 목록)가 비었습니다")
+    identities = read("workload-identities.json")
+    if identities is not None:
+        sec["wi"] = {"by_sa": {}, "workloads": {}}
+        for i, item in enumerate(identities.get("identities", [])):
+            if not (isinstance(item, dict) and all(item.get(k) for k in WI_FIELDS)):
+                problems.append(f"docs/policy/workload-identities.json:1: identities[{i}]에 {'·'.join(WI_FIELDS)}가 있어야 합니다")
+                continue
+            key = (item["namespace"], item["serviceAccount"])
+            sec["wi"]["by_sa"].setdefault(key, []).append(item)
+            sec["wi"]["workloads"].setdefault(key, set()).add((item["kind"], item["namespace"], item["workload"]))
     return sec
 
 
+WI_ANNOTATION = "iam.gke.io/gcp-service-account"
+WI_FIELDS = ("kind", "namespace", "workload", "serviceAccount", "gcpServiceAccount", "gcpRoles", "reason", "reviewer")
 REGISTERS = {"pools": "node-pools.json", "privileged": "privileged-allowlist.json", "registries": "image-registries.json",
-             "api_clients": "api-clients.json"}
-ALWAYS = {"pools", "privileged", "api_clients"}  # SC-REG-1: 늘 있어야 함. image-registries는 매니페스트가 있을 때만
+             "api_clients": "api-clients.json", "wi": "workload-identities.json"}
+ALWAYS = {"pools", "privileged", "api_clients", "wi"}  # SC-REG-1: 늘 있어야 함. image-registries는 매니페스트가 있을 때만
 
 
 def missing_registers(sec: dict, manifests: int, problems: list[str]) -> list[str]:
@@ -715,11 +727,15 @@ def check_service_account(rel: str, start: int, lines: list[str], doc: str, labe
         return
     if pod.get("automountServiceAccountToken") is not False:
         problems.append(f"{where}: {label}에 automountServiceAccountToken: false가 없습니다(파드 틀, API 토큰은 projected 볼륨으로만)")
+    name = label.split(" ", 1)[1]
+    sa = pod.get("serviceAccountName")
+    identities = sec.get("wi")
+    if identities is not None and (ns, sa) in identities["by_sa"] and (obj.get("kind"), ns, name) not in identities["workloads"].get((ns, sa), set()):
+        problems.append(f"{where}: {label}: 서비스 계정 {sa}는 Workload Identity로 GCP 자격을 받으므로 workload-identities.json에 "
+                        f"({obj.get('kind')}, {ns}, {name})가 등록돼 있어야 씁니다(토큰 마운트와 상관없음, SC-NODE-4)")
     clients = sec.get("api_clients")
     if clients is None:
         return  # 등록부 없음은 missing_registers가 실패로 알림
-    name = label.split(" ", 1)[1]
-    sa = pod.get("serviceAccountName")
     seconds = [s["serviceAccountToken"].get("expirationSeconds")
                for v in pod.get("volumes") or [] if isinstance(v, dict)
                for s in ((v.get("projected") or {}).get("sources") or []) if isinstance(s, dict) and isinstance(s.get("serviceAccountToken"), dict)]
@@ -774,6 +790,17 @@ def check_kubernetes(rel: str, text: str, problems: list[str], namespaces: dict[
             problems.append(f"{where}: kind List는 검사하지 못합니다. 문서를 `---`로 나눠 쓰세요")
         elif re.search(r"^\s+template:", doc, re.MULTILINE) and re.search(r"^\s+(-\s*)?containers:", doc, re.MULTILINE):
             problems.append(f"{where}: {label}: 모르는 워크로드 종류라 검사하지 못합니다(검사에 종류를 더하세요)")
+        elif kind == "ServiceAccount" and yaml is not None and (sec or {}).get("wi") is not None:
+            try:
+                obj = yaml.safe_load(doc)
+            except yaml.YAMLError:
+                obj = None
+            gsa = (((obj or {}).get("metadata") or {}).get("annotations") or {}).get(WI_ANNOTATION) if isinstance(obj, dict) else None
+            entries = sec["wi"]["by_sa"].get((ns, name), [])
+            if gsa is not None and not entries:
+                problems.append(f"{where}: {label}: {WI_ANNOTATION} 주석이 있으면 workload-identities.json에 ({ns}, {name})가 있어야 합니다(SC-NODE-4)")
+            elif gsa is not None and all(e["gcpServiceAccount"] != gsa for e in entries):
+                problems.append(f"{where}: {label}: {WI_ANNOTATION} {gsa}가 workload-identities.json의 gcpServiceAccount와 다릅니다(SC-NODE-4)")
         elif kind in RBAC_KINDS:
             if yaml is not None:
                 try:
@@ -864,7 +891,7 @@ def main() -> int:
         return 1
     print(
         f"container check passed ({counts['dockerfile']} Dockerfiles, {counts['compose']} compose files, "
-        f"{counts['kubernetes']} Kubernetes manifests, security registers {sum(v is not None for v in sec.values())}/{len(sec)})"
+        f"{counts['kubernetes']} Kubernetes manifests, security registers {sum(sec.get(k) is not None for k in REGISTERS)}/{len(REGISTERS)})"
     )
     return 0
 

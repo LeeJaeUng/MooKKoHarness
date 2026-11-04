@@ -36,6 +36,7 @@ CHECKS = {
     "containers": HARNESS / "ci" / "check-containers.py",
     "containers-sec": HARNESS / "ci" / "check-containers.py",
     "vuln-register": HARNESS / "ci" / "check-vuln-register.py",
+    "security-reviews": HARNESS / "ci" / "check-security-reviews.py",
     "design-sources": HARNESS / "ci" / "check-design-sources.py",
     "hardcoded": HARNESS / "ci" / "check-hardcoded-values.py",
     "hardcoded-warn": HARNESS / "ci" / "check-hardcoded-values.py",
@@ -53,7 +54,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   stack: service s → `hyper` 1, 이름에 rust(패키지 rusty-svc·대상 rusty_svc) 2, web vue 1, yarn.lock 1, pnpm-lock 없음 1.
 #   forbid-unsafe: tools/x lib 1, s의 tests/t.rs 1.
 # containers bad: Dockerfile 5(다이제스트 없음·latest·비밀 ENV·원격 ADD·USER root), compose 14(필수 칸 없음 5, 다이제스트 없는 image, privileged, host 네트워크, seccomp unconfined, docker.sock, cap_add, user root, 주소 없는 포트, 0.0.0.0 포트).
-#   등록부 넷 없음 4(node-pools·privileged-allowlist·api-clients는 늘, image-registries는 매니페스트가 있으면). Rollout workloadRef: 대상 Deployment 없음 1·replicas 2 1(mookko-rust-qa 11-04 추가 2).
+#   등록부 다섯 없음 5(workload-identities 더함)(node-pools·privileged-allowlist·api-clients는 늘, image-registries는 매니페스트가 있으면). Rollout workloadRef: 대상 Deployment 없음 1·replicas 2 1(mookko-rust-qa 11-04 추가 2).
 #   짝을 (ns, 종류, 이름)으로(N3): 같은 이름 Rollout same이 대상 없음 1·짝 HPA 없음 1·PDB 없음 1, bad2 HPA 둘에 scaleTargetRef.kind 없음 2
 #   그래서 side·roll 짝 HPA 없음 2(합 70). good은 등록부 셋(풀·특권 빈 목록, 표본 레지스트리), workloadRef Rollout(대상 Deployment·HPA·PDB 있음).
 #   Kubernetes 38(bad2: 사이드카 권한 상승 2·initContainer 쓰기 루트 2·Rollout 흐름 모양 1·칸 3·hostPort 1·모르는 종류 1·List 1, 짝 HPA·PDB 없음 2, 멀티 AZ 3: zone 분산 없음·replicas 2·HPA minReplicas 없음, Namespace 라벨 없음·기본 차단 없음 2, Deployment 필수 칸 6, 금지 6(hostNetwork·runAsUser 0·Unconfined·add·secretKeyRef·hostPath),
@@ -68,9 +69,11 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   키 없는 Exists toleration 1(N2, 어디서나 금지), 표시 없이 projected 토큰 1·등록 SA를 다른 워크로드가 씀 1(N1), automount true 1(트리),
 #   service-account-token Secret 1, 등록 안 된 이미지 DaemonSet이 전용 풀 2,
 #   antiAffinity 없는 mookko-staff-gate 1, 등록 SA Role이 rules 넘음 2(secrets·와일드카드), scope namespace인데 ClusterRoleBinding 1·
-#   묶은 ClusterRole 없음 1, 합 28. good: staff-gate namespaceSelector podAntiAffinity.
+#   묶은 ClusterRole 없음 1, Workload Identity: 등록 안 된 워크로드가 WI SA 씀 1·SA 주석 값 다름 1·주석 SA 등록 없음 1, 합 31. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
+# security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
+#   기록 없는 security:reviewed 절은 경고만.
 # vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
 #   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
 #   객체 아님 1, id 꼴 1, affects 접두어 1(합 15, reviewBy 지남은 경고만). good: 열린 항목, 닫은 GHSA 항목(detect만이어도 닫았으면 됨),
@@ -112,9 +115,10 @@ EXPECTED_BAD = {
     "stack": 6,
     "forbid-unsafe": 2,
     "systemd-units": 4,
-    "containers": 70,
-    "containers-sec": 28,
+    "containers": 71,
+    "containers-sec": 31,
     "vuln-register": 15,
+    "security-reviews": 3,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,
