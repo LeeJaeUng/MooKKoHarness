@@ -1,9 +1,10 @@
 {
-  "note": "PC 물리 메모리 관문(dev/memory-guard.py). PM 결정 2026-11-04(사용자 \"알아서 판단좀해\"): MooKKoRust 사용량은 자기 몫(WSL 상한 .wslconfig 6GB, 빌드 자리 1개 config/dev/build-slots.json)으로 묶고, PC 전체 사용률은 비상 관문으로만 봄. emergencyPercent 이상이면 WSL page cache를 비우고 resumePercent 아래로 내려갈 때까지 새 무거운 단계(빌드 자리·시험 컨테이너·cargo 단계)를 열지 않음(돌던 단계는 끝까지 둠). maxWaitMinutes를 넘겨도 안 내려가면 기다림을 끝내고 그대로 진행함(실패로 끝내지 않음). 옛 85%·90% 문턱(자리·작업 수 줄이기)과 180분 대기-실패는 없앰. 판정은 source: auto면 WSL 안에서는 Windows 전체 사용률(WSL VM 안 /proc/meminfo는 page cache 때문에 Windows가 보는 vmmemWSL 크기와 다름), WSL이 아닌 Linux(내부 시험 서버)에서는 그 기계 사용률. powershell.exe·wsl.exe 위치는 기계마다 달라 여기 적지 않고 환경 변수·data/dev-machine.json·PATH·드라이브 아래 기본 위치(underDrive) 순으로 찾음.",
+  "note": "PC 물리 메모리 관문(dev/memory-guard.py). PM 결정 2026-11-04(사용자 \"알아서 판단좀해\"): MooKKoRust 사용량은 자기 몫(WSL 상한 .wslconfig 6GB, 빌드 자리 1개 config/dev/build-slots.json)으로 묶고, PC 전체 사용률은 비상 관문으로만 봄. emergencyPercent 이상이면 WSL page cache를 비우고 resumePercent 아래로 내려갈 때까지 새 무거운 단계(빌드 자리·시험 컨테이너·cargo 단계)를 열지 않음(돌던 단계는 끝까지 둠). maxWaitMinutes를 넘겨도 안 내려가면 기다림을 끝내고 그대로 진행함(실패로 끝내지 않음). maxWaitMinutes는 한 실행(MOOKKO_RUN_ID) 전체 몫이고 실행별 기다린 초는 runStateFile에 둠(mookko-rust-qa 추가 6 ⑥). 메모리 기다림은 빌드 자리 기한에 넣지 않음. 옛 85%·90% 문턱(자리·작업 수 줄이기)과 180분 대기-실패는 없앰. 판정은 source: auto면 WSL 안에서는 Windows 전체 사용률(WSL VM 안 /proc/meminfo는 page cache 때문에 Windows가 보는 vmmemWSL 크기와 다름), WSL이 아닌 Linux(내부 시험 서버)에서는 그 기계 사용률. powershell.exe·wsl.exe 위치는 기계마다 달라 여기 적지 않고 환경 변수·data/dev-machine.json·PATH·드라이브 아래 기본 위치(underDrive) 순으로 찾음.",
   "emergencyPercent": 95,
   "resumePercent": 92,
   "pollSeconds": 30,
   "maxWaitMinutes": 30,
+  "runStateFile": "~/.local/state/mookko/memory-guard-runs.json",
   "dropCacheMinSeconds": 60,
   "dropCacheStamp": "~/.local/state/mookko/memory-guard-drop-cache",
   "source": "auto",

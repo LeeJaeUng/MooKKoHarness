@@ -4,6 +4,8 @@
 # 끝날 때 풀립니다. 이미 MOOKKO_BUILD_SLOT이 있으면(자리 안에서 다시 부름) 아무것도 하지 않습니다.
 # 빌드 자리: 여러 세션이 동시에 돌리면 WSL 메모리가 모자라 연결이 끊깁니다(2026-10-30). config/dev/build-slots.json의
 # 자리 수만큼만 동시에 돌고 나머지는 기다립니다. 잠금은 이 프로세스와 자식(시험용 DB 감싸기 포함)이 끝나면 풀립니다.
+# 한 실행의 id(메모리 비상 기다림 30분을 실행 전체 몫으로 셈, mookko-rust-qa 추가 6 ⑥). 자식(시험 DB 감싸기·다시 부른 check-all)이 이어받습니다.
+export MOOKKO_RUN_ID="${MOOKKO_RUN_ID:-$$-$(date +%s%N)}"
 if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     slot_setting() {
         python3 -I -c 'import json,os,sys; v=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; print(os.path.expanduser(v) if isinstance(v,str) else v)' "$H/config/dev/build-slots.json" "$1"
@@ -70,7 +72,10 @@ PY
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
         # PC 메모리 비상 관문(PM 11-04): Windows 전체 사용률이 emergency 이상이면 resume 아래까지 기다리고, 기한을 넘기면
         # 그대로 진행합니다(config/dev/memory-guard.json). 평소 몫은 WSL 상한과 자리 수(build-slots.json)로 묶습니다.
+        # 메모리를 기다린 시간은 자리 기한(maxWaitMinutes)에서 뺍니다(mookko-rust-qa 추가 6 ⑥).
+        memory_wait_start=$(date +%s)
         usable="$(python3 -X utf8 "$H/dev/memory-guard.py" slots "$SLOT_COUNT")"
+        SLOT_DEADLINE=$(( SLOT_DEADLINE + $(date +%s) - memory_wait_start ))
         rank="$(queue_rank)"
         if ! slots_closing && [ "$rank" -lt "$usable" ]; then
             for i in $(seq 1 "$usable"); do
