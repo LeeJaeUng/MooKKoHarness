@@ -1357,9 +1357,22 @@ SERVICE_DDL = re.compile(
 )
 
 
-def exception_paths(registry: dict, today: datetime.date | None = None, root: Path | None = None) -> tuple[set[str], list[Finding]]:
-    """기한 안의 예외 파일과, 등록부 문제(칸 빠짐·근거 문서 없음·기한 지남). gates.md waived(근거 문서 + 만료일)."""
-    paths: set[str] = set()
+# 서비스 코드의 ClickHouse 조각 다시 쓰기·변이(S-CH-2, DB 담당 11-04 (a)). Postgres에도 있는 `DELETE FROM`·`UPDATE`는 글로 엔진을
+# 가릴 수 없어 보지 않고, ClickHouse에만 있는 문장 꼴만 문장 머리에서 잡는다. ALTER TABLE 꼴은 S-BND-7(DDL)에도 걸린다.
+SERVICE_CH_REWRITE = re.compile(
+    r"(?:^|;)\s*(?:"
+    r"OPTIMIZE\s+TABLE\b[^;]*\bFINAL\b"
+    r"|ALTER\s+TABLE\s+[^;]*?\s(?:UPDATE\s+[^;]*\bWHERE\b|DELETE\s+WHERE\b)"
+    r"|ALTER\s+TABLE\s+[^;]*?\bMATERIALIZE\s+(?:COLUMN|INDEX|TTL|PROJECTION|STATISTICS)\b"
+    r")",
+    re.I,
+)
+
+
+def exception_paths(registry: dict, today: datetime.date | None = None, root: Path | None = None) -> tuple[dict[str, set[str]], list[Finding]]:
+    """기한 안의 예외 {파일: 비켜 가는 규칙들}과, 등록부 문제(칸 빠짐·근거 문서 없음·기한 지남). gates.md waived(근거 문서 + 만료일).
+    예외는 그 항목 `rule`(하나 또는 목록)의 지적만 비켜 간다(DB 담당 11-04 (b): S-CH-2로 오른 파일이 S-BND-7까지 비켜 가지 않게)."""
+    paths: dict[str, set[str]] = {}
     problems: list[Finding] = []
     for item in registry.get("exceptions", []):
         missing = [k for k in ("id", "paths", "rule", "reason", "adr", "condition", "expires", "approvedBy") if not item.get(k)]
@@ -1373,8 +1386,16 @@ def exception_paths(registry: dict, today: datetime.date | None = None, root: Pa
         if datetime.date.fromisoformat(item["expires"]) < (today or datetime.date.today()):
             problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']} 기한({item['expires']})이 지남 — 조건: {item['condition']}"))
             continue
-        paths.update(item["paths"])
+        rules = item["rule"] if isinstance(item["rule"], list) else [item["rule"]]
+        if not all(isinstance(r, str) and r in EXCEPTION_RULES for r in rules):
+            problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7", f"예외 {item['id']}의 rule {item['rule']!r}는 {sorted(EXCEPTION_RULES)} 중에서"))
+            continue
+        for path in item["paths"]:
+            paths.setdefault(path, set()).update(rules)
     return paths, problems
+
+
+EXCEPTION_RULES = {"S-BND-7", "S-CH-2"}  # 예외 등록부로 비켜 갈 수 있는 규칙(sql.md S-BND-7·S-CH-2)
 
 
 def strip_sql_comments(text: str) -> str:
@@ -1385,22 +1406,25 @@ def strip_sql_comments(text: str) -> str:
 
 
 def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
-    """서비스·실행 파일 crate(`crates/services/*/src`, `crates/apps/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7).
+    """서비스·실행 파일 crate(`crates/services/*/src`, `crates/apps/*/src`) Rust 문자열 안의 DDL·권한 문장(S-BND-7)과
+    ClickHouse 조각 다시 쓰기·변이(S-CH-2: OPTIMIZE … FINAL, ALTER TABLE … UPDATE·DELETE WHERE, MATERIALIZE).
     DDL은 이관 파일과 엔진 유지보수 작업(엔진 crate)만 — 서비스나 실행 파일이 구조를 바꾸면 이관 검사·적용 시험·설계서 대조를
-    모두 비켜 간다(운영툴이 파티션 DDL을 apps로 옮긴 일, QA 6b7fdfe). 기한 있는 예외는 exceptions.json."""
+    모두 비켜 간다(운영툴이 파티션 DDL을 apps로 옮긴 일, QA 6b7fdfe). 기한 있는 예외는 exceptions.json(그 rule만 비켜 감)."""
     allowed, findings = exception_paths(registry, root=root)
     sources: list[Path] = []
     for base in (root / "crates" / "services", root / "crates" / "apps"):
         sources += [p for p in walk(base, lambda name: name.endswith(".rs")) if "src" in p.relative_to(base).parts]
     for path in sources:
         rel = path.relative_to(root).as_posix()
-        if rel in allowed:
-            continue
+        waived = allowed.get(rel, set())
         text = path.read_text(encoding="utf-8")
         for start, body in rust_strings(text):
             flat = " ".join(strip_sql_comments(body).split())
-            if SERVICE_DDL.search(flat):
-                findings.append(Finding(rel, text.count("\n", 0, start) + 1, "S-BND-7", "서비스 코드의 DDL·권한 문장 금지 — 이관 파일(migrations/)이나 엔진 유지보수 작업으로(기한 있는 예외는 exceptions.json)"))
+            line = text.count("\n", 0, start) + 1
+            if "S-BND-7" not in waived and SERVICE_DDL.search(flat):
+                findings.append(Finding(rel, line, "S-BND-7", "서비스 코드의 DDL·권한 문장 금지 — 이관 파일(migrations/)이나 엔진 유지보수 작업으로(기한 있는 예외는 exceptions.json)"))
+            if "S-CH-2" not in waived and SERVICE_CH_REWRITE.search(flat):
+                findings.append(Finding(rel, line, "S-CH-2", "서비스 코드의 ClickHouse 조각 다시 쓰기·변이(OPTIMIZE … FINAL·ALTER … UPDATE/DELETE·MATERIALIZE) 금지 — TTL·파티션 떼기로(비상 예외는 exceptions.json)"))
     return findings
 
 

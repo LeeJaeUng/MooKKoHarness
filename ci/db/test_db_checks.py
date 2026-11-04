@@ -159,6 +159,21 @@ class ServiceDdl(unittest.TestCase):
         self.assertTrue(any("칸이 없음" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(adr=""))))
         self.assertTrue(any("근거 문서" in f.message for f in migration_lint.lint_service_ddl(self.ROOT, self.entry(adr="docs/없는-문서.md §1"))))
 
+    def test_clickhouse_rewrite_in_code_and_rule_scoped_exception(self) -> None:
+        # DB 담당 11-04 (a): 서비스 Rust 문자열의 OPTIMIZE … FINAL·ALTER … UPDATE·MATERIALIZE는 S-CH-2. Postgres DELETE·SELECT … FINAL은 아님.
+        root, path = FIXTURES / "repo-ch-code", "crates/services/logs/src/sec.rs"
+        found = sorted((f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": []}))
+        self.assertEqual(found, [("S-BND-7", 3), ("S-BND-7", 4), ("S-CH-2", 2), ("S-CH-2", 3), ("S-CH-2", 4)])
+        # (b): 예외는 그 rule의 지적만 비켜 감(S-CH-2로 오른 파일은 S-BND-7을 그대로 받음), rule은 목록도 됨
+        item = {"id": "DBX-CH2-t", "paths": [path], "rule": "S-CH-2", "reason": "시험", "adr": f"{path} 시험",
+                "condition": "시험", "expires": "2099-01-01", "approvedBy": "DB 담당"}
+        only_ch = sorted((f.rule, f.line) for f in migration_lint.lint_service_ddl(root, {"exceptions": [item]}))
+        self.assertEqual(only_ch, [("S-BND-7", 3), ("S-BND-7", 4)])
+        both = migration_lint.lint_service_ddl(root, {"exceptions": [dict(item, rule=["S-BND-7", "S-CH-2"])]})
+        self.assertEqual(both, [])
+        wrong = migration_lint.lint_service_ddl(root, {"exceptions": [dict(item, rule="S-Q-2")]})
+        self.assertTrue(any("rule" in f.message for f in wrong))
+
     def test_repository_registry_is_valid(self) -> None:
         registry = json.loads(migration_lint.EXCEPTIONS.read_text(encoding="utf-8"))
         _, problems = migration_lint.exception_paths(registry, today=None)
