@@ -10,6 +10,9 @@
 예외: 하네스 사본 자리(docs/policy/gates.*, docs/policy/conventions/, .claude/skills/)의 파일이 고정 판 하네스 정본과 같으면(통합 담당의
 판 올림 사본 맞추기) 통과. 검사 폴더가 git 최상위가 아니면(표본) 보지 않는다. 실패는 `파일:1: 이유`.
 보안 브랜치는 merge로만 받는다(rebase하면 조상 관계가 끊겨 거짓 실패가 난다).
+- 앞으로만(보안 담당 4e9b032 SC-REG-3 ①, GitHub 브랜치 보호를 못 걸어서): 기준 판 기록에서 보안 경로(사본 자리 뺌)를 바꾼 머지 아닌
+  커밋은 모두 지금 보안 브랜치(origin/claude/security가 있으면 그것)의 조상이어야 한다. rebase·force-push·지우기로 다시 쓰면 실패.
+- 하네스 사본 같음은 작업 트리가 아니라 그 커밋의 파일 내용으로 비교한다(QA 55628d2 낮음).
 
 사용: python3 -X utf8 ci/check-owner-paths.py [저장소 루트] [하네스 루트]
 """
@@ -73,13 +76,18 @@ def security_paths(rules: list[dict]) -> frozenset[str]:
     return frozenset(r.get("path", "") for r in rules if r.get("owner") == OWNER)
 
 
-def harness_copy_same(root: Path, harness: Path, path: str) -> bool:
+def is_copy(path: str) -> bool:
+    return any(path == prefix or (prefix.endswith("/") and path.startswith(prefix)) for prefix in COPIES)
+
+
+def harness_copy_same(root: Path, harness: Path, commit: str, path: str) -> bool:
+    """그 커밋의 파일 내용이 고정 판 하네스 정본과 같은지(판 올림 사본 맞추기)."""
     for prefix, target in COPIES.items():
         if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):
             canon = harness / (target + path[len(prefix):] if prefix.endswith("/") else target)
-            mine = root / path
-            if canon.is_file() and mine.is_file():
-                return canon.read_bytes().replace(b"\r\n", b"\n") == mine.read_bytes().replace(b"\r\n", b"\n")
+            mine = subprocess.run(["git", "-C", str(root), "show", f"{commit}:{path}"], capture_output=True)
+            if canon.is_file() and mine.returncode == 0:
+                return canon.read_bytes().replace(b"\r\n", b"\n") == mine.stdout.replace(b"\r\n", b"\n")
             return False
     return False
 
@@ -140,10 +148,21 @@ def main(argv: list[str]) -> int:
             subject = git(root, "log", "-1", "--format=%s", commit).strip()[:60]
             what = "머지" if len(parents) > 1 else "커밋"
             for f in owned:
-                if harness_copy_same(root, harness, f):
+                if harness_copy_same(root, harness, commit, f):
                     continue  # 판 올림 사본 맞추기(고정 판 정본과 같음)
                 why = "보안 줄을 바꿨습니다" if f == OWNERS_FILE else "주인이 보안인 파일을 바꿨습니다"
-                problems.append(f"{f}:1: 보안 브랜치 밖 {what} {commit[:7]}({subject})이 {why}(SC-REG-3)")
+                hint = "(충돌은 보안 담당이 claude/security에서 foundation/engine을 먼저 받아 풂)" if len(parents) > 1 else ""
+                problems.append(f"{f}:1: 보안 브랜치 밖 {what} {commit[:7]}({subject})이 {why}(SC-REG-3){hint}")
+        # 앞으로만: 기준 판에 이미 들어간 보안 커밋이 지금 보안 브랜치에 그대로 있어야 함(다시 쓰기 금지)
+        tip = "origin/claude/security" if not os.environ.get("MOOKKO_SECURITY_BRANCH") and "origin/claude/security" in branches \
+            else (branches[0] if branches else None)
+        guarded = sorted({r.get("path", "") for r in base_rules if r.get("owner") == OWNER and not is_copy(r.get("path", ""))} - {""})
+        if tip and guarded:
+            for commit in git(root, "rev-list", "--no-merges", base, "--", *guarded).split():
+                if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", commit, tip]).returncode != 0:
+                    subject = git(root, "log", "-1", "--format=%s", commit).strip()[:60]
+                    problems.append(f"{OWNERS_FILE}:1: {base}에 들어간 보안 커밋 {commit[:7]}({subject})이 {tip}에 없습니다"
+                                    f"(보안 브랜치를 다시 씀: rebase·force-push·지우기 금지, SC-REG-3 ①)")
     except GitError as e:
         return skip(str(e))
     if not branches and problems:
