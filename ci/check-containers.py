@@ -753,13 +753,29 @@ RBAC_OBJECTS = {"roles", "rolebindings", "clusterroles", "clusterrolebindings"}
 WRITE_VERBS = {"create", "update", "patch", "delete", "deletecollection"}
 
 
+# 다른 SA로 Pod를 띄울 수 있는 자원(보안 담당 fb18ab2 §5.1: pods와 Pod를 만드는 제어기의 create·update·patch)
+POD_MAKERS = {("", "pods"), ("", "replicationcontrollers"), ("apps", "deployments"), ("apps", "replicasets"),
+              ("apps", "statefulsets"), ("apps", "daemonsets"), ("batch", "jobs"), ("batch", "cronjobs"), ("argoproj.io", "rollouts")}
+
+
 def escalating(group: str, resource: str, verb: str) -> bool:
-    """권한을 넓히는 권한(보안 담당 755f466): RBAC 객체 쓰기, bind·escalate·impersonate, secrets, 서비스 계정 토큰 만들기."""
-    if verb in ("bind", "escalate", "impersonate"):
+    """권한을 넓히는 권한(보안 담당 755f466·fb18ab2 §5.1): RBAC 객체 쓰기, bind·escalate·impersonate, secrets, 서비스 계정 토큰 만들기,
+    Pod·Pod를 만드는 제어기의 create·update·patch, admission 설정(webhook·정책) 쓰기, CRD 쓰기, CSR 승인·서명, persistentvolumes 만들기."""
+    if verb in ("bind", "escalate", "impersonate", "approve", "sign"):
         return True
     if group == "rbac.authorization.k8s.io" and resource in RBAC_OBJECTS and verb in WRITE_VERBS:
         return True
     if group == "" and resource == "secrets":
+        return True
+    if (group, resource) in POD_MAKERS and verb in ("create", "update", "patch"):
+        return True
+    if group == "admissionregistration.k8s.io" and verb in WRITE_VERBS:
+        return True
+    if group == "apiextensions.k8s.io" and resource.startswith("customresourcedefinitions") and verb in WRITE_VERBS:
+        return True
+    if group == "certificates.k8s.io" and resource in ("certificatesigningrequests/approval", "certificatesigningrequests/status")             and verb in WRITE_VERBS:
+        return True
+    if group == "" and resource == "persistentvolumes" and verb == "create":
         return True
     return group == "" and resource in ("serviceaccounts/token", "serviceaccounts") and verb == "create"
 
