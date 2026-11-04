@@ -32,7 +32,8 @@ if [ -z "${MOOKKO_BUILD_SLOT:-}" ]; then
     ticket="$QUEUE_DIR/$(printf '%s%s' "$PWD" "${MOOKKO_SLOT_RUNNER:-ci/check-all.sh}" | sha1sum | cut -c1-16)"
     priority="${MOOKKO_SLOT_PRIORITY:-5}"
     enqueued="$(date +%s%N)"
-    if read -r t_state _ t_at t_pid _ < "$ticket" 2>/dev/null && [ "$t_state" = "waiting" ]; then
+    # 표가 아직 없으면(처음 도는 worktree·입구) 조용히 넘어갑니다: 2>/dev/null을 < 앞에 둬야 열기 실패 글이 숨겨집니다.
+    if read -r t_state _ t_at t_pid _ 2>/dev/null < "$ticket" && [ "$t_state" = "waiting" ]; then
         enqueued="$t_at"
         # 같은 worktree의 옛 run이 아직 자리를 기다리면 끝냅니다. 같은 세션 것은 마지막 것만 남깁니다(사용자 2026-11-03
         # "빌드는 작업다하고 돌리는게 맞지 않아?", PM 전달). 자리를 잡은(done) run은 건드리지 않습니다.

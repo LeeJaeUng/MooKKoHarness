@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "reviews": [
+    {
+      "path": "docs/spec/a/design.md",
+      "section": "1. 바깥 입구",
+      "sha256": "03605befe9a45ea048ae48591e60e240c320bb317a0ce54213fb237a776091ab",
+      "verdict": "reviewed",
+      "date": "2026-11-04",
+      "reviewer": "security",
+      "reviewedAt": "abc1234",
+      "what": "표본"
+    },
+    {
+      "path": "docs/spec/a/design.md",
+      "section": "1. 바깥 입구",
+      "sha256": "03605befe9a45ea048ae48591e60e240c320bb317a0ce54213fb237a776091ab",
+      "verdict": "reviewed",
+      "date": "2026-11-04",
+      "reviewer": "security",
+      "reviewedAt": "abc1234"
+    },
+    {
+      "path": "docs/spec/a/design.md",
+      "section": "1. 바깥 입구",
+      "sha256": "03605befe9a45ea048ae48591e60e240c320bb317a0ce54213fb237a776091ab",
+      "verdict": "ok",
+      "date": "2026-11-04",
+      "reviewer": "security",
+      "reviewedAt": "abc1234",
+      "what": "표본"
+    },
+    {
+      "path": "docs/spec/a/design.md",
+      "section": "1. 바깥 입구",
+      "sha256": "03605befe9a45ea048ae48591e60e240c320bb317a0ce54213fb237a776091ab",
+      "verdict": "reviewed",
+      "date": "2026/11/04",
+      "reviewer": "security",
+      "reviewedAt": "abc1234",
+      "what": "표본"
+    },
+    {
+      "path": "docs/spec/a/design.md",
+      "section": "1. 바깥 입구",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "verdict": "reviewed",
+      "date": "2026-11-04",
+      "reviewer": "security",
+      "reviewedAt": "abc1234",
+      "what": "표본"
+    }
+  ]
+}

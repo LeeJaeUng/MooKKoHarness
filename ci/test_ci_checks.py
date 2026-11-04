@@ -36,6 +36,7 @@ CHECKS = {
     "containers": HARNESS / "ci" / "check-containers.py",
     "containers-sec": HARNESS / "ci" / "check-containers.py",
     "vuln-register": HARNESS / "ci" / "check-vuln-register.py",
+    "security-reviews": HARNESS / "ci" / "check-security-reviews.py",
     "design-sources": HARNESS / "ci" / "check-design-sources.py",
     "hardcoded": HARNESS / "ci" / "check-hardcoded-values.py",
     "hardcoded-warn": HARNESS / "ci" / "check-hardcoded-values.py",
@@ -71,6 +72,8 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   묶은 ClusterRole 없음 1, 합 28. good: staff-gate namespaceSelector podAntiAffinity.
 #   good: Falco DaemonSet은 전용 풀 taint를 받음, 운영툴 배포기는 등록·projected 토큰 3600초. 보안 규칙 표본은 PyYAML이 있는 Linux python3에서만 돈다(하네스 CI).
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
+# security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
+#   기록 없는 security:reviewed 절은 경고만.
 # vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
 #   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
 #   객체 아님 1, id 꼴 1, affects 접두어 1(합 15, reviewBy 지남은 경고만). good: 열린 항목, 닫은 GHSA 항목(detect만이어도 닫았으면 됨),
@@ -115,6 +118,7 @@ EXPECTED_BAD = {
     "containers": 70,
     "containers-sec": 28,
     "vuln-register": 15,
+    "security-reviews": 3,
     "design-sources": 4,
     "hardcoded": 9,
     "hardcoded-warn": 2,

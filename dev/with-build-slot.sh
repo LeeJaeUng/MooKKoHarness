@@ -15,6 +15,10 @@ if [ -z "${MOOKKO_PRODUCT_ROOT:-}" ]; then
     exit 2
 fi
 cd "$MOOKKO_PRODUCT_ROOT"
+# wsl --exec(wsl-run.sh)는 로그인 셸이 아니라 PATH에 ~/.cargo/bin이 없습니다. check-all처럼 cargo 환경을 직접 읽습니다(로그 11-04).
+if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
 
 postgres=""
 clickhouse=""
