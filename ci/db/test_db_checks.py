@@ -9,6 +9,9 @@
 - fixtures/repo-validate: 같은 배포 VALIDATE 근거(S-MIG-4)
 - fixtures/repo-engine-good, repo-engine-bad: 엔진 표 읽기 계정 감추기(S-SEC-9 엔진 몫)
 - fixtures/repo-good, apply-bad: 실제 PostgreSQL 적용(MOOKKO_TEST_POSTGRES가 있을 때만, 없으면 건너뜀을 출력)
+- fixtures/apply-broken: 이관이 중간에 실패하면 S-MIG-8 한 줄과 "뒤 검사는 건너뜀"만(반쯤 된 스키마를 검사하지 않음)
+- repo-good 사본 + 가짜 실행 파일(`$CARGO_TARGET_DIR/debug/mookko-svc`): 엔진 이관 단계가 실패(exit 1)하면 S-MIG-8 하나만 나오고
+  traceback이 없어야 하고, 성공하면 뒤 검사가 모두 돈다
 """
 
 from __future__ import annotations
@@ -18,7 +21,10 @@ import io
 import json
 import os
 import re
+import shutil
+import stat
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -812,8 +818,8 @@ class ApplySamples(unittest.TestCase):
     def test_bad_repo_is_caught(self) -> None:
         code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "apply-bad"), "--pending", str(EMPTY_PENDING)])
         self.assertEqual(code, 1, out)
+        self.assertNotIn("S-MIG-8", out, "이관은 다 적용되고 목록 검사가 잡아야 함(이관 실패 표본은 apply-broken)")
         for needle in (
-            "S-MIG-8 적용 실패 42703",
             "S-MONEY-2 덧붙이기만 하는 `audit_events`에 막기 트리거 없음: TRUNCATE",
             "S-MONEY-2 `audit_log` UPDATE가 막히지 않음",
             "S-MONEY-2 `audit_log` DELETE가 막히지 않음",
@@ -839,6 +845,150 @@ class ApplySamples(unittest.TestCase):
             self.assertIn(needle, out)
         for needle in ("`members.phone_bidx_kid`에 `CHECK", "`members.email_bidx_kid`에 `CHECK", "`contacts.note_bidx", "키 DB 앱 계정이"):
             self.assertNotIn(needle, out)
+
+    def assert_failed_cleanly(self, out: str, problems: int) -> None:
+        """실패 출력은 traceback 없이 문제 줄들 뒤에 요약 한 줄(`migration apply failed (N problems)`)로 끝나야 한다."""
+        self.assertNotIn("Traceback", out)
+        self.assertEqual(out.rstrip().splitlines()[-1], f"migration apply failed ({problems} problems)", out)
+
+    def test_broken_migration_skips_later_checks(self) -> None:
+        """흉내 길: 파일 적용이 실패하면 S-MIG-8 한 줄과 "뒤 검사는 건너뜀"만 — 반쯤 적용된 스키마의 S-TYPE·S-MONEY-2는 잡지 않는다."""
+        code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "apply-broken"), "--pending", str(EMPTY_PENDING)])
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("S-MIG-8"), 1, out)
+        self.assertIn("crates/services/svcbroken/migrations/0002_broken.sql: S-MIG-8 적용 실패 42703", out)
+        self.assertIn("crates/services/svcbroken/migrations: 이관이 실패해 뒤 검사(목록·읽기·대사·파티션)는 건너뜀", out)
+        for needle in ("S-TYPE", "S-MONEY-2", "42P01"):
+            self.assertNotIn(needle, out)
+        self.assert_failed_cleanly(out, 2)
+
+    def test_check_query_error_is_reported_without_traceback(self) -> None:
+        """검사 질의가 PgError로 실패하면 `<대상>: 검사 질의 실패(<SQLSTATE>): <글>` 한 줄로 적고 traceback 없이 1로 끝난다."""
+        original = migration_apply.catalog_checks
+
+        def broken(db, target, problems):
+            raise migration_apply.PgError("42P01", 'relation "svc.reports" does not exist')
+
+        migration_apply.catalog_checks = broken
+        try:
+            code, out = quiet(migration_apply.main, ["--root", str(FIXTURES / "repo-good"), "--pending", str(EMPTY_PENDING)])
+        finally:
+            migration_apply.catalog_checks = original
+        self.assertEqual(code, 1, out)
+        self.assertIn('crates/services/svc/migrations: 검사 질의 실패(42P01): relation "svc.reports" does not exist', out)
+        self.assertIn('crates/services/svc/keys/migrations: 검사 질의 실패(42P01): relation "svc.reports" does not exist', out)
+        self.assert_failed_cleanly(out, 2)
+
+
+# 성공하는 가짜 엔진 이관 단계: 설정의 DB마다(서비스 DB·키 DB) 폴더의 파일을 엔진처럼 적용하고 schema_migrations·달 파티션·권한을 만든다.
+# `{here}`·`{root}`는 시험이 채운다(str.format).
+FAKE_ENGINE_PASS = """#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, {here!r})
+import data_classes  # noqa: E402
+import migration_apply  # noqa: E402
+from pgwire import Connection  # noqa: E402
+
+root = Path({root!r})
+settings = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))["migrate"]
+for section, rel, schema in (("databases", "crates/services/svc/migrations", "svc"), ("keyDatabases", "crates/services/svc/keys/migrations", "svc_keys")):
+    c = settings[section]["svc"]["connection"]
+    password = Path(c["passwordFile"]).read_text(encoding="utf-8").strip()
+    target = migration_apply.Target(root / rel, rel, schema, "svc")
+    problems = []
+    with Connection.connect(c["host"], int(c["port"]), c["user"], password, c["database"], 30.0) as conn:
+        files = sorted(p.stem for p in target.directory.glob("*.sql"))
+        migration_apply.apply_files(conn, target, problems)
+        if problems:
+            print("\\n".join(problems), file=sys.stderr)
+            sys.exit(1)
+        rows = ", ".join(f"('{{name}}')" for name in files)
+        sql = [f"SET ROLE {{schema}}_owner;", f"CREATE TABLE {{schema}}.schema_migrations (id text PRIMARY KEY);", f"INSERT INTO {{schema}}.schema_migrations VALUES {{rows}};"]
+        if schema == "svc":
+            sql.append("CREATE TABLE svc.ledger_entries_202611 PARTITION OF svc.ledger_entries FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');")
+        conn.query("\\n".join(sql) + "\\nRESET ROLE;")
+        access = data_classes.ReaderAccess() if section == "keyDatabases" else data_classes.reader_access(root / "crates/services/svc", root)
+        migration_apply.grant_like_engine(conn, target, access)
+        migration_apply.grant_recon_like_engine(conn, target, access)
+"""
+
+# 실패하는 가짜 엔진 이관 단계(2026-11-05 PostgreSQL 16 재현: 제품 엔진이 PostgreSQL 17+ 설정 `transaction_timeout`을 씀).
+FAKE_ENGINE_FAIL = """#!/bin/sh
+echo 'FATAL: unrecognized configuration parameter "transaction_timeout"' >&2
+exit 1
+"""
+
+
+@unittest.skipUnless(os.environ.get("MOOKKO_TEST_POSTGRES"), "MOOKKO_TEST_POSTGRES 없음 — 실제 PostgreSQL 적용 시험 건너뜀(통과 아님)")
+class EngineMigrateSamples(unittest.TestCase):
+    """엔진 이관 단계 길(실행 파일이 있는 서비스): repo-good 사본에 이관 설정 예시를 더하고, `$CARGO_TARGET_DIR/debug/mookko-svc`에 가짜
+    실행 파일을 둔다. 임시 폴더는 $TMPDIR/mookko-test/dbcheck/<실행>/에 만들고, 시험이 성공하면 지우고 실패하면 남긴다."""
+
+    EXAMPLE = {
+        "migrate": {
+            "databases": {"svc": {"connection": {"kind": "postgres", "host": "h", "port": 1, "database": "svc", "user": "svc_migrate"}}},
+            "keyDatabases": {
+                "svc": {
+                    "connection": {"kind": "postgres", "host": "h", "port": 1, "database": "svc_keys", "user": "svc_keys_migrate"},
+                    "ownerRole": "svc_keys_owner",
+                    "appRole": "svc_keys_app",
+                }
+            },
+        }
+    }
+
+    def make_repo(self, exe_text: str) -> tuple[Path, Path]:
+        base = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) / "mookko-test" / "dbcheck"
+        base.mkdir(parents=True, exist_ok=True)
+        run_dir = Path(tempfile.mkdtemp(prefix="engine-", dir=base))
+        root = run_dir / "repo"
+        shutil.copytree(FIXTURES / "repo-good", root)
+        example = migration_apply.migrate_example(root, "svc")
+        example.parent.mkdir(parents=True)
+        example.write_text(json.dumps(self.EXAMPLE), encoding="utf-8")
+        exe = run_dir / "target" / "debug" / "mookko-svc"
+        exe.parent.mkdir(parents=True)
+        exe.write_text(exe_text.format(here=str(HERE), root=str(root)), encoding="utf-8")
+        exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+        return run_dir, root
+
+    def run_engine(self, exe_text: str) -> tuple[int, str, Path]:
+        run_dir, root = self.make_repo(exe_text)
+        previous = os.environ.get("CARGO_TARGET_DIR")
+        os.environ["CARGO_TARGET_DIR"] = str(run_dir / "target")
+        try:
+            code, out = quiet(migration_apply.main, ["--root", str(root), "--pending", str(EMPTY_PENDING)])
+        finally:
+            if previous is None:
+                del os.environ["CARGO_TARGET_DIR"]
+            else:
+                os.environ["CARGO_TARGET_DIR"] = previous
+        return code, out, run_dir
+
+    def test_failed_engine_migrate_reports_s_mig_8_only(self) -> None:
+        """엔진 이관 단계가 실패(exit 1)하면 S-MIG-8 한 줄(실행 파일의 마지막 출력 포함)과 "뒤 검사는 건너뜀"만 — 이관이 안 된 스키마에
+        질의하지 않으므로 42P01 예외·traceback이 없고, 마지막 줄은 요약이다."""
+        code, out, run_dir = self.run_engine(FAKE_ENGINE_FAIL)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("S-MIG-8"), 1, out)
+        self.assertIn('crates/services/svc/migrations: S-MIG-8 엔진 이관 단계 실패(exit 1): FATAL: unrecognized configuration parameter "transaction_timeout"', out)
+        self.assertIn("crates/services/svc/migrations: 이관이 실패해 뒤 검사(목록·읽기·대사·파티션)는 건너뜀", out)
+        for needle in ("42P01", "S-SEC-10", "S-PART-3", "Traceback"):
+            self.assertNotIn(needle, out)
+        self.assertEqual(out.rstrip().splitlines()[-1], "migration apply failed (2 problems)", out)
+        shutil.rmtree(run_dir)
+
+    def test_successful_engine_migrate_runs_later_checks(self) -> None:
+        """엔진 이관 단계가 성공하면 서비스 DB·키 DB 모두 뒤 검사가 돌고(적용 수는 schema_migrations로 셈) 문제가 없어야 한다."""
+        code, out, run_dir = self.run_engine(FAKE_ENGINE_PASS)
+        self.assertEqual(code, 0, out)
+        self.assertIn("crates/services/svc/migrations: 스키마 svc, 이관 6개 적용(엔진 이관 단계)", out)
+        self.assertIn("crates/services/svc/keys/migrations: 스키마 svc_keys, 이관 1개 적용(엔진 이관 단계)", out)
+        self.assertNotIn("건너뜀", out)
+        shutil.rmtree(run_dir)
 
 
 if __name__ == "__main__":

@@ -567,12 +567,14 @@ def shared_reader_checks(db: Connection, target: Target, schema: str, root: Path
 
 
 def run_target(config: dict, target: Target, root: Path, waivers: list[pending.Pending]) -> list[str]:
+    """이관 폴더 하나를 새 DB에 적용하고 목록으로 본다. 이관(엔진 이관 단계 또는 흉내)이 실패하면 뒤 검사는 건너뛴다 — 반쯤 된 스키마에
+    질의하면 `42P01` 같은 예외가 S-MIG-8(진짜 원인)을 가린다(2026-11-05, PostgreSQL 16에서 `transaction_timeout` 거부). 그래도 남는
+    검사 질의 오류(PgError)는 문제 한 줄로 적고 traceback 없이 끝낸다."""
     problems: list[str] = []
     run = f"{os.getpid()}_{secrets.token_hex(3)}"
     database = f"mookko_dbcheck_{target.schema}_{run}"[:63]
     key_database: str | None = None
     key_target: Target | None = None
-    ok = False
     password = secrets.token_hex(16)
     with connect(config, config["user"], config["password"], config["database"]) as admin:
         try:
@@ -596,32 +598,44 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
                 bootstrap(admin, key_database, key_target.schema, password)
                 with connect(config, config["user"], config["password"], key_database) as db_admin:
                     bootstrap_schema(db_admin, key_target.schema)
+            applied = 0
             if app is not None:
                 # 실제 엔진 이관 단계: 이관 적용·grant·grant_recon·파티션 만들기(와 키 DB 이관·grant_key_store)를 엔진이 한 뒤 목록으로 본다.
                 ok = engine_migrate(config, target, app, database, key_database, password, access, problems)
-                with connect(config, config["user"], config["password"], database) as db_admin:
-                    applied = int(db_admin.query(f"SELECT count(*) FROM {quote_ident(target.schema)}.schema_migrations").rows[0][0] or 0) if ok else 0
+                if ok:
+                    with connect(config, config["user"], config["password"], database) as db_admin:
+                        applied = int(db_admin.query(f"SELECT count(*) FROM {quote_ident(target.schema)}.schema_migrations").rows[0][0] or 0)
             else:
+                before = len(problems)
                 with connect(config, f"{target.schema}_migrate", password, database) as migrate:
                     applied = apply_files(migrate, target, problems)
-            with connect(config, config["user"], config["password"], database) as db_admin:
-                if app is None:
-                    grant_like_engine(db_admin, target, access)
-                    grant_recon_like_engine(db_admin, target, access)
-                catalog_checks(db_admin, target, problems)
-                if key_db:
-                    key_db_checks(db_admin, target, problems)
-                classified = data_classes.service_classification(root, target.service)
-                reader_checks(db_admin, target, classified, access, waivers, problems)
-                recon_checks(db_admin, target, classified, access, problems)
-                if app is not None:
-                    partition_checks(db_admin, target, problems)
-                    if shared:
-                        shared_reader_checks(db_admin, target, shared, root, problems)
+                ok = len(problems) == before
             how = "엔진 이관 단계" if app is not None else "엔진 흉내(표본)"
-            print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용({how})")
-            if key_target is not None and key_database is not None and ok:
-                key_checks_after_engine(config, key_target, key_database, problems)
+            if not ok:
+                # 이관이 안 된(또는 반쯤 된) 스키마를 검사하면 없는 표 질의(42P01) 같은 예외가 S-MIG-8을 가리므로 여기서 멈춘다.
+                problems.append(f"{target.rel}: 이관이 실패해 뒤 검사(목록·읽기·대사·파티션)는 건너뜀")
+                print(f"  {target.rel}: 스키마 {target.schema}, 이관 실패({how}) — 뒤 검사 건너뜀")
+            else:
+                with connect(config, config["user"], config["password"], database) as db_admin:
+                    if app is None:
+                        grant_like_engine(db_admin, target, access)
+                        grant_recon_like_engine(db_admin, target, access)
+                    catalog_checks(db_admin, target, problems)
+                    if key_db:
+                        key_db_checks(db_admin, target, problems)
+                    classified = data_classes.service_classification(root, target.service)
+                    reader_checks(db_admin, target, classified, access, waivers, problems)
+                    recon_checks(db_admin, target, classified, access, problems)
+                    if app is not None:
+                        partition_checks(db_admin, target, problems)
+                        if shared:
+                            shared_reader_checks(db_admin, target, shared, root, problems)
+                print(f"  {target.rel}: 스키마 {target.schema}, 이관 {applied}개 적용({how})")
+                if key_target is not None and key_database is not None:
+                    key_checks_after_engine(config, key_target, key_database, problems)
+        except PgError as error:
+            # 검사 질의가 실패하면 traceback 대신 문제 한 줄(대상·SQLSTATE·서버 글)로 적는다. 종료 코드는 main이 1로 만든다.
+            problems.append(f"{target.rel}: 검사 질의 실패({error.sqlstate}): {error.message}")
         finally:
             admin.query(f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
             if key_database is not None:
@@ -688,9 +702,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         problems += run_target(config, target, root, waivers)
     if problems:
-        print(f"migration apply failed ({len(problems)}):")
+        # 문제 줄을 먼저 내고 마지막 줄은 늘 요약(`migration apply failed (N problems)`) — 로그 끝만 봐도 결과를 알 수 있게.
         for p in problems:
             print(f"  - {p}")
+        print(f"migration apply failed ({len(problems)} problems)")
         return 1
     print(f"migration apply passed ({len(found)} dirs)")
     return 0
