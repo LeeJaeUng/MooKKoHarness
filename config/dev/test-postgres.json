@@ -7,7 +7,9 @@
   "tmpfsSize": "1g",
   "readyTimeoutSeconds": 60,
   "connection": {
-    "tls": { "mode": "disable" },
+    "tls": {
+      "mode": "disable"
+    },
     "applicationName": "mookko-test",
     "maxConnections": 16,
     "minConnections": 0,
@@ -17,6 +19,8 @@
     "lockTimeoutMs": 10000,
     "idleInTransactionTimeoutMs": 30000,
     "transactionTimeoutMs": 60000,
-    "clientTimeoutMarginMs": 1000
-  }
+    "clientTimeoutMarginMs": 1000,
+    "connectionKind": "direct"
+  },
+  "note": " connection.connectionKind는 엔진 E-DB-22(기본값 없음, 시험 컨테이너는 PostgreSQL에 바로 붙으므로 direct). 이 칸이 없는 옛 엔진(deny_unknown_fields)은 이 판 하네스를 쓰지 않음(harness.lock)."
 }
