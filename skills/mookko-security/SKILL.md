@@ -32,7 +32,7 @@ Falco는 모든 풀, Tetragon은 `keys`·`control`(처음 2주 감사만, 그 �
 
 ## 취약점·패치 지연 (SC-VULN-*)
 
-KEV·실제 공격 48시간, 치명 7일을 벤더 때문에 못 맞추면 기한 절반 전에 `docs/policy/vuln-register.json` 항목(`id`·`affects`·`exposure`·`mitigations`·`opened`·`reviewBy`·`expires` 최대 30일·`owner`). 순서: 기록 → 노출 끊기 → 격리(gVisor 풀) → 감지 강화 → 다른 노드 이미지(두 사람 승인) → 30일 넘으면 사용자 결정. 기다리기만 하는 항목은 받지 않는다. 고친 판이 나오면 기한을 다시 세고 `closed`로 닫는다(지우지 않음).
+KEV·실제 공격 48시간, 치명 7일을 벤더 때문에 못 맞추면 기한 절반 전에 `docs/policy/vuln-register.json` 항목(`id`·`affects`·`exposure`·`mitigations`·`opened`·`reviewBy`·`expires` 최대 30일·`owner`). 순서: 기록 → 노출 끊기 → 격리(gVisor 풀) → 감지 강화 → 다른 노드 이미지(두 사람 승인) → 30일 넘으면 사용자 결정. 기다리기만 하는 항목은 받지 않는다. 고친 판이 나오면 기한을 다시 세고 `closed`로 닫는다(지우지 않음). 취약점 검사 무시(cargo audit·cargo deny·pnpm audit·Trivy)는 심각도와 상관없이 기록부의 열린 항목(`advisories`에 권고 id, `affects`는 `crate:`·`npm:`)과 짝이어야 하고, 권고 id 하나씩만 적는다. "빌드 안 됨"이 근거면 `deny.toml` bans 같은 장치로 묶는다(SC-VULN-5).
 
 ## 보안 설계 검토 (SC-REV-*)
 
