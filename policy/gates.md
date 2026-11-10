@@ -103,7 +103,13 @@
 - 전용 풀의 toleration·nodeSelector·nodeAffinity는 정해진 네임스페이스만 쓰고(SC-NODE-2), 노드 풀마다 전용 노드 서비스 계정·Workload Identity·Shielded·사설 노드(SC-NODE-3), Kubernetes SA 하나 = IAM 주체 하나(SC-NODE-4).
 - 바깥 바이트 파서·바깥 주소 가져오기는 gVisor 샌드박스의 그 일만 하는 Deployment(SC-SBX-1~3). 공개 Node.js SSR은 부하 시험 뒤 보안 담당이 정하고, 정하기 전에는 L4 `fail`(SC-SBX-4).
 - 특권은 `mookko-security` 네임스페이스의 등록 이미지만(SC-PRIV-1).
-- **자동 근거**: `ci/check-containers.py`(bacb580, 제품 정책 파일이 있을 때만 켜짐) — 풀 toleration·nodeAffinity 대응표(`docs/policy/node-pools.json`), `mookko.io/input: untrusted` 라벨이면 `runtimeClassName: gvisor`·`sandbox` 풀 네임스페이스·비밀값·SA 토큰 없음, 특권은 `mookko-security` 네임스페이스의 `docs/policy/privileged-allowlist.json` 이미지만. 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**.
+- **자동 근거**: `ci/check-containers.py` — 등록부가 없으면 실패합니다(SC-REG-1, `image-registries.json`만 매니페스트가 있을 때 필수).
+  - `docs/policy/node-pools.json`: 전용 풀 toleration·nodeAffinity 대응표, 키 없는 `operator: Exists` 금지, `antiAffinity`, `daemonSetNamespaces`
+  - `mookko.io/input: untrusted` 라벨: `runtimeClassName: gvisor`, `sandbox` 풀 네임스페이스, 비밀값·SA 토큰 없음
+  - `docs/policy/privileged-allowlist.json`: 특권은 `mookko-security` 네임스페이스의 등록 이미지만
+  - `docs/policy/api-clients.json`: Kubernetes API 토큰은 등록 워크로드만, RBAC 상한(`rules`), 권한 넓히기 금지, `bindNamespaces`, `platform-controller`
+  - `docs/policy/workload-identities.json`: GCP 자격을 받는 SA는 등록 워크로드만, `default` SA 금지
+  - 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**
 - **QA 판단**: 라벨을 달아야 할 Deployment에 빠지지 않았는지(실제 바깥 입력 경로와 대조), Workload Identity 권한이 실제 호출과 맞는지, 풀 배치가 security.md 표와 맞는지.
 - HOST-01과 나누기: 워크로드 하나하나의 위생(PSS restricted·NetworkPolicy·자원·서명)은 HOST-01, 워크로드끼리 같은 노드에 둘지(피해 범위)는 SEC-02입니다.
 
@@ -123,13 +129,19 @@
 
 - 패치 기한(host-security §1: KEV·실제 공격 48시간, 치명 7일)은 HOST-01이 봅니다. SEC-04는 **기한을 벤더 때문에 못 맞출 때**입니다(계기: CVE-2026-98432, Ubuntu 고친 판 늦음).
 - 기한의 절반이 지나기 전에 제품 `docs/policy/vuln-register.json` 항목(SC-VULN-1), 완화 순서는 host-security §1.1(기록 → 노출 끊기 → 격리 → 감지 → 다른 이미지 → 30일 넘으면 사용자 결정, SC-VULN-2), 고친 판이 나오면 기한을 다시 세고 닫음(SC-VULN-3), 기반·제3자 이미지도 같음(SC-VULN-4).
-- **자동 근거**: `ci/check-vuln-register.py`(check-all, `expires` 최대 30일·지나면 실패), 이미지 출처가 우리 레지스트리인지 `ci/check-containers.py`(제품 `docs/policy/image-registries.json`이 있을 때만 켜짐).
+- **자동 근거**: `ci/check-vuln-register.py`(check-all. 파일이 없으면 실패, `expires` 최대 30일·지나면 실패, 열린 항목에 `detect`만 있으면 실패, 기준 판과 견줘 항목이 사라지거나 `opened`가 바뀌면 실패), 이미지 출처가 우리 레지스트리인지 `ci/check-containers.py`(`docs/policy/image-registries.json`, 매니페스트가 하나라도 있으면 필수).
 - **QA 판단**: 노출 경로 판단이 맞는지(실제 망 구성과 대조), 완화가 기다리기만이 아닌지.
 
 ## 보안 설계 검토 (SEC-01~04 공통)
 
-- 새 바깥 입구·바깥 주소 가져오기, 돈·키·인증·MFA·세션·비밀값·서명, 풀·네임스페이스·RBAC·Workload Identity·NetworkPolicy 넓히기, 특권·샌드박스 예외·감지 규칙 끄기는 설계서·명세에 보안 담당의 `security:reviewed <날짜> <세션>` 줄이 있어야 출시 관문(L4)을 넘습니다(SC-REV-1). 개발·통합은 막지 않습니다. 보안 담당은 한 영업일 안에 검토합니다(SC-REV-2).
-- 판정 분야는 머리말 "보안 3차 나눔"을 따릅니다. L4 근거는 `docs/policy/security-reviews.json`(SC-REV-3)입니다.
+- **대상**(SC-REV-1): 새 바깥 입구·바깥 주소 가져오기, 돈·키·인증·MFA·세션·비밀값·서명, 풀·네임스페이스·RBAC·Workload Identity·NetworkPolicy 넓히기, 특권·샌드박스 예외·감지 규칙 끄기입니다. 보안 담당은 받은 뒤 한 영업일 안에 검토하거나 고칠 점을 냅니다(SC-REV-2). 개발·통합은 막지 않습니다.
+- **근거**(SC-REV-3): 출시 관문(L4)의 근거는 제품 `docs/policy/security-reviews.json`의 `reviewed` 항목입니다. 이 기록은 보안 담당만 고칩니다. 설계서의 `security:reviewed` 줄은 안내일 뿐입니다. 항목은 검토한 절의 sha256, 검토한 커밋, 판정한 모델을 가집니다. 검토 뒤에 절이 바뀌면 검토가 만료되고, 보안 담당이 다시 봅니다. `changes` 항목과 만료 항목은 근거가 아닙니다.
+- **자동 근거**: `ci/check-security-reviews.py`(절 해시와 기준 판 대조. 만료·기록 없음은 경고이고 L4에서 실패), `ci/check-owner-paths.py`(보안 경로는 `claude/security` 커밋으로만 바뀜, SC-REG-3). SC-REG-3은 세션별 커밋 서명이 들어오기 전까지 L4에서 "일부"로 셉니다.
+- **QA 판단**: QA는 이 기록과 줄을 쓰지 않습니다. L4에서 대상 변경에 `reviewed` 기록이 있는지만 봅니다. L4 밖에서는 판정에 넣지 않습니다.
+- **판정 분야**(QAManager 2026-11-04):
+  - SEC-02: mookko-rust-qa(주, 매니페스트·IaC 대조), qa-engine(코드 안 격리·어댑터 자격 증명), qa-design(서비스별 DB 계정·권한)
+  - SEC-03: qa-services(주, 사고 대응 절차·훈련 기록·runbook), mookko-rust-qa(탐지 규칙·감사 로그 설정의 기계 대조)
+  - SEC-04: mookko-rust-qa(주, DEPS-01·WEB-01·HOST-01과 함께)
 
 ## FINOPS-01 돈
 
