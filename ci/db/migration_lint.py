@@ -1427,6 +1427,10 @@ def lint_service_ddl(root: Path, registry: dict) -> list[Finding]:
     for path, ddl in sources:
         rel = path.relative_to(root).as_posix()
         waived = allowed.get(rel, set()) | (set() if ddl else {"S-BND-7"})
+        # 이름으로 시험 전용인 src 파일(tests.rs, src 아래 tests/ 폴더)의 DDL은 시험 준비물이라 S-BND-7에서 뺌(DB 담당 11-10). 섞인 파일은 그대로 봄
+        src_parts = Path(rel).parts[Path(rel).parts.index("src") + 1:] if "src" in Path(rel).parts else ()
+        if path.name == "tests.rs" or "tests" in src_parts[:-1]:
+            waived = waived | {"S-BND-7"}
         text = path.read_text(encoding="utf-8")
         for start, body in rust_strings(text):
             flat = " ".join(strip_sql_comments(body).split())

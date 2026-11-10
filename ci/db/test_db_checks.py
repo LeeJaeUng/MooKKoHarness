@@ -147,6 +147,12 @@ class ServiceDdl(unittest.TestCase):
             sorted([(self.PATH, 2), (self.PATH, 4), (self.PATH, 5), (self.PATH, 6), (self.PATH, 7), ("crates/apps/mookko-svc/src/main.rs", 2)]),
         )
 
+    def test_test_only_src_files_skip_ddl(self) -> None:
+        # DB 담당 11-10: src 아래 이름으로 시험 전용인 파일(tests.rs, tests/ 폴더)의 DDL은 시험 준비물이라 S-BND-7 아님
+        found = [f.path for f in migration_lint.lint_service_ddl(self.ROOT, {"exceptions": []})]
+        self.assertNotIn("crates/services/svc/src/ddl/tests.rs", found)
+        self.assertNotIn("crates/services/svc/src/fixtures/tests/setup.rs", found)
+
     def test_action_names_and_identifiers_are_not_ddl(self) -> None:
         # links 오탐(2026-10-30): "handle.revoke"를 REVOKE 문장으로 봄. 문장 머리의 SQL만 잡아야 함.
         self.assertEqual(migration_lint.lint_service_ddl(FIXTURES / "repo-good", {"exceptions": []}), [])
