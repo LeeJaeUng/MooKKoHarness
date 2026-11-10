@@ -577,6 +577,12 @@ def run_target(config: dict, target: Target, root: Path, waivers: list[pending.P
     with connect(config, config["user"], config["password"], config["database"]) as admin:
         try:
             app = engine_app(root, target)
+            if app is not None and not isinstance(app.example.get("migrate"), dict):
+                # 실행 파일의 이관 설정 예시가 엔진 이관 설정 모양({"migrate": {databases, …}})이 아니면 실제 이관을 시험할 수 없음.
+                # 멈추지 말고(KeyError) 그 사실을 문제 줄로 낸다(11-10 pensive 후보: mookko-logs 예시가 telemetry·clickhouse·postgres 모양).
+                problems.append(f"{target.rel}: 이관 설정 예시 {migrate_example(root, target.service).relative_to(root).as_posix()}에 엔진 이관 칸 "
+                                f"`migrate`가 없습니다 — 엔진 migrate 설정 모양으로 맞추세요(실제 이관 시험을 하지 못함, S-MIG-11)")
+                return problems
             shared = (app.example["migrate"].get("sharedStores") or {}).get("schema") if app else None
             # 키 DB(§9.8)에는 읽기·대사 계정이 없음: 서비스 코드의 읽기 설정을 쓰지 않고 닫힌 기본 그대로 본다.
             key_db = is_key_dir(Path(target.rel))
