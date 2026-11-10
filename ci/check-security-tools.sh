@@ -101,6 +101,9 @@ out = []
 for e in entries:
     if not isinstance(e, dict) or "closed" in e or not isinstance(e.get("advisories"), list):
         continue
+    # 라이브러리 검사 무시는 affects에 crate:·npm:이 있는 항목만(보안 담당 8cdb166: 노드·이미지 항목 id가 새지 않게)
+    if not any(isinstance(a, str) and a.startswith(("crate:", "npm:")) for a in e.get("affects") or []):
+        continue
     try:
         until = datetime.date.fromisoformat(e["expires"])
     except (KeyError, TypeError, ValueError):

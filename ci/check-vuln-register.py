@@ -144,7 +144,8 @@ def check_ignores(root: Path, data: object, today: datetime.date) -> list[str]:
     found, problems = ignored_ids(root)
     entries = [e for e in (data.get("entries") or [] if isinstance(data, dict) else []) if isinstance(e, dict)]
     for rel, ident in found:
-        matched = [e for e in entries if isinstance(e.get("advisories"), list) and ident in e["advisories"]]
+        matched = [e for e in entries if isinstance(e.get("advisories"), list) and ident in e["advisories"]
+                   and any(isinstance(a, str) and a.startswith(("crate:", "npm:")) for a in e.get("affects") or [])]  # 8cdb166
         live = [e for e in matched if "closed" not in e and (day(e.get("expires")) or datetime.date.min) >= today]
         if not matched:
             problems.append(f"{rel}:1: {ident}를 무시하는데 {REL}에 그 id를 advisories에 가진 항목이 없습니다(SC-VULN-5)")
