@@ -45,6 +45,15 @@ if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
     esac
 fi
 
+# 하네스 카나리(dev/harness-canary.sh): 사본 worktree도 위 Windows 분기와 같은 자리에서 GIT_DIR·GIT_WORK_TREE를 내보내, 공용 체크아웃과 같은
+# 조건에서 검사를 돌린다(mookko-rust-qa 11-04 추가 8 ①). 카나리 사본 안에서만 통함(ci/check-harness-lock.py가 사본 밖 MOOKKO_CANARY_RUN을 막음).
+if [ "${MOOKKO_CANARY_RUN:-}" = 1 ] && [ -n "${MOOKKO_CANARY_GIT_DIR:-}" ] && [ -z "${GIT_DIR:-}" ]; then
+    export GIT_DIR="$MOOKKO_CANARY_GIT_DIR"
+    export GIT_WORK_TREE="$PWD"
+    git rev-parse --git-dir >/dev/null
+    echo "== 카나리 worktree: GIT_DIR=$GIT_DIR"
+fi
+
 # 빌드 자리(대기표·메모리 관문·자리 캐시 규칙)는 dev/build-slot-acquire.sh 하나에 둡니다(dev/with-build-slot.sh와 함께 씀).
 MOOKKO_SLOT_RUNNER="ci/check-all.sh"
 source "$H/dev/build-slot-acquire.sh"
