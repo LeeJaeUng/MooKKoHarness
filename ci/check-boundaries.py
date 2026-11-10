@@ -4,7 +4,7 @@
 - crates/adapters/* 는 apps·services·다른 어댑터에 의존하지 않는다.
 - crates/services/* 는 엔진만 쓴다(adapters·apps·다른 서비스 금지). dev 의존성도 같다.
 - crates/apps/*     는 무엇이든 조립할 수 있다.
-- acceptance/*      (인수 시험 실행기, acceptance/README.md)는 엔진만 쓴다. 외부 계약만 보므로 서비스·어댑터·앱 코드를
+- acceptance/*      (인수 시험 실행기, acceptance/README.md)는 엔진과 다른 인수 시험 crate(공용 실행 도구 acceptance/common)만 쓴다. 외부 계약만 보므로 서비스·어댑터·앱 코드를
   가져다 쓰지 않는다(RustDev 11-03, links 인수 시험 자리 결정). 워크스페이스 members에는 crate마다 명시해 넣는다
   (glob "acceptance/*"는 Cargo.toml이 없는 runs/에 걸림).
 - 빌드 때만 도는 crate(BUILD_ONLY)는 build-dependency로만 쓴다(실행 코드에 링크 금지).
@@ -31,7 +31,7 @@ ALLOWED = {
     "adapter": {"engine"},
     "service": {"engine"},
     "app": {"engine", "adapter", "service", "app"},
-    "acceptance": {"engine"},
+    "acceptance": {"engine", "acceptance"},  # 인수 시험끼리 공용 실행 도구(acceptance/common)를 씀(11-10 pensive 후보)
 }
 
 
