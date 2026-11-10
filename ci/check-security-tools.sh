@@ -90,7 +90,30 @@ echo "-- gitleaks"
     --exit-code 1 --log-level warn
 
 echo "-- osv-scanner"
-"${TOOL[osv-scanner]}" scan source --recursive --format table .
+# 무시는 제품 docs/policy/vuln-register.json의 열린·기한 안 항목 advisories에서만 만든다(SC-VULN-5, 보안 담당 2026-11-10). 저장소 안
+# osv-scanner.toml은 위에서 막고, 여기서 만든 설정은 검사 사본 밖(RUN_DIR)에 둔다. ignoreUntil은 그 항목의 expires.
+OSV_CONFIG="$RUN_DIR/osv-scanner.toml"
+python3 -I -X utf8 - "$ROOT/docs/policy/vuln-register.json" "$OSV_CONFIG" <<'PY'
+import datetime, json, sys
+entries = json.load(open(sys.argv[1], encoding="utf-8")).get("entries") or []
+today = datetime.date.today()
+out = []
+for e in entries:
+    if not isinstance(e, dict) or "closed" in e or not isinstance(e.get("advisories"), list):
+        continue
+    try:
+        until = datetime.date.fromisoformat(e["expires"])
+    except (KeyError, TypeError, ValueError):
+        continue
+    if until < today:
+        continue
+    for ident in e["advisories"]:
+        reason = f"vuln-register {e.get('id')}: {e.get('exposure', '')}".replace('"', "'")
+        out.append(f'[[IgnoredVulns]]\nid = "{ident}"\nignoreUntil = {until.isoformat()}T23:59:59Z\nreason = "{reason}"\n')
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(out))
+print(f"   무시(vuln-register 짝): {len(out)}건")
+PY
+"${TOOL[osv-scanner]}" scan source --recursive --format table --config "$OSV_CONFIG" .
 
 echo "-- trivy"
 "${TOOL[trivy]}" fs --quiet --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignorefile "" --exit-code 1 .
