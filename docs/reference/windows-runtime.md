@@ -1,6 +1,8 @@
 # Windows C# 실행 구조
 
 > MooKKoDev 주(2026-10-29): 이 문서는 MooKKoDev에서 복사한 C# 실행부 설명입니다. 실행부 구조(AppContainer 격리, 원장, QA 영수증, 반영)는 같고, 다른 점은 README.md의 "MooKKoDev와 다른 점"에 적었습니다. 아래의 날짜별 기록(10-22~10-27)은 MooKKoDev 운영 기록입니다.
+>
+> 지움(11-10): 이 문서가 가리키는 하네스 `data/tools/`·`data/runtime/state/`·`data/runtime/native-bin/`·`data/runtime/launch/`는 지웠습니다(사용자 지시). `data/runtime/`에는 설정 파일 넷만 남았습니다.
 
 Hub·MooKKoDev·AI 매니저·Studio는 Windows .NET 10에서 실행한다. Linux Docker는 제품 서버용이다. 관리 실행에는 WSL·tmux·OpenRig 데몬이나 Node 서버를 사용하지 않는다. 브라우저 JavaScript와 CI 개발 도구는 이 실행부와 구분한다.
 

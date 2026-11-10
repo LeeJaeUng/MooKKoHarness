@@ -7,6 +7,8 @@ pin, a checksum or version mismatch, a scanner error, a missing or malformed res
 the validation. Semgrep has no Windows wheel, so it runs inside the worker WSL distribution: the exact commit tree goes
 in through stdin (`git archive`), the JSON report comes back through stdout.
 
+지움(11-10): 하네스 `data/tools/`(manifest.json·도구 묶음)는 지웠습니다. 옛 구조 참고용으로만 둡니다.
+
 This file is also executed directly (`python -B security_tools.py <scanner> ...`), so it imports nothing from the package.
 """
 import argparse
