@@ -107,9 +107,9 @@
   - `docs/policy/node-pools.json`: 전용 풀 toleration·nodeAffinity 대응표, 키 없는 `operator: Exists` 금지, `antiAffinity`, `daemonSetNamespaces`
   - `mookko.io/input: untrusted` 라벨: `runtimeClassName: gvisor`, `sandbox` 풀 네임스페이스, 비밀값·SA 토큰 없음
   - `docs/policy/privileged-allowlist.json`: 특권은 `mookko-security` 네임스페이스의 등록 이미지만
-  - `docs/policy/api-clients.json`: Kubernetes API 토큰은 등록 워크로드만, RBAC 상한(`rules`), 권한 넓히기 금지, `bindNamespaces`, `platform-controller`
-  - `docs/policy/workload-identities.json`: GCP 자격을 받는 SA는 등록 워크로드만, `default` SA 금지
-  - 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**
+  - `docs/policy/api-clients.json`: Kubernetes API 토큰은 등록 워크로드만, RBAC 상한(`rules`), 권한 넓히기 금지, `bindNamespaces`, `platform-controller`(SC-NODE-6)
+  - `docs/policy/workload-identities.json`: GCP 자격을 받는 SA는 등록 워크로드만, `default` SA 금지(SC-NODE-4)
+  - 노드 풀 설정은 OpenTofu plan 정책 검사(IaC 저장소가 생기면) → **하네스에 요청**.
 - **QA 판단**: 라벨을 달아야 할 Deployment에 빠지지 않았는지(실제 바깥 입력 경로와 대조), Workload Identity 권한이 실제 호출과 맞는지, 풀 배치가 security.md 표와 맞는지.
 - HOST-01과 나누기: 워크로드 하나하나의 위생(PSS restricted·NetworkPolicy·자원·서명)은 HOST-01, 워크로드끼리 같은 노드에 둘지(피해 범위)는 SEC-02입니다.
 
@@ -135,13 +135,10 @@
 ## 보안 설계 검토 (SEC-01~04 공통)
 
 - **대상**(SC-REV-1): 새 바깥 입구·바깥 주소 가져오기, 돈·키·인증·MFA·세션·비밀값·서명, 풀·네임스페이스·RBAC·Workload Identity·NetworkPolicy 넓히기, 특권·샌드박스 예외·감지 규칙 끄기입니다. 보안 담당은 받은 뒤 한 영업일 안에 검토하거나 고칠 점을 냅니다(SC-REV-2). 개발·통합은 막지 않습니다.
-- **근거**(SC-REV-3): 출시 관문(L4)의 근거는 제품 `docs/policy/security-reviews.json`의 `reviewed` 항목입니다. 이 기록은 보안 담당만 고칩니다. 설계서의 `security:reviewed` 줄은 안내일 뿐입니다. 항목은 검토한 절의 sha256, 검토한 커밋, 판정한 모델을 가집니다. 검토 뒤에 절이 바뀌면 검토가 만료되고, 보안 담당이 다시 봅니다. `changes` 항목과 만료 항목은 근거가 아닙니다.
+- **근거**(SC-REV-3): 출시 관문(L4)의 근거는 제품 `docs/policy/security-reviews.json`의 `reviewed` 항목입니다. 이 기록은 보안 담당만 고칩니다. 설계서·명세의 `security:reviewed` 줄은 안내일 뿐입니다. 항목은 검토한 절의 sha256, 검토한 커밋, 판정한 모델을 가집니다. 검토 뒤에 절이 바뀌면 검토가 만료되고, 보안 담당이 다시 봅니다. `changes` 항목과 만료 항목은 근거가 아닙니다.
 - **자동 근거**: `ci/check-security-reviews.py`(절 해시와 기준 판 대조. 만료·기록 없음은 경고이고 L4에서 실패), `ci/check-owner-paths.py`(보안 경로는 `claude/security` 커밋으로만 바뀜, SC-REG-3). SC-REG-3은 세션별 커밋 서명이 들어오기 전까지 L4에서 "일부"로 셉니다.
 - **QA 판단**: QA는 이 기록과 줄을 쓰지 않습니다. L4에서 대상 변경에 `reviewed` 기록이 있는지만 봅니다. L4 밖에서는 판정에 넣지 않습니다.
-- **판정 분야**(QAManager 2026-11-04):
-  - SEC-02: mookko-rust-qa(주, 매니페스트·IaC 대조), qa-engine(코드 안 격리·어댑터 자격 증명), qa-design(서비스별 DB 계정·권한)
-  - SEC-03: qa-services(주, 사고 대응 절차·훈련 기록·runbook), mookko-rust-qa(탐지 규칙·감사 로그 설정의 기계 대조)
-  - SEC-04: mookko-rust-qa(주, DEPS-01·WEB-01·HOST-01과 함께)
+- 판정 분야는 머리말 "보안 3차 나눔"을 따릅니다.
 
 ## FINOPS-01 돈
 
