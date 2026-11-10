@@ -1,0 +1,2 @@
+[advisories]
+ignore = [{ id = "RUSTSEC-2026-0002", reason = "닫힘" }]

@@ -1,0 +1,2 @@
+[advisories]
+ignore = [{ id = "RUSTSEC-2026-0459", reason = "짝 항목 있음" }]

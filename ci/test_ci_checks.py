@@ -82,7 +82,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   good: 자기 풀 required affinity, 등록 이미지 Falco(privileged·hostPID·hostPath), untrusted gvisor 작업자, 빌드 단계 별칭 FROM.
 # security-reviews bad: 빠진 칸 1, verdict 1, 날짜 1(만료·기록 없는 절은 경고만, --l4에서 실패). good: 절 sha256 맞음(끝 빈 줄 뺌),
 #   기록 없는 security:reviewed 절은 경고만.
-# vuln-register bad(보안 담당 기준 ee18cf1): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
+# vuln-register bad(보안 담당 기준 ee18cf1, +3 SC-VULN-5 11-10: 기록 없는 무시·닫힌 항목의 무시·advisories 꼴): 빠진 칸 1, id 겹침 1, 30일 넘음(결정 없음) 1, 결정일부터 30일 넘음 1, 기한 지남 1,
 #   날짜 모양 1, 연 날보다 먼저 닫음 1, 받지 않는 kind 1, 열린 항목이 detect만 1, 빈 action 1, reviewBy 범위 밖 1, fixedIn 없음 1,
 #   객체 아님 1, id 꼴 1, affects 접두어 1(합 15, reviewBy 지남은 경고만). good: 열린 항목, 닫은 GHSA 항목(detect만이어도 닫았으면 됨),
 #   userDecision으로 30일을 넘긴 항목. 기준 판 대조는 표본 폴더가 git 최상위가 아니라 건너뜀.
@@ -125,7 +125,7 @@ EXPECTED_BAD = {
     "systemd-units": 4,
     "containers": 71,
     "containers-sec": 62,
-    "vuln-register": 15,
+    "vuln-register": 18,
     "security-reviews": 3,
     "design-sources": 4,
     "hardcoded": 9,

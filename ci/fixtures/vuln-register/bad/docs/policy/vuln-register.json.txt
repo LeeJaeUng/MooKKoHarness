@@ -274,6 +274,48 @@
       "reviewBy": "@@TODAY-1@@",
       "expires": "@@TODAY+20@@",
       "owner": "보안"
+    },
+    {
+      "id": "CVE-2026-200001",
+      "advisories": [
+        "RUSTSEC-2026-0002"
+      ],
+      "affects": [
+        "npm:left-pad@1.0.0"
+      ],
+      "exposure": "없음",
+      "mitigations": [
+        {
+          "kind": "disable-feature",
+          "action": "안 씀"
+        }
+      ],
+      "opened": "@@TODAY-10@@",
+      "reviewBy": "@@TODAY-9@@",
+      "expires": "@@TODAY+10@@",
+      "owner": "보안",
+      "closed": "@@TODAY-2@@",
+      "fixedIn": "2.0.0"
+    },
+    {
+      "id": "CVE-2026-200002",
+      "advisories": [
+        "not-an-id"
+      ],
+      "affects": [
+        "crate:x@1"
+      ],
+      "exposure": "없음",
+      "mitigations": [
+        {
+          "kind": "disable-feature",
+          "action": "안 씀"
+        }
+      ],
+      "opened": "@@TODAY-1@@",
+      "reviewBy": "@@TODAY+1@@",
+      "expires": "@@TODAY+10@@",
+      "owner": "보안"
     }
   ]
 }

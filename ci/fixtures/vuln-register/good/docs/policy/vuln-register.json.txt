@@ -57,6 +57,26 @@
         "date": "@@TODAY-5@@",
         "ref": "일일보고서 사용자 결정"
       }
+    },
+    {
+      "id": "CVE-2026-119375",
+      "advisories": [
+        "RUSTSEC-2026-0459"
+      ],
+      "affects": [
+        "crate:libsqlite3-sys@0.37.0"
+      ],
+      "exposure": "sqlite 기능을 켜지 않아 빌드되지 않음",
+      "mitigations": [
+        {
+          "kind": "disable-feature",
+          "action": "sqlx sqlite 기능 끔, deny bans"
+        }
+      ],
+      "opened": "@@TODAY-1@@",
+      "reviewBy": "@@TODAY+6@@",
+      "expires": "@@TODAY+29@@",
+      "owner": "보안"
     }
   ]
 }

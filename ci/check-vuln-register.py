@@ -3,7 +3,7 @@ docs/architecture/host-security.md §1·§1.1, 보안 담당 기준 2026-11-04 e
 
 벤더 패치가 기한(KEV·실제 공격 48시간, 치명 7일)을 못 맞추면 제품 docs/policy/vuln-register.json에 항목을 연다.
 - 파일은 늘 있어야 한다(빈 목록이어도, SC-REG-1). `entries`는 목록, 원소는 객체
-- 칸: id(`CVE-YYYY-N…`·`GHSA-xxxx-xxxx-xxxx`, 한 id에 항목은 평생 하나), affects(목록, `pool:`·`image:`·`host:` 접두어), exposure,
+- 칸: id(`CVE-YYYY-N…`·`GHSA-xxxx-xxxx-xxxx`, 한 id에 항목은 평생 하나), affects(목록, `pool:`·`image:`·`host:`·`crate:`·`npm:` 접두어), exposure,
   mitigations(목록, 항목마다 {kind, action}), opened, reviewBy, expires, owner. 날짜는 YYYY-MM-DD
 - 완화(④): kind는 MITIGATION_KINDS만, action은 빈 글이 아님. 열린 항목에는 detect 밖의 kind가 하나 이상(기다리기·감지만은 안 됨)
 - 기한(⑤): expires ≤ opened + MAX_DAYS. 넘기려면 userDecision {date, ref}(사용자 결정 기록 위치)가 있고 expires ≤ date + MAX_DAYS
@@ -11,6 +11,9 @@ docs/architecture/host-security.md §1·§1.1, 보안 담당 기준 2026-11-04 e
 - closed는 opened 뒤의 YYYY-MM-DD이고 fixedIn(고친 판·근거)이 있어야 함. 닫은 항목도 지우지 않는다
 - 기준 브랜치와 대조(⑤): MOOKKO_REGISTER_BASE(없으면 foundation/engine)의 기록부에 있던 id가 사라지거나 opened가 바뀌면 실패.
   검사 폴더가 git 최상위가 아니면(표본) 대조하지 않고, git·기준 판을 읽지 못하면 "건너뜀"을 내고 MOOKKO_REQUIRE_GIT_HISTORY=1이면 실패
+- 검사 무시와 짝(SC-VULN-5, 보안 담당 2026-11-10): 선택 칸 advisories(권고 id 목록: RUSTSEC-·GHSA-·CVE-). 제품 `.cargo/audit.toml`
+  [advisories] ignore와 `deny.toml` [advisories] ignore(글 또는 {id, …})의 id마다 그 id를 advisories에 가진 열린 항목(closed 없음,
+  기한 안)이 있어야 한다. 없거나 닫혔거나 기한이 지났으면 실패(`<파일>:1: 이유`)
 실패하면 `docs/policy/vuln-register.json:1: 이유`를 한 줄씩 내고 1, 경고는 `경고:`로 시작하는 줄.
 
 사용: python3 -X utf8 ci/check-vuln-register.py [저장소 루트]
@@ -24,13 +27,16 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 REL = "docs/policy/vuln-register.json"
 MAX_DAYS = 30  # 완화로 버티는 최대 기간(host-security §1.1, SC-VULN-1). 넘으면 사용자 결정
 FIELDS = ("id", "affects", "exposure", "mitigations", "opened", "reviewBy", "expires", "owner")
 ID = re.compile(r"^(CVE-\d{4}-\d{4,}|GHSA(-[23456789cfghjmpqrvwx]{4}){3})$")
-AFFECTS = re.compile(r"^(pool|image|host):\S")
+AFFECTS = re.compile(r"^(pool|image|host|crate|npm):\S")
+ADVISORY = re.compile(r"^(RUSTSEC-\d{4}-\d{4}|GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-\d{4}-\d{4,})$")
+IGNORE_FILES = (".cargo/audit.toml", "deny.toml")  # 검사 무시를 두는 자리(SC-VULN-5)
 MITIGATION_KINDS = {"block-exposure", "isolate", "disable-feature", "detect", "alt-image"}  # SC-VULN-1 ④
 DEFAULT_BASE = "foundation/engine"
 NOT_TOP = "검사 폴더가 git 최상위가 아님(표본)"
@@ -51,7 +57,10 @@ def check_entry(item: dict, name: str, today: datetime.date, problems: list[str]
     if not ID.match(name):
         problems.append(f"{REL}:1: {name}: id는 CVE-YYYY-N… 또는 GHSA-xxxx-xxxx-xxxx 꼴만")
     if not isinstance(item["affects"], list) or not all(isinstance(a, str) and AFFECTS.match(a) for a in item["affects"]):
-        problems.append(f"{REL}:1: {name}: affects는 `pool:`·`image:`·`host:` 접두어 글의 목록")
+        problems.append(f"{REL}:1: {name}: affects는 `pool:`·`image:`·`host:`·`crate:`·`npm:` 접두어 글의 목록")
+    if "advisories" in item and not (isinstance(item["advisories"], list) and item["advisories"]
+                                     and all(isinstance(a, str) and ADVISORY.match(a) for a in item["advisories"])):
+        problems.append(f"{REL}:1: {name}: advisories는 권고 id(RUSTSEC-YYYY-NNNN·GHSA-…·CVE-…) 목록입니다")
     mitigations = item["mitigations"] if isinstance(item["mitigations"], list) else []
     bad = [m for m in mitigations if not (isinstance(m, dict) and m.get("kind") in MITIGATION_KINDS
                                           and isinstance(m.get("action"), str) and m["action"].strip())]
@@ -108,6 +117,42 @@ def check(data: object, today: datetime.date) -> tuple[list[str], list[str]]:
     return problems, warnings
 
 
+def ignored_ids(root: Path) -> tuple[list[tuple[str, str]], list[str]]:
+    """검사 무시 목록 [(파일, 권고 id)]과 읽기 문제. 파일이 없으면 무시도 없음."""
+    found: list[tuple[str, str]] = []
+    problems: list[str] = []
+    for rel in IGNORE_FILES:
+        path = root / rel
+        if not path.exists():
+            continue
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            problems.append(f"{rel}:1: 읽지 못했습니다: {e}")
+            continue
+        for item in (data.get("advisories") or {}).get("ignore") or []:
+            ident = item.get("id") if isinstance(item, dict) else item
+            if isinstance(ident, str) and ident:
+                found.append((rel, ident))
+            else:
+                problems.append(f"{rel}:1: advisories ignore 항목 {item!r}에 권고 id가 없습니다")
+    return found, problems
+
+
+def check_ignores(root: Path, data: object, today: datetime.date) -> list[str]:
+    """무시한 권고 id마다 그 id를 advisories에 가진 열린·기한 안 항목이 있어야(SC-VULN-5)."""
+    found, problems = ignored_ids(root)
+    entries = [e for e in (data.get("entries") or [] if isinstance(data, dict) else []) if isinstance(e, dict)]
+    for rel, ident in found:
+        matched = [e for e in entries if isinstance(e.get("advisories"), list) and ident in e["advisories"]]
+        live = [e for e in matched if "closed" not in e and (day(e.get("expires")) or datetime.date.min) >= today]
+        if not matched:
+            problems.append(f"{rel}:1: {ident}를 무시하는데 {REL}에 그 id를 advisories에 가진 항목이 없습니다(SC-VULN-5)")
+        elif not live:
+            problems.append(f"{rel}:1: {ident}를 무시하는데 짝 항목({', '.join(str(e.get('id')) for e in matched)})이 닫혔거나 기한이 지났습니다(SC-VULN-5)")
+    return problems
+
+
 def git(root: Path, *args: str) -> str | None:
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8")
     return result.stdout if result.returncode == 0 else None
@@ -159,6 +204,7 @@ def main() -> int:
         print("vuln register check failed (1 problems)")
         return 1
     problems, warnings = check(data, datetime.date.today())
+    problems += check_ignores(root, data, datetime.date.today())
     base, why = base_entries(root)
     if base is None:
         if why.startswith("기준 판") and "JSON" in why:
