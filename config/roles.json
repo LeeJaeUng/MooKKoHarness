@@ -1,88 +1,307 @@
 {
-  "schema": 1,
-  "note": "MooKKoHarness 담당 구성 초안(10-29, 11-03 이름·엔진 고침, 11-04 보안 담당). 순서: 공용 서버 엔진 → 명세 뽑기 → 언어와 상관없는 인수 시험 → 서비스(4단계에서 서비스 등록으로 추가, 모니터링 먼저). --bootstrap-roles가 없는 담당만 만든다. owns는 MooKKo docs/coordination/owners.json과 맞춘다. 당분간 개발·QA 모두 Claude(사용자 2026-10-29), QA는 분야별 세션.",
+  "schema": 2,
+  "note": "MooKKo 담당 구성(2026-11-10, PM 지시). 개발은 AI 매니저를 거치지 않고 Claude 앱 세션(PM → 하네스·통합 → 담당·QA 세션)에서 하며 (사용자 2026-11-03), 이 파일을 읽어 세션을 띄우거나 일감을 나르는 프로그램은 지금 없다(하네스 서버는 멈춤). 사람과 세션이 담당·모델을 찾아보는 표다. owns는 제품 docs/coordination/owners.json과 같아야 하고(정본은 owners.json), session은 Claude 앱 세션 제목이다. 모델 배치(PM 2026-11-10, 사용자 \"니가 추천한대로 다 수정하고 다 추론도 바꾸자\"): 판정 세션(QA 넷)·보안·엔진·DB·PM은 Fable 5.2(claude-fable-5-2), 하네스·통합·QAManager·서비스 담당(links·운영툴·로그·모니터링)·예약 작업은 Opus 5.5(claude-opus-5-5). 구현과 판정을 다른 모델이 하게 해 \"다른 엔진 아님\" 약점을 일부 메움(같은 회사 모델이라 완전한 독립 판정은 아님). effort는 모두 high. 주인 세션이 없는 owners.json 담당 ['명세', '인수 시험', '화면']는 통합 담당이 맡음.",
   "roles": [
     {
-      "id": "pm", "title": "프로젝트 관리자", "kind": "pm", "service": "common", "owner": "조정", "permission": "read", "parent": "user", "code": "",
-      "owns": [], "excludes": [],
-      "canSend": ["spec/lead", "acceptance/lead", "foundation/lead", "integration", "user"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "pm.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/coordination/owners.json"]
+      "id": "pm",
+      "title": "프로젝트 관리자",
+      "kind": "pm",
+      "owner": "조정",
+      "permission": "read",
+      "session": "PM",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "pm.md"
+      ]
     },
     {
-      "id": "integration", "title": "통합 담당", "kind": "integration", "service": "common", "owner": "통합", "permission": "edit", "parent": "pm", "code": "",
-      "owns": ["AGENTS.md", "README.md", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "deny.toml", "clippy.toml", "rustfmt.toml", ".gitignore", ".gitattributes", ".cargo/", "scripts/", "docs/plan.md", "docs/policy/", "docs/coordination/"],
-      "excludes": [],
-      "canSend": ["pm", "spec/lead", "acceptance/lead", "foundation/lead"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "integration.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/coordination/owners.json"]
+      "id": "integration",
+      "title": "하네스·통합 담당",
+      "kind": "integration",
+      "owner": "통합",
+      "permission": "edit",
+      "session": "MooKKo 하네스·통합",
+      "owns": [
+        "AGENTS.md",
+        "README.md",
+        "rust-toolchain.toml",
+        "deny.toml",
+        "clippy.toml",
+        "rustfmt.toml",
+        ".gitignore",
+        ".gitattributes",
+        ".cargo/",
+        "scripts/",
+        "docs/plan.md",
+        "docs/policy/",
+        "docs/coordination/",
+        "docs/spec/observability/",
+        "Cargo.toml",
+        "Cargo.lock"
+      ],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "integration.md"
+      ],
+      "also": "주인 세션이 없는 명세(docs/spec/·proto/의 명세 몫)·인수 시험·화면 공통 파일도 그 담당이 생길 때까지 고침(PM 2026-11-04), 하네스 저장소 전체"
     },
     {
-      "id": "spec/lead", "title": "명세 담당", "kind": "lead", "service": "spec", "owner": "명세", "permission": "edit", "parent": "pm", "code": "docs/spec/",
-      "owns": ["docs/spec/", "proto/"], "excludes": [],
-      "canSend": ["pm", "spec/qa", "acceptance/lead", "foundation/lead", "integration"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "spec.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/spec/README.md"]
+      "id": "qa-manager",
+      "title": "QA 총괄",
+      "kind": "qa",
+      "owner": "QA",
+      "permission": "read",
+      "session": "QAManager",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "qa.md"
+      ]
     },
     {
-      "id": "spec/qa", "title": "명세 QA", "kind": "qa", "service": "spec", "owner": "명세", "permission": "read", "parent": "spec/lead", "code": "docs/spec/",
-      "owns": [], "excludes": [],
-      "canSend": ["spec/lead"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "qa.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "docs/spec/README.md"]
+      "id": "qa-design",
+      "title": "QA: 설계서·SQL",
+      "kind": "qa",
+      "owner": "QA",
+      "permission": "read",
+      "session": "QA: 설계서·SQL (DBDES-01)",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "qa.md"
+      ]
     },
     {
-      "id": "acceptance/lead", "title": "인수 시험 담당", "kind": "lead", "service": "acceptance", "owner": "인수 시험", "permission": "edit", "parent": "pm", "code": "acceptance/",
-      "owns": ["acceptance/"], "excludes": [],
-      "canSend": ["pm", "acceptance/qa", "spec/lead", "foundation/lead", "integration"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "acceptance-tests.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "acceptance/README.md"]
+      "id": "qa-engine",
+      "title": "QA: 엔진·어댑터·proto",
+      "kind": "qa",
+      "owner": "QA",
+      "permission": "read",
+      "session": "QA: 엔진·어댑터·proto",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "qa.md"
+      ]
     },
     {
-      "id": "acceptance/qa", "title": "인수 시험 QA", "kind": "qa", "service": "acceptance", "owner": "인수 시험", "permission": "read", "parent": "acceptance/lead", "code": "acceptance/",
-      "owns": [], "excludes": [],
-      "canSend": ["acceptance/lead"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "qa.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md", "acceptance/README.md"]
+      "id": "qa-services",
+      "title": "QA: 서비스·앱",
+      "kind": "qa",
+      "owner": "QA",
+      "permission": "read",
+      "session": "QA: 서비스·앱 (명세·인수)",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "qa.md"
+      ]
     },
     {
-      "id": "foundation/lead", "title": "바탕 crate 총괄", "kind": "lead", "service": "foundation", "owner": "바탕", "permission": "edit", "parent": "pm", "code": "crates/",
-      "owns": ["crates/", "docs/architecture/", "Cargo.toml", "Cargo.lock"], "excludes": [],
-      "canSend": ["pm", "foundation/backend", "foundation/qa", "spec/lead", "acceptance/lead", "integration"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "foundation.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+      "id": "rust-qa",
+      "title": "QA: 도구·CI·빌드·하네스",
+      "kind": "qa",
+      "owner": "QA",
+      "permission": "read",
+      "session": "MooKKo Rust 판 소급·상시 QA",
+      "owns": [],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "qa.md"
+      ],
+      "also": "하네스 모든 변경·카나리·빌드 자리 감시·하네스·빌드 운영 사고 사후 검토 판정, check-all 대행(PM 2026-11-04)"
     },
     {
-      "id": "foundation/backend", "title": "바탕 crate 구현", "kind": "backend", "service": "foundation", "owner": "바탕", "permission": "edit", "parent": "foundation/lead", "code": "crates/",
-      "owns": ["crates/", "Cargo.toml", "Cargo.lock"], "excludes": [],
-      "canSend": ["foundation/lead", "foundation/qa"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "foundation.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+      "id": "security",
+      "title": "보안 전문 담당",
+      "kind": "lead",
+      "owner": "보안",
+      "permission": "edit",
+      "session": "MooKKo 보안 전문",
+      "owns": [
+        "docs/architecture/host-security.md",
+        "docs/architecture/security.md",
+        "docs/architecture/incident-response.md",
+        "docs/policy/conventions/security.md",
+        ".claude/skills/mookko-security/",
+        "docs/policy/vuln-register.json",
+        "docs/policy/privileged-allowlist.json",
+        "docs/policy/node-pools.json",
+        "docs/policy/image-registries.json",
+        "docs/policy/api-clients.json",
+        "docs/policy/security-reviews.json",
+        "docs/policy/workload-identities.json",
+        "deploy/k8s/mookko-security/"
+      ],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
     },
     {
-      "id": "foundation/qa", "title": "바탕 crate QA", "kind": "qa", "service": "foundation", "owner": "바탕", "permission": "read", "parent": "foundation/lead", "code": "crates/",
-      "owns": [], "excludes": [],
-      "canSend": ["foundation/lead", "foundation/backend"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md", "qa.md"],
-      "docs": ["AGENTS.md", "docs/plan.md", "docs/policy/gates.md"]
+      "id": "db",
+      "title": "DB 전문 담당",
+      "kind": "lead",
+      "owner": "DB",
+      "permission": "edit",
+      "session": "MooKKo DB 전문",
+      "owns": [
+        "docs/policy/conventions/sql.md",
+        ".claude/skills/mookko-sql/",
+        "docs/architecture/database.md",
+        "docs/policy/db/"
+      ],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
     },
     {
-      "id": "security/lead", "title": "보안 전문 담당", "kind": "lead", "service": "security", "owner": "보안", "permission": "edit", "parent": "pm", "code": "",
-      "owns": ["docs/architecture/security.md", "docs/architecture/incident-response.md", "docs/architecture/host-security.md", "docs/policy/conventions/security.md", ".claude/skills/mookko-security/", "docs/policy/vuln-register.json", "docs/policy/privileged-allowlist.json", "docs/policy/node-pools.json", "docs/policy/image-registries.json", "deploy/k8s/mookko-security/", "docs/policy/api-clients.json", "docs/policy/security-reviews.json", "docs/policy/workload-identities.json"],
-      "excludes": [],
-      "canSend": ["pm", "integration", "foundation/lead", "spec/lead"],
-      "engine": "claude", "model": "", "effort": "high",
-      "rules": ["00_공통.md"],
-      "docs": ["AGENTS.md", "docs/policy/gates.md", "docs/policy/conventions/security.md", "docs/architecture/security.md", "docs/architecture/incident-response.md"]
+      "id": "engine",
+      "title": "공용 서버 엔진(바탕) 담당",
+      "kind": "lead",
+      "owner": "바탕",
+      "permission": "edit",
+      "session": "MooKKo 공용 서버 엔진 개발",
+      "owns": [
+        "crates/",
+        "config/",
+        "docs/architecture/",
+        "crates/apps/mookko-router/"
+      ],
+      "engine": "claude",
+      "model": "claude-fable-5-2",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
+    },
+    {
+      "id": "links",
+      "title": "links 서비스 담당",
+      "kind": "service",
+      "owner": "링크",
+      "permission": "edit",
+      "session": "MooKKo links",
+      "owns": [
+        "crates/services/links/",
+        "crates/apps/mookko-links/",
+        "docs/spec/links/",
+        "proto/mookko/links/",
+        "web/apps/links/",
+        "web/apps/public/src/features/links/",
+        "web/apps/public/src/app/(links)/"
+      ],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
+    },
+    {
+      "id": "operations",
+      "title": "운영툴 담당",
+      "kind": "service",
+      "owner": "운영툴",
+      "permission": "edit",
+      "session": "MooKKo 운영툴 기획",
+      "owns": [
+        "web/apps/console/",
+        "proto/mookko/operations/",
+        "crates/services/operations/",
+        "crates/apps/mookko-operations/",
+        "docs/spec/operations/"
+      ],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
+    },
+    {
+      "id": "logs",
+      "title": "로그 서비스 담당",
+      "kind": "service",
+      "owner": "로그",
+      "permission": "edit",
+      "session": "MooKKo 로그 서비스",
+      "owns": [
+        "web/apps/console/src/features/logs/",
+        "web/apps/console/src/features/apm/",
+        "crates/services/logs/",
+        "crates/apps/mookko-logs/",
+        "crates/adapters/mookko-logstore-",
+        "crates/adapters/mookko-store-clickhouse/",
+        "docs/spec/logs/",
+        "proto/mookko/logs/"
+      ],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
+    },
+    {
+      "id": "monitoring",
+      "title": "모니터링 앱 담당",
+      "kind": "service",
+      "owner": "모니터링",
+      "permission": "edit",
+      "session": "MooKKo 모니터링 앱",
+      "owns": [
+        "web/apps/console/src/features/monitoring/",
+        "crates/services/agent/",
+        "crates/apps/mookko-agent/",
+        "deploy/k8s/mookko-security/runtime-detect/",
+        "deploy/k8s/mookko-monitoring/",
+        "crates/services/monitoring/",
+        "crates/apps/mookko-monitoring/",
+        "config/mookko-monitoring.example.json",
+        "docs/spec/monitoring/",
+        "proto/mookko/monitoring/"
+      ],
+      "engine": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "rules": [
+        "00_공통.md",
+        "foundation.md"
+      ]
     }
   ]
 }

@@ -7,9 +7,10 @@
 > | 설계서·SQL | qa-design | DBDES-01, FINOPS-01(데이터), PRIV-01(보관·수집), DEPLOY-01(DB 넓히기·좁히기) |
 > | 엔진·어댑터·proto | qa-engine | RUST·ASYNC·SEC, REL-01, PERF-01(엔진), DEPLOY-01(proto 호환), XC(시계·저장소 틀·권한) |
 > | 서비스·앱 | qa-services | SPEC-01·ACC-01, PRR-01, OPS-01, XC(MFA·이름·감사 원장) |
-> | 도구·CI·빌드 | mookko-rust-qa | DEPS-01, CONV-01(T-*), TEST-01, HOST-01, WEB-01, 하네스 검사 결과 대조. check-all은 이 세션만 돌림 |
+> | 도구·CI·빌드·하네스 | mookko-rust-qa | DEPS-01, CONV-01(T-*), TEST-01, HOST-01, WEB-01, SEC-02(매니페스트·IaC·등록부)·SEC-04, SEC-03(감지 설정 기계 대조). **하네스(MooKKoHarness)의 모든 변경**(검사·관문·빌드 자리·check-all·하네스 카나리·자리 감시)과 하네스·빌드 운영 사고의 사후 검토를 판정함. check-all은 이 세션만 돌림. 하네스만 보는 QA 세션은 따로 두지 않음(PM 2026-11-04) |
 >
-> - **판정 엔진**: 당분간 개발과 QA 모두 Claude입니다(사용자 2026-10-29). 결과마다 "엔진: Claude(모델명), 다른 엔진 아님"이라고 적습니다.
+> - **보안 3차(SEC-02·03·04) 나눔**(QAManager 2026-11-04): SEC-02는 rust-qa가 주로 맡습니다. qa-engine·qa-services는 바깥 입력 경로 목록과 코드 격리(호출 허용 목록·Workload Identity 호출)를 맡고, qa-design은 DB 계정·GRANT 넓히기를 맡습니다. SEC-03은 qa-services가 주로 맡고(사고 대응·훈련·감사 원장), rust-qa는 설정 기계 대조, qa-engine은 비밀값 교체 표를 맡습니다. SEC-04는 rust-qa가 맡습니다. L4의 보안 검토 근거는 설계서 줄이 아니라 `docs/policy/security-reviews.json`입니다(SC-REV-3). SC-REG-3은 커밋 서명이 들어오기 전까지 L4에서 "일부"로 셉니다.
+> - **판정 엔진**: 당분간 개발과 QA 모두 Claude입니다(사용자 2026-10-29). 모델 배치(PM 2026-11-10, 사용자 "니가 추천한대로 다 수정하고 다 추론도 바꾸자"): 판정 세션 넷(qa-design·qa-engine·qa-services·rust-qa)·보안·엔진·DB·PM은 Fable 5.2(`claude-fable-5-2`), 하네스·통합·QAManager·서비스 담당(links·운영툴·로그·모니터링)은 Opus 5.5(`claude-opus-5-5`)이고 추론 수준은 모두 high입니다(정본 하네스 `config/roles.json`). 판정 세션은 그 커밋을 만든 세션과 다른 모델을 씁니다. 결과마다 `엔진: Claude(모델 id)`를 적고, 개발과 같은 모델로 판정했으면 그 사실을 적습니다. 같은 회사 모델이라 완전한 독립 판정은 아닙니다.
 > - **등급 표기**: 바깥에서 아직 뚫리지 않는다는 이유로 높음을 보통으로 내릴 때는 "보통(연결 전 필수: <어떤 연결>)"로 적습니다. 이 표시가 열려 있는 동안 통합 담당은 그 연결 커밋을 통합하지 않습니다.
 > - **DBDES-01 설계 승인은 다시 합니다.** 앞으로 스키마를 바꾸는 커밋은 qa-design이 그 설계서를 `design:approved`로 판정한 뒤에 통합합니다. 승인 없이 통합된 설계서 5개(운영툴·모니터링·로그·links·엔진 표)는 고칠 점이 닫히면 그때 승인합니다. 아직 승인되지 않은 설계서에 이관을 더하는 커밋은 판정에서 `fail`이 아니라 "보통(연결 전 필수: 운영 DB에 이관 적용 전)"으로 봅니다. 승인을 기다리느라 개발을 세우지는 않습니다. qa-design은 설계서를 받은 뒤 **한 영업일 안에** 승인하거나 고칠 점을 냅니다(PM 대행 2026-11-03).
 > - 자동 검사(lint·시험·deny·audit·경계·주소·스택·규칙 끄기)는 처음부터 줄이지 않았습니다.
@@ -128,7 +129,7 @@
 ## 보안 설계 검토 (SEC-01~04 공통)
 
 - 새 바깥 입구·바깥 주소 가져오기, 돈·키·인증·MFA·세션·비밀값·서명, 풀·네임스페이스·RBAC·Workload Identity·NetworkPolicy 넓히기, 특권·샌드박스 예외·감지 규칙 끄기는 설계서·명세에 보안 담당의 `security:reviewed <날짜> <세션>` 줄이 있어야 출시 관문(L4)을 넘습니다(SC-REV-1). 개발·통합은 막지 않습니다. 보안 담당은 한 영업일 안에 검토합니다(SC-REV-2).
-- 판정 분야는 QAManager가 정합니다. 보안 담당 제안: 매니페스트·IaC·기록부 검사 대조는 mookko-rust-qa(HOST-01과 함께), 대응 절차·훈련 기록은 qa-services(PRR-01과 함께).
+- 판정 분야는 머리말 "보안 3차 나눔"을 따릅니다. L4 근거는 `docs/policy/security-reviews.json`(SC-REV-3)입니다.
 
 ## FINOPS-01 돈
 
