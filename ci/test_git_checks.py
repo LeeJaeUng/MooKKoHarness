@@ -5,6 +5,7 @@ ci/fixtures/는 파일 표본이라 커밋·브랜치·머지를 담지 못한�
   보안 브랜치 다시 씀(앞으로만), 사본은 커밋 내용으로 비교, 보안 브랜치 없음 + MOOKKO_REQUIRE_GIT_HISTORY=1
 - dev/memory-guard.py: 비상 기다림이 한 실행(MOOKKO_RUN_ID)에서 maxWaitMinutes를 한 번만 쓰는지(추가 6 ⑥)
 - dev/build-slot-watch.py: 죽은 감싸개의 시험 컨테이너가 쥔 잠금은 그 컨테이너만 멈춤, 진행 기록이 오래된 실행은 경보만(PM 11-04)
+- ci/check-harness-lock.py: harness.lock 판 올림에 카나리 영수증(PM 11-04 ①, rust-qa 추가 8 ②)
 test_ci_checks.py가 불러 같은 임시 폴더 아래에서 돌린다. 단독 실행도 된다.
 """
 
@@ -248,8 +249,37 @@ def slot_cases(base: Path) -> list[str]:
     return failures
 
 
+def lock_cases(base: Path) -> list[str]:
+    """check-harness-lock(카나리 영수증): 판 그대로 통과, 올렸는데 영수증 없음·다른 판 영수증 실패, 맞는 영수증 통과,
+    MOOKKO_CANARY_RUN은 카나리 사본 폴더 밖에서 실패."""
+    check = HARNESS / "ci" / "check-harness-lock.py"
+    failures: list[str] = []
+    old, new = "a" * 40, "b" * 40
+    head = "repo = MooKKoHarness\ncommit = {}\n"
+    receipt = f"canary = {new} base={'c' * 40} at=2026-11-10T01:02:03Z result=pass\n"
+
+    def case(name: str, lock: str, rc: int, **env: str) -> None:
+        repo = base / name
+        repo.mkdir(parents=True)
+        sh(repo, "init", "-q", "-b", "work")
+        commit(repo, "기준", **{"harness.lock": head.format(old)})
+        sh(repo, "branch", "foundation/engine")
+        commit(repo, "판 올림", **{"harness.lock": lock})
+        r = subprocess.run([sys.executable, "-X", "utf8", str(check), str(repo)], capture_output=True, text=True, encoding="utf-8",
+                           env=clean_env(MOOKKO_REQUIRE_GIT_HISTORY="1", **env))
+        if r.returncode != rc:
+            failures.append(f"ci/test_git_checks.py:1: harness-lock {name}: rc {r.returncode}(기대 {rc}) {r.stdout.strip()[:200]}")
+
+    case("same", head.format(old) + "# 설명만 바꿈\n", 0)
+    case("no-receipt", head.format(new), 1)
+    case("other-receipt", head.format(new) + receipt.replace(new, "d" * 40, 1), 1)
+    case("receipt", head.format(new) + receipt, 0)
+    case("canary-env-outside", head.format(new), 1, MOOKKO_CANARY_RUN="1")
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
-    return owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch")
+    return owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
 
 
 def main() -> int:

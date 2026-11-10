@@ -107,6 +107,8 @@ run python3 -X utf8 "$H/ci/check-waivers.py" "$PWD"
 run python3 -X utf8 "$H/ci/check-vuln-register.py" "$PWD"
 run python3 -X utf8 "$H/ci/check-security-reviews.py" "$PWD"
 run python3 -X utf8 "$H/ci/check-owner-paths.py" "$PWD" "$H"
+# harness.lock 판 올림은 카나리 영수증이 있어야(PM 11-04 ①, mookko-rust-qa 추가 8 ②)
+run python3 -X utf8 "$H/ci/check-harness-lock.py" "$PWD"
 run python3 -X utf8 "$H/ci/check-systemd-units.py" "$PWD"
 run "$H/ci/db/check-db.sh"
 echo "== all checks passed"
