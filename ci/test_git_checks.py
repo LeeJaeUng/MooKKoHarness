@@ -462,10 +462,18 @@ def acceptance_fresh_cases(base: Path) -> list[str]:
     r = run(stale, "--l4")
     if r.returncode != 1:
         failures.append(f"ci/test_git_checks.py:1: acceptance 신선도 --l4 enforce 실패 아님: rc {r.returncode} {r.stdout.strip()[-200:]}")
-    fresh = setup("fresh", {"crates/services/other/src/lib.rs": "// 2\n"})
+    fresh = setup("fresh", {"crates/services/other/src/lib.rs": "// 2\n", "docs/x.md": "글\n"})
     r = run(fresh, "--l4")
     if r.returncode != 0 or "CA-9" in r.stdout:
-        failures.append(f"ci/test_git_checks.py:1: acceptance 다른 경로 변경에 신선도 지적: rc {r.returncode} {r.stdout.strip()[-200:]}")
+        failures.append(f"ci/test_git_checks.py:1: acceptance 다른 서비스·문서 변경에 신선도 지적: rc {r.returncode} {r.stdout.strip()[-200:]}")
+    # CA-12: 엔진만 바뀌어도 L4에서는 enforce 서비스를 막음(평소 check-all은 서비스 경로만 봐서 지적 없음)
+    engine = setup("engine-only", {"crates/engine/core/src/lib.rs": "// 2\n"})
+    r = run(engine, "--l4")
+    if r.returncode != 1 or "실행 파일 범위" not in r.stdout:
+        failures.append(f"ci/test_git_checks.py:1: acceptance 엔진만 바뀐 판이 L4를 넘김(CA-12): rc {r.returncode} {r.stdout.strip()[-200:]}")
+    r = run(engine)
+    if r.returncode != 0 or "CA-9" in r.stdout:
+        failures.append(f"ci/test_git_checks.py:1: acceptance 엔진만 바뀐 판에 평소 경고: rc {r.returncode} {r.stdout.strip()[-200:]}")
     return failures
 
 

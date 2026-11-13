@@ -8,8 +8,10 @@ acceptance/services.json의 서비스마다 acceptance/runs/<id>/*.json 실행 �
 - 통과가 아니면: enforce가 true인 서비스는 실패, false인 서비스는 경고만(due가 지났으면 경고에 적음).
 - 형식이 틀린 기록, services.json에 없는 runs 폴더, services.json 칸 오류는 enforce와 상관없이 실패.
 - 신선도(qa-services CA-9·rust-qa 11-14, 백로그 9x): 통과한 가장 최근 기록의 commit 뒤로 그 서비스 경로가 바뀌었으면 경고
-  (`--l4`면 enforce 서비스는 실패). 경로는 services.json 항목의 `paths`(목록), 없으면 crates/services/<id>·crates/apps/mookko-<id>·
-  acceptance/<id>.
+  경로는 services.json 항목의 `paths`(목록), 없으면 crates/services/<id>·crates/apps/mookko-<id>·acceptance/<id>.
+  `--l4`(출시 관문)에서는 실행 파일이 빌드되는 범위로 넓혀(qa-services CA-12: 엔진·어댑터·proto·Cargo.lock만 바뀐 판도 막아야) 저장소 전체에서
+  docs/·*.md·acceptance/runs/·다른 서비스의 코드(crates/services/<다른 id>·crates/apps/mookko-<다른 id>·acceptance/<다른 id>)만 빼고 보며,
+  바뀐 것이 있으면 enforce 서비스는 실패.
 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다. 경고는 `경고:`로 시작한다.
 
 사용: python3 -X utf8 ci/check-acceptance.py [저장소 루트] [--l4]
@@ -39,6 +41,25 @@ def changed_since(root: Path, commit: str, paths: list[str]) -> list[str] | None
     done = subprocess.run(["git", "diff", "--name-only", f"{commit}..HEAD", "--", *paths], cwd=root,
                           capture_output=True, text=True, encoding="utf-8")
     return [line for line in done.stdout.splitlines() if line.strip()] if done.returncode == 0 else None
+
+
+RELEASE_PATHSPEC = [".", ":(exclude)docs", ":(exclude,glob)**/*.md", ":(exclude)acceptance/runs"]
+OTHER_SERVICE = re.compile(r"^(?:crates/services/([^/]+)/|crates/apps/mookko-([^/]+)/|acceptance/([^/]+)/|config/mookko-([a-z0-9-]+?)[.-])")
+
+
+def release_changes(root: Path, commit: str, sid: str) -> list[str] | None:
+    """L4 신선도 범위(CA-12): 저장소 전체에서 docs/·*.md·acceptance/runs/를 빼고, 다른 서비스의 코드·설정 예시(crates/services/<x>·
+    crates/apps/mookko-<x>·acceptance/<x>·config/mookko-<x>…, x ≠ 그 서비스, acceptance/common은 남김)도 뺀 바뀐 파일."""
+    changed = changed_since(root, commit, RELEASE_PATHSPEC)
+    if changed is None:
+        return None
+    kept = []
+    for path in changed:
+        m = OTHER_SERVICE.match(path)
+        owner = next((g for g in m.groups() if g), None) if m else None
+        if owner is None or owner in (sid, "common"):
+            kept.append(path)
+    return kept
 
 
 def service_paths(svc: dict) -> list[str]:
@@ -117,12 +138,14 @@ def main() -> int:
         elif git(root, "merge-base", "--is-ancestor", latest["commit"], "HEAD") != 0:
             verdict = f"가장 최근 기록 {latest['_rel']}의 commit {latest['commit'][:12]}이 지금 HEAD의 조상이 아닙니다"
         if not verdict:
-            changed = changed_since(root, latest["commit"], service_paths(svc))
+            changed = (release_changes(root, latest["commit"], sid) if (l4 and svc["enforce"])
+                       else changed_since(root, latest["commit"], service_paths(svc)))
             if changed is None and os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1":
                 # git을 못 읽으면 신선도를 볼 수 없으므로 check-all(REQUIRE=1)에서는 실패(rust-qa 11-14 낮음 2)
                 problems.append(f"acceptance/services.json:1: {sid}: 기록 {latest['_rel']} 뒤 바뀐 파일을 git으로 읽지 못해 신선도를 볼 수 없습니다(CA-9)")
             if changed:
-                stale = (f"{sid}: 가장 최근 통과 기록 {latest['_rel']}(commit {latest['commit'][:12]}) 뒤로 서비스 경로 파일 {len(changed)}개가 "
+                scope = "실행 파일 범위(L4)" if (l4 and svc["enforce"]) else "서비스 경로"
+                stale = (f"{sid}: 가장 최근 통과 기록 {latest['_rel']}(commit {latest['commit'][:12]}) 뒤로 {scope} 파일 {len(changed)}개가 "
                          f"바뀌었습니다(예: {changed[0]}) — 새 판으로 인수 시험을 다시 돌려 기록하세요(CA-9)")
                 if l4 and svc["enforce"]:
                     problems.append(f"acceptance/services.json:1: {stale}")
