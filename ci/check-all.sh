@@ -55,6 +55,9 @@ if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 
+# 기록에 검사하는 판을 남김(qa-services 11-14 낮음: 기록만 보고 어느 판인지 알 수 있게). 작업 사본에 커밋 안 한 변경이 있으면 그것도 적음.
+echo "== 검사 판: $(git rev-parse HEAD 2>/dev/null || echo 알 수 없음)$(git diff --quiet HEAD -- 2>/dev/null || echo " (+커밋 안 한 변경)")"
+
 # 빌드 자리(대기표·메모리 관문·자리 캐시 규칙)는 dev/build-slot-acquire.sh 하나에 둡니다(dev/with-build-slot.sh와 함께 씀).
 MOOKKO_SLOT_RUNNER="ci/check-all.sh"
 source "$H/dev/build-slot-acquire.sh"
