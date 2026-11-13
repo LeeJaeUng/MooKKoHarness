@@ -18,6 +18,8 @@
 `--list`는 걸린 줄을 모두 낸다(담당별 정리용). `--write-baseline`은 지금 개수로 baseline을 다시 쓴다(통합 담당만).
 
 사용: python3 -X utf8 ci/check-hardcoded-values.py [저장소 루트] [--list] [--write-baseline]
+     검사 파일을 바꿔 새로 걸린 것을 기준에 넣을 때만: [--init-baseline --checker-changed=<하네스 커밋>:<사유>](MOOKKO_HARNESS_REPO 필요, 그 커밋이
+     검사 파일을 바꾼 기준 판 뒤의 커밋이어야 함)
 """
 
 from __future__ import annotations
@@ -252,6 +254,40 @@ def base_policy(root: Path, policy_rel: str) -> dict | None:
         return None
 
 
+CHECKER_FILES = ("ci/check-hardcoded-values.py", "ci/check-test-time.py")
+CHECKER_CHANGED = re.compile(r"^([0-9a-f]{7,40}):(.+)$")
+
+
+def _git(repo: Path | str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
+
+
+def checker_change_problem(root: Path, value: str) -> str | None:
+    """`--checker-changed=<하네스 커밋>:<사유>`가 진짜 검사 변경인지(rust-qa 11-13 보통 1, 백로그 9n·4).
+    그 하네스 커밋이 검사 파일(CHECKER_FILES)을 실제로 바꿨고, 기준 판(MOOKKO_REGISTER_BASE, 기본 foundation/engine)의 harness.lock
+    판에 아직 들어 있지 않아야 한다. 하네스 저장소는 MOOKKO_HARNESS_REPO로 받는다(대조하지 못하면 거절). 문제가 없으면 None."""
+    m = CHECKER_CHANGED.match(value)
+    if not m:
+        return "--checker-changed=<하네스 커밋>:<사유> 모양이어야 합니다(검사 파일을 바꾼 하네스 커밋을 댐)"
+    commit = m.group(1)
+    hrepo = os.environ.get("MOOKKO_HARNESS_REPO")
+    if not hrepo:
+        return "하네스 저장소(MOOKKO_HARNESS_REPO)가 없어 검사 파일이 바뀌었는지 대조할 수 없습니다"
+    changed = _git(hrepo, "diff", "--name-only", f"{commit}^", commit, "--", *CHECKER_FILES)
+    if changed.returncode != 0:
+        return f"하네스 커밋 {commit}를 읽지 못했습니다: {changed.stderr.strip()[:200]}"
+    if not changed.stdout.strip():
+        return f"하네스 커밋 {commit}는 검사 파일({', '.join(CHECKER_FILES)})을 바꾸지 않았습니다 — 새 위반을 기준에 넣는 길이 아님"
+    base = os.environ.get("MOOKKO_REGISTER_BASE") or "foundation/engine"
+    lock = _git(root, "show", f"{base}:harness.lock")
+    found = re.search(r"^commit\s*=\s*([0-9a-f]{40})\s*$", lock.stdout, re.M) if lock.returncode == 0 else None
+    if not found:
+        return f"기준 판 {base}의 harness.lock을 읽지 못해 검사 변경이 새것인지 대조할 수 없습니다"
+    if _git(hrepo, "merge-base", "--is-ancestor", commit, found.group(1)).returncode == 0:
+        return f"하네스 커밋 {commit}는 기준 판 하네스({found.group(1)[:7]})에 이미 들어 있습니다 — 그 뒤 검사가 바뀐 것이 아님"
+    return None
+
+
 def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str]) -> int:
     """파일별 기준(baseline)을 둔 검사의 공통 판정(mookko-rust-qa 2026-11-03 래칫 지적).
     - 늘어남: crate 단위 규칙별 합계가 기준보다 많으면 **경고 모드여도 실패**(같은 crate 안에서 파일 사이로 옮긴 것은 경고).
@@ -259,7 +295,8 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
     - 기준 파일을 손으로 늘림: 비교 기준 판의 정책 파일보다 어느 칸이든 크면 실패. 검사 자체를 고쳐 늘어난 것처럼 이유가 있으면
       정책 파일 `raised`에 파일마다 사유를 적어야 함(리뷰에 보임).
     `--write-baseline`은 기존 칸만 min(기준, 지금)으로 낮추고 새 칸은 더하지 않는다. `--init-baseline`은 기준이 비었을 때만
-    지금 개수로 처음 쓴다."""
+    지금 개수로 처음 쓴다. 기준이 있을 때는 `--checker-changed=<하네스 커밋>:<사유>`로만 다시 쓰고, 그 커밋이 검사 파일을 실제로
+    바꾼 새 하네스 커밋이어야 한다(checker_change_problem)."""
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     root = Path(args[0]).resolve() if args else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
@@ -278,10 +315,15 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
             if baseline and not any(a.startswith("--checker-changed=") for a in flags):
                 print(f"{policy_rel}:1: 기준이 이미 있어 처음 쓰기를 하지 않습니다(--write-baseline은 낮추기만)")
                 return 1
-            reason = next((a.split("=", 1)[1] for a in flags if a.startswith("--checker-changed=")), "")
-            if baseline and not reason:
-                print(f"{policy_rel}:1: --checker-changed=<사유>가 필요합니다")
-                return 1
+            value = next((a.split("=", 1)[1] for a in flags if a.startswith("--checker-changed=")), "")
+            reason = ""
+            if baseline:
+                problem = checker_change_problem(root, value)
+                if problem:
+                    print(f"{policy_rel}:1: {problem}")
+                    return 1
+                commit, why = CHECKER_CHANGED.match(value).groups()
+                reason = f"하네스 {commit} 검사 변경: {why}"
             for rel, rules in found.items():
                 if any(n > baseline.get(rel, {}).get(rule, 0) for rule, n in rules.items()) and baseline:
                     policy.setdefault("raised", {})[rel] = reason

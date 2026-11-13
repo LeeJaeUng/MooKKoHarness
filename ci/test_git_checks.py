@@ -355,9 +355,50 @@ def canary_config_cases(base: Path) -> list[str]:
     return failures
 
 
+def checker_changed_cases(base: Path) -> list[str]:
+    """--init-baseline --checker-changed=<하네스 커밋>:<사유>(rust-qa 11-13 보통 1): 검사 파일을 바꾼 새 하네스 커밋만 받음.
+    통과: 기준 판 lock 뒤에 check-hardcoded-values.py를 바꾼 커밋. 실패: 검사 파일을 안 바꾼 커밋, 기준 판 lock에 이미 든 커밋,
+    모양 틀림(사유만), 하네스 저장소 없음."""
+    failures: list[str] = []
+    check = HARNESS / "ci" / "check-hardcoded-values.py"
+    harness = base / "harness"
+    harness.mkdir(parents=True)
+    sh(harness, "init", "-q", "-b", "main")
+    commit(harness, "검사 처음", **{"ci/check-hardcoded-values.py": "# v1\n"})
+    old_commit = sh(harness, "rev-parse", "HEAD").strip()
+    commit(harness, "검사 바꿈", **{"ci/check-hardcoded-values.py": "# v2\n"})
+    changed = sh(harness, "rev-parse", "HEAD").strip()
+    commit(harness, "다른 파일", **{"README.md": "x\n"})
+    other = sh(harness, "rev-parse", "HEAD").strip()
+    policy = {"enforce": False, "expires": "2099-01-01", "baseline": {"crates/x/src/lib.rs": {"NUM": 1}}}
+
+    def case(name: str, value: str | None, rc: int, with_repo: bool = True) -> None:
+        repo = base / name
+        repo.mkdir(parents=True)
+        sh(repo, "init", "-q", "-b", "work")
+        commit(repo, "기준", **{"harness.lock": f"commit = {old_commit}\n",
+                               "docs/policy/hardcoded-values.json": json.dumps(policy) + "\n"})
+        sh(repo, "branch", "foundation/engine")
+        args = [sys.executable, "-X", "utf8", str(check), str(repo), "--init-baseline"]
+        if value is not None:
+            args.append(f"--checker-changed={value}")
+        extra = {"MOOKKO_HARNESS_REPO": str(harness)} if with_repo else {}
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", env=clean_env(**extra), cwd=repo)
+        if r.returncode != rc:
+            failures.append(f"ci/test_git_checks.py:1: checker-changed {name}: rc {r.returncode}(기대 {rc}) {r.stdout.strip()[:200]}")
+
+    case("changed", f"{changed}:검사 넓힘", 0)
+    case("no-checker-change", f"{other}:검사 안 바뀜", 1)
+    case("already-in-base", f"{old_commit}:옛 판", 1)
+    case("reason-only", "사유만", 1)
+    case("no-flag", None, 1)
+    case("no-harness-repo", f"{changed}:검사 넓힘", 1, with_repo=False)
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
     return (owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
-            + canary_config_cases(base / "canary-config"))
+            + canary_config_cases(base / "canary-config") + checker_changed_cases(base / "checker-changed"))
 
 
 def main() -> int:
