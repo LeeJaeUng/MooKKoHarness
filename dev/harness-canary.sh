@@ -98,6 +98,16 @@ rm -f .claude/skills/README.md
 git add -A harness.lock docs/policy .claude/skills
 git commit -q -m "canary: 하네스 ${CAND:0:7}" || true
 
+# 공용 Windows worktree와 같은 .git 파일(rust-qa 11-14 16번, 백로그 9u): 공용 worktree의 .git은 `gitdir: C:/…`라 WSL git이 그 폴더에서
+# 저장소를 찾지 못한다(11-13 68e65715에서 표본 시험이 이 조건으로만 실패). 사본도 같은 모양으로 바꾸고, check-all에는 진짜 gitdir을
+# MOOKKO_CANARY_GIT_DIR로 넘긴다. 환경을 비운 git이 사본 안에서 저장소를 찾으면 조건을 못 만든 것이라 카나리를 실패로 본다.
+WIN_GITDIR="C:/mookko-canary/$(basename "$RUN")/.git/worktrees/wt"
+printf 'gitdir: %s\n' "$WIN_GITDIR" > "$WT/.git"
+if (cd "$WT" && env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --git-dir >/dev/null 2>&1); then
+    echo "하네스 카나리 실패: 사본 worktree를 공용 Windows worktree 조건(.git이 C:/… gitdir)으로 만들지 못했습니다" >&2
+    exit 1
+fi
+
 # 공용 .git/config의 키 목록(branch.<이름>.* 뺌). 키 단위로 견주어 실패 때 어느 키가 바뀌었는지 보인다.
 config_view() {
     # 지금 폴더의 저장소를 찾지 않게 / 에서 부름(Windows gitdir을 가리키는 worktree 안이면 git이 'not a git repository'로 멈춤)
@@ -118,8 +128,9 @@ if [ -z "$PREPARE" ]; then
     MOOKKO_MAIN_CHECKOUT="$PRODUCT" MOOKKO_SLOT_ALERT_FILE="$PRODUCT/data/build-slot-alerts.log" MOOKKO_CANARY_GIT_DIR="$WT_GITDIR" MOOKKO_CANARY_RUN=1 MOOKKO_HARNESS_REPO="$HREPO" MOOKKO_SLOT_PRIORITY="${CANARY_SLOT_PRIORITY:-2}" \
         bash scripts/ci/check-all.sh || check_status=$?
 else
-    echo "== 준비만: $(git log --oneline -1), harness.lock $(sed -n 's/^commit = //p' harness.lock | cut -c1-7), GIT_DIR=$WT_GITDIR"
+    echo "== 준비만: $(GIT_DIR="$WT_GITDIR" GIT_WORK_TREE="$WT" git log --oneline -1), harness.lock $(sed -n 's/^commit = //p' harness.lock | cut -c1-7), GIT_DIR=$WT_GITDIR"
 fi
+printf 'gitdir: %s\n' "$WT_GITDIR" > "$WT/.git"  # 실패해서 남긴 사본을 사람이 볼 때 git이 되게 되돌림
 after="$(fingerprint)"
 if [ "$before" != "$after" ]; then
     echo "하네스 카나리 실패: git 메타데이터가 바뀌었습니다(공용 제품 .git 또는 사본 .git·worktrees)" >&2

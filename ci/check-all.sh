@@ -30,6 +30,15 @@ if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
 
+# 하네스 카나리(dev/harness-canary.sh): 사본 worktree도 아래 Windows 분기보다 먼저(사본의 .git 파일도 Windows 모양이라 — rust-qa 11-14 16번, 백로그 9u) GIT_DIR·GIT_WORK_TREE를 내보내, 공용 체크아웃과 같은
+# 조건에서 검사를 돌린다(mookko-rust-qa 11-04 추가 8 ①). 카나리 사본 안에서만 통함(ci/check-harness-lock.py가 사본 밖 MOOKKO_CANARY_RUN을 막음).
+if [ "${MOOKKO_CANARY_RUN:-}" = 1 ] && [ -n "${MOOKKO_CANARY_GIT_DIR:-}" ] && [ -z "${GIT_DIR:-}" ]; then
+    export GIT_DIR="$MOOKKO_CANARY_GIT_DIR"
+    export GIT_WORK_TREE="$PWD"
+    git rev-parse --git-dir >/dev/null
+    echo "== 카나리 worktree: GIT_DIR=$GIT_DIR"
+fi
+
 # Windows에서 만든 worktree는 .git 파일이 C:/… 경로를 가리켜 WSL의 git이 읽지 못합니다(2026-11-03 links: 보안 관문
 # git ls-files가 exit 128). 그 경로를 /mnt/<드라이브>/… 로 바꿔 GIT_DIR·GIT_WORK_TREE로 넘깁니다. 저장소 파일은 고치지 않습니다.
 if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -45,14 +54,6 @@ if [ -f .git ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
     esac
 fi
 
-# 하네스 카나리(dev/harness-canary.sh): 사본 worktree도 위 Windows 분기와 같은 자리에서 GIT_DIR·GIT_WORK_TREE를 내보내, 공용 체크아웃과 같은
-# 조건에서 검사를 돌린다(mookko-rust-qa 11-04 추가 8 ①). 카나리 사본 안에서만 통함(ci/check-harness-lock.py가 사본 밖 MOOKKO_CANARY_RUN을 막음).
-if [ "${MOOKKO_CANARY_RUN:-}" = 1 ] && [ -n "${MOOKKO_CANARY_GIT_DIR:-}" ] && [ -z "${GIT_DIR:-}" ]; then
-    export GIT_DIR="$MOOKKO_CANARY_GIT_DIR"
-    export GIT_WORK_TREE="$PWD"
-    git rev-parse --git-dir >/dev/null
-    echo "== 카나리 worktree: GIT_DIR=$GIT_DIR"
-fi
 
 # 빌드 자리(대기표·메모리 관문·자리 캐시 규칙)는 dev/build-slot-acquire.sh 하나에 둡니다(dev/with-build-slot.sh와 함께 씀).
 MOOKKO_SLOT_RUNNER="ci/check-all.sh"
