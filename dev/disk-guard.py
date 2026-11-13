@@ -201,6 +201,12 @@ def check(settings: dict) -> tuple[list[str], list[str]]:
     notes: list[str] = []
     host = settings["host"]
     room = headroom(host)
+    if room is None and in_wsl() and str(host["path"]).startswith("/mnt/") and Path(host["path"]).exists():
+        # 가상 디스크를 못 찾아도 Windows 드라이브 실제 남은 공간 기준(minFreeGiB)은 본다(백로그 8). 여유(빈 곳 더한 값)는 못 셈.
+        host_free = shutil.disk_usage(host["path"]).free
+        if host_free < host["minFreeGiB"] * GIB:
+            problems.append(f"{host['path']}: Windows 드라이브 실제 남은 공간 {host_free / GIB:.1f}GiB < 기준 {host['minFreeGiB']}GiB "
+                            f"(가상 디스크를 못 찾아 여유 계산은 건너뜀; C 드라이브 비우기 필요, 사용자 결정 필요)")
     if room is not None:
         free, slack = room
         host_free = shutil.disk_usage(host["path"]).free

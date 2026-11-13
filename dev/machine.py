@@ -16,7 +16,11 @@ from pathlib import Path
 
 
 def main_root(start: Path | None = None) -> Path:
-    """이 저장소 본 체크아웃의 최상위 폴더."""
+    """이 저장소 본 체크아웃의 최상위 폴더. MOOKKO_MAIN_CHECKOUT이 있으면 그것(하네스 카나리처럼 /tmp 사본에서 돌아도 이 기계의
+    data/dev-machine.json·가상 디스크를 보게, 백로그 8)."""
+    forced = os.environ.get("MOOKKO_MAIN_CHECKOUT")
+    if forced and start is None:
+        return Path(forced).resolve()
     here = (start or Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".")).resolve()
     here = here if here.is_dir() else here.parent
     root = here
