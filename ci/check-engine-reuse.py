@@ -6,6 +6,7 @@ crates/services/·crates/apps/ 아래 src/의 *.rs(주석 줄은 뺌, tests/·be
 - C2 시계·시각: `trait Clock`, `struct SystemClock`, `struct Timestamp`, `mod time_util`
 - C3 이름 검사: `fn is_identifier`, `fn is_valid_identifier`, `fn valid_identifier`
 - C4 감사 해시 사슬: `prev_hash` 칸(행마다 앞 행 해시를 잇는 사슬)
+- C7 저장소 틀: 트랜잭션 옵션 함수, ClickHouse 질의 기한 글(ClickHouse 어댑터 crate 자체는 빼고, OWNERS)
 찾으면 실패한다. 다만 docs/policy/waivers.json에 rule이 "ENG-REUSE-<번호>"로 시작하고 paths에 그 파일이 든 항목이 있으면
 넘어간다(엔진 것이 들어오면 서비스가 옮기고 경로를 뺌). 예외가 있는데 그 파일에서 그 모양이 사라졌으면 예외를 지우라고
 실패한다. 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다.
@@ -56,6 +57,13 @@ RULES: dict[str, tuple[re.Pattern[str], str]] = {
         re.compile(r"\bfn\s+(rw|read_only)\s*\(\s*\)\s*->\s*TxOptions\b|\"SETTINGS\s+max_execution_time"),
         "트랜잭션 옵션·질의 기한은 엔진 공용 저장소 틀(C7 read_tx/write_tx, 남은 기한)을 쓰세요",
     ),
+}
+
+
+# 공용 기능을 맡은 crate 자체는 그 규칙의 대상이 아님(구현이 그 모양을 갖는 것이 당연함). C7의 ClickHouse 질의 기한
+# (`SETTINGS max_execution_time`)은 ClickHouse 어댑터가 호출 예산의 남은 기한으로 거는 곳이다(로그 11-10, 백로그 9l).
+OWNERS: dict[str, tuple[str, ...]] = {
+    "C7": ("crates/adapters/mookko-store-clickhouse/",),
 }
 
 
@@ -110,6 +118,8 @@ def main() -> int:
             key = rel.as_posix()
             for no, line in code_lines(path.read_text(encoding="utf-8")):
                 for rule, (pattern, message) in RULES.items():
+                    if key.startswith(OWNERS.get(rule, ())):
+                        continue
                     if pattern.search(line) and rule not in waived.get(key, set()):
                         text = f"{key}:{no}: {message}. 서비스가 공용 기능을 따로 만들지 않습니다({rule})"
                         (soft if adapter else problems).append(text)

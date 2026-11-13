@@ -1,0 +1,2 @@
+// 공용 ClickHouse 어댑터는 C7 질의 기한의 구현 자리(경고도 나오지 않아야 함)
+const PROBE: &str = "SETTINGS max_execution_time = 5";
