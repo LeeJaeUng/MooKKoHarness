@@ -1,0 +1,2 @@
+{"schema": 1, "gate": {"a": {"cumulativeCpuHoursBefore": 24}},
+ "targets": [{"name": "a", "crate": "x", "entry": "f", "owner": "엔진"}, {"name": "b", "crate": "x", "entry": "g", "owner": "엔진"}]}

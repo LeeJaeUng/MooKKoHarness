@@ -1,0 +1,15 @@
+[package]
+name = "fixture-fuzz"
+version = "0.0.0"
+
+[[bin]]
+name = "a"
+path = "fuzz_targets/a.rs"
+
+[[bin]]
+name = "c"
+path = "fuzz_targets/c.rs"
+
+[[bin]]
+name = "extra"
+path = "fuzz_targets/extra.rs"

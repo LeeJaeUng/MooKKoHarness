@@ -1,0 +1,4 @@
+{"schema": 1, "gate": {"zzz": {}},
+ "targets": [{"name": "a", "crate": "x", "entry": "f", "owner": "엔진"}, {"name": "a", "crate": "x", "entry": "f", "owner": "엔진"},
+             {"name": "b", "entry": "g", "owner": "엔진"}, {"name": "c", "crate": "x", "entry": "h", "owner": "엔진"},
+             {"name": "d", "crate": "x", "entry": "i", "owner": "엔진"}]}

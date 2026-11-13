@@ -45,6 +45,7 @@ CHECKS = {
     "production-config": HARNESS / "ci" / "check-production-config.py",
     "harness-copies": HARNESS / "ci" / "check-harness-copies.py",
     "folder-layout": HARNESS / "ci" / "check-folder-layout.py",
+    "fuzz-targets": HARNESS / "ci" / "check-fuzz-targets.py",
 }
 # cargo metadata로 판정하는 검사는 같은 작은 작업 공간 표본(cargo-ws)을 함께 쓴다. 복사한 뒤 cargo generate-lockfile --offline.
 FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "cargo-ws"}
@@ -106,11 +107,14 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 #   services.json에 없는 runs 폴더 1, enforce 서비스의 가장 최근 기록이 실패(앞 기록은 통과) 1.
 # file-size bad: src 601줄 1, 시험 모듈 뒤 코드까지 650줄 1, 600줄 이하인데 예외가 남음 1, 예외의 파일이 없음 1(tests/ 900줄은 세지 않음).
 #   good: `#[cfg(test)] mod t;`가 가리키는 900줄 t.rs는 세지 않음, src/tests/ 모듈 폴더는 셈.
+# fuzz-targets bad: 이름 겹침 1, crate 칸 없음 1, gate의 모르는 대상 1, 목록 밖 코드 1, 코드는 있는데 [[bin]] 없음 1, [[bin]] 파일 없음 1,
+#   목록 밖 [[bin]] 1(코드 없는 대상 c는 경고만). good: 코드 없는 대상 b는 경고만(--l4 전).
 # engine-reuse bad: C1 상수 1, C2 SystemClock 1, C3 is_identifier 1, C4 prev_hash 1, 복사본이 없는데 남은 예외 1,
 #   넓힌 모양 4(SystemTime::now, "recent_mfa_required", Hmac<, fn rw() -> TxOptions).
 # endpoints bad: IPv4 1, localhost 1, URL 1, host:port 1, Ipv4Addr::LOCALHOST 2(생성자·localhost).
 #   good: 판 문자열 "1.2.3.4.5"·"v1.0.0.1", 300으로 시작하는 넷 덩어리, 주석 줄은 잡지 않음.
 EXPECTED_BAD = {
+    "fuzz-targets": 7,
     "dev-exposure": 15,
     "acceptance": 8,
     "file-size": 4,
