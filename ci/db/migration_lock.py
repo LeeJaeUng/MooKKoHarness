@@ -27,7 +27,8 @@ import paths  # noqa: E402  (같은 폴더)
 LIST = paths.product_data("migration-lock.json")
 LIST_REL = "docs/policy/db/migration-lock.json"
 REWRITE_MARK = "출시 전 이관 다시 씀:"
-MIGRATION_GLOB = ":(glob)crates/**/migrations/*.sql"
+# 이관 파일: migrations/ 바로 아래와 신호별 하위 폴더 migrations/<신호>/(ClickHouse 어댑터 logs·traces·metrics, 백로그 9r·DB 담당 11-13).
+MIGRATION_GLOBS = (":(glob)crates/**/migrations/*.sql", ":(glob)crates/**/migrations/*/*.sql")
 
 
 def quoted(schema: str) -> str:
@@ -152,7 +153,7 @@ def git(root: Path, *args: str) -> str | None:
 
 
 def history_commits(root: Path, since: str) -> list[tuple[str, str, list[tuple[str, str]]]] | None:
-    out = git(root, "log", "-M", "--format=%x1e%H%x1f%B%x1f", "--name-status", f"{since}..HEAD", "--", MIGRATION_GLOB)
+    out = git(root, "log", "-M", "--format=%x1e%H%x1f%B%x1f", "--name-status", f"{since}..HEAD", "--", *MIGRATION_GLOBS)
     if out is None:
         return None
     commits: list[tuple[str, str, list[tuple[str, str]]]] = []
@@ -187,5 +188,5 @@ def lock_versions(root: Path, since: str, current: dict) -> list[tuple[str, dict
 
 def uncommitted_rewrites(root: Path) -> list[str]:
     """커밋 전 작업 사본에서 이미 커밋한 이관을 바꾼 파일(커밋할 때 본문 표시가 필요하다는 알림용)."""
-    out = git(root, "status", "--porcelain", "--", MIGRATION_GLOB) or ""
+    out = git(root, "status", "--porcelain", "--", *MIGRATION_GLOBS) or ""
     return [line[3:] for line in out.splitlines() if line[:2].strip() in ("M", "R", "D", "MM", "RM")]

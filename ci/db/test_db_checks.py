@@ -388,6 +388,35 @@ class MigrationLockSamples(unittest.TestCase):
         blocked = migration_lock.rewrite_findings(commits, set(), allowed=False)
         self.assertEqual(sorted(m[:13] for _, m in blocked), sorted(["커밋 " + "b" * 10, "커밋 " + "c" * 10, "커밋 " + "d" * 10, "커밋 " + "d" * 10]))
 
+    def test_history_sees_signal_subfolders(self) -> None:
+        """git 기록 읽기(history_commits)가 migrations/<신호>/ 하위 폴더 이관도 본다(백로그 9r, DB 담당 11-13)."""
+        import subprocess
+
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "MOOKKO_"))}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        with tempfile.TemporaryDirectory(prefix="mookko-test-") as tmp:
+            def git(*args: str) -> str:
+                return subprocess.run(["git", "-C", tmp, *args], check=True, capture_output=True, text=True, encoding="utf-8", env=env).stdout
+
+            sub = Path(tmp) / "crates" / "adapters" / "x-clickhouse" / "migrations" / "logs" / "0001_init.sql"
+            top = Path(tmp) / "crates" / "services" / "svc" / "migrations" / "0001_a.sql"
+            git("init", "-q", "-b", "work")
+            for path in (sub, top):
+                path.parent.mkdir(parents=True)
+                path.write_text("-- 처음\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "처음")
+            since = git("rev-parse", "HEAD").strip()
+            sub.write_text("-- 몰래 고침\n", encoding="utf-8")
+            top.write_text("-- 몰래 고침\n", encoding="utf-8")
+            git("commit", "-q", "-am", "고침")
+            commits = migration_lock.history_commits(Path(tmp), since)
+        self.assertIsNotNone(commits)
+        changed = {path for _, _, changes in commits for _, path in changes}
+        self.assertIn("crates/adapters/x-clickhouse/migrations/logs/0001_init.sql", changed)
+        self.assertIn("crates/services/svc/migrations/0001_a.sql", changed)
+
     def test_prelaunch_exception_needs_recorded_decision(self) -> None:
         self.assertFalse(migration_lock.prelaunch_allowed({}))
         self.assertFalse(migration_lock.prelaunch_allowed({"prelaunchRewrite": {"allowed": True, "decidedBy": None}}))
