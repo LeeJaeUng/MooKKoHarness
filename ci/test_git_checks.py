@@ -469,10 +469,61 @@ def acceptance_fresh_cases(base: Path) -> list[str]:
     return failures
 
 
+def proto_compat_cases(base: Path) -> list[str]:
+    """proto 호환(9z, DEP-2): 기준 판 대비 필드 번호 짝 바뀜·reserved 없이 지움·열거형 이름 바뀜·RPC 지움·형 바뀜은 잡고(--l4 rc 1, 평소 경고),
+    필드·RPC 더하기와 reserved로 막은 지우기는 통과. 옵션 값의 중괄호({ … })를 블록으로 읽지 않음."""
+    failures: list[str] = []
+    check = HARNESS / "ci" / "check-proto-compat.py"
+    before = """syntax = "proto3";
+package t.v1;
+service S {
+  rpc Get(GetRequest) returns (GetResponse) { option (m.method) = { callers: ["a"] }; }
+  rpc Put(PutRequest) returns (PutResponse);
+}
+message GetRequest {
+  option (m.packet) = { profile: P, kind: K };
+  string handle = 1 [(m.field) = { presence: REQUIRED, max_length: 64 }];
+  int32 limit = 2;
+  repeated string tags = 3;
+}
+message GetResponse { string body = 1; }
+message PutRequest { string body = 1; }
+message PutResponse {}
+enum Kind { KIND_UNSPECIFIED = 0; KIND_A = 1; KIND_B = 2; }
+"""
+    cases = {
+        "add-only": (before.replace("repeated string tags = 3;", "repeated string tags = 3;\n  string extra = 4;")
+                     .replace("rpc Put(", "rpc New(GetRequest) returns (GetResponse);\n  rpc Put("), 0),
+        "reserved-remove": (before.replace("int32 limit = 2;", "reserved 2;\n  reserved \"limit\";"), 0),
+        "renumber": (before.replace("int32 limit = 2;", "int32 limit = 5;\n  string other = 2;"), 1),
+        "remove-no-reserved": (before.replace("int32 limit = 2;", ""), 1),
+        "type-change": (before.replace("int32 limit = 2;", "int64 limit = 2;"), 1),
+        "enum-rename": (before.replace("KIND_B = 2;", "KIND_C = 2;"), 1),
+        "rpc-removed": (before.replace("  rpc Put(PutRequest) returns (PutResponse);\n", ""), 1),
+        "rpc-type": (before.replace("rpc Put(PutRequest) returns (PutResponse);", "rpc Put(GetRequest) returns (PutResponse);"), 1),
+    }
+    for name, (after, rc) in cases.items():
+        repo = base / name
+        repo.mkdir(parents=True)
+        sh(repo, "init", "-q", "-b", "work")
+        commit(repo, "기준", **{"proto/t/v1/t.proto": before})
+        sh(repo, "branch", "foundation/engine")
+        write(repo, "proto/t/v1/t.proto", after)
+        for flags, want in ((["--l4"], rc), ([], 0)):
+            r = subprocess.run([sys.executable, "-X", "utf8", str(check), str(repo), *flags], capture_output=True, text=True,
+                               encoding="utf-8", env=clean_env(MOOKKO_REQUIRE_GIT_HISTORY="1"), cwd=repo)
+            if r.returncode != want:
+                failures.append(f"ci/test_git_checks.py:1: proto-compat {name} {flags}: rc {r.returncode}(기대 {want}) {r.stdout.strip()[-300:]}")
+            if not flags and rc == 1 and "경고:" not in r.stdout:
+                failures.append(f"ci/test_git_checks.py:1: proto-compat {name}: 평소 모드에 경고 줄이 없음 {r.stdout.strip()[-200:]}")
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
     return (owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
             + canary_config_cases(base / "canary-config") + checker_changed_cases(base / "checker-changed")
-            + ratchet_base_cases(base / "ratchet-base") + acceptance_fresh_cases(base / "acceptance-fresh"))
+            + ratchet_base_cases(base / "ratchet-base") + acceptance_fresh_cases(base / "acceptance-fresh")
+            + proto_compat_cases(base / "proto-compat"))
 
 
 def main() -> int:
