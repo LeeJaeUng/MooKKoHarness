@@ -434,7 +434,12 @@ class MigrationLockSamples(unittest.TestCase):
             sub.write_text("-- 몰래 고침\n", encoding="utf-8")
             top.write_text("-- 몰래 고침\n", encoding="utf-8")
             git("commit", "-q", "-am", "고침")
-            commits = migration_lock.history_commits(Path(tmp), since)
+            # check-all은 GIT_DIR·GIT_WORK_TREE를 내보낸 채 이 시험을 돌린다. history_commits는 환경을 물려받으므로(실제로는 제품
+            # 저장소를 읽는 것이 맞음) 시험에서는 비운 환경으로 부른다(11-14 카나리에서 제품 저장소를 읽어 None).
+            from unittest import mock
+
+            with mock.patch.dict(os.environ, env, clear=True):
+                commits = migration_lock.history_commits(Path(tmp), since)
         self.assertIsNotNone(commits)
         changed = {path for _, _, changes in commits for _, path in changes}
         self.assertIn("crates/adapters/x-clickhouse/migrations/logs/0001_init.sql", changed)
