@@ -82,7 +82,12 @@ run() {
     CARGO_BUILD_JOBS="$(python3 -X utf8 "$H/dev/memory-guard.py" step "$1" "${MOOKKO_BASE_JOBS:-$CARGO_BUILD_JOBS}")"
     export CARGO_BUILD_JOBS
     echo "== $* (jobs $CARGO_BUILD_JOBS)"
-    "$@"
+    # 단계 진행 기록(자리 감시가 교착을 잡는 근거, rust-qa 11-13): 단계 시작과 끝에 고친다.
+    if [ -n "${MOOKKO_SLOT_PROGRESS:-}" ]; then touch "$MOOKKO_SLOT_PROGRESS"; fi
+    local status=0
+    "$@" || status=$?
+    if [ -n "${MOOKKO_SLOT_PROGRESS:-}" ]; then touch "$MOOKKO_SLOT_PROGRESS"; fi
+    return "$status"
 }
 
 run cargo fmt --all -- --check

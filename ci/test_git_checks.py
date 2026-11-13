@@ -187,7 +187,8 @@ def memory_cases(base: Path) -> list[str]:
 
 def slot_cases(base: Path) -> list[str]:
     """빌드 자리 감시(PM 11-04): ① 감싸개가 죽은 시험 컨테이너(conmon)가 쥔 잠금 → 그 컨테이너만 멈춤(가짜 podman이 받음)
-    ② 실행 입구가 쥐었는데 진행 기록이 오래됨 → 경보만, 멈추지 않음. 가짜 프로세스는 이름이 conmon·check-all.sh인 셸 스크립트."""
+    ② 실행 입구가 쥐었는데 진행 기록이 오래됨 → 경보만, 멈추지 않음 ③ 살아 있음은 새것인데 단계 진행 기록이 오래됨(교착) → 경보·경보 파일
+    ④ conmon 없이 rootlessport만 잠금을 쥠 → 경보만. 가짜 프로세스는 이름이 conmon·check-all.sh·rootlessport인 셸 스크립트."""
     import shutil as _sh
     import signal as _sig
     watch = HARNESS / "dev" / "build-slot-watch.py"
@@ -245,6 +246,45 @@ def slot_cases(base: Path) -> list[str]:
     proc.wait(timeout=10)
     if not alive or stopped.exists() or "진행 기록 없이" not in r.stderr:
         failures.append(f"ci/test_git_checks.py:1: 자리 감시 진행 멈춤: 살아 있음 {alive}, podman 부름 {stopped.exists()}, 경보 {r.stderr.strip()[:200]!r}")
+    (base / "holder.pid").unlink(missing_ok=True)
+
+    # ③ 교착(rust-qa 11-13 ①): 살아 있음 표시는 방금 고쳤는데 단계 진행 기록이 70분 전 → 경보, 경보 파일(MOOKKO_SLOT_ALERT_FILE)에도 남음
+    alerts = base / "product-data" / "build-slot-alerts.log"
+    env["MOOKKO_SLOT_ALERT_FILE"] = str(alerts)
+    (slots / "watch-state.json").unlink(missing_ok=True)
+    proc = hold("ci/check-all.sh")
+    beat.touch()
+    progress = slots / "progress-1"
+    progress.touch()
+    old = time.time() - 70 * 60
+    os.utime(progress, (old, old))
+    time.sleep(0.3)
+    r = subprocess.run([sys.executable, "-X", "utf8", str(watch), "check"], capture_output=True, text=True, encoding="utf-8", env=env)
+    try:
+        os.killpg(proc.pid, _sig.SIGTERM)
+    except ProcessLookupError:
+        pass
+    proc.wait(timeout=10)
+    written = alerts.read_text(encoding="utf-8") if alerts.exists() else ""
+    if "단계 진행 기록 없이" not in r.stderr or "단계 진행 기록 없이" not in written or "cwd=" not in written:
+        failures.append(f"ci/test_git_checks.py:1: 자리 감시 교착: 경보 {r.stderr.strip()[:200]!r}, 경보 파일 {written[:200]!r}")
+    (base / "holder.pid").unlink(missing_ok=True)
+
+    # ④ conmon 없이 rootlessport만 잠금을 쥠(rust-qa 11-13 ②) → 멈추지 않고 경보
+    (slots / "watch-state.json").unlink(missing_ok=True)
+    stopped.unlink(missing_ok=True)
+    progress.unlink(missing_ok=True)
+    proc = hold("rootlessport")
+    time.sleep(0.3)
+    r = subprocess.run([sys.executable, "-X", "utf8", str(watch), "check"], capture_output=True, text=True, encoding="utf-8", env=env)
+    alive = proc.poll() is None
+    try:
+        os.killpg(proc.pid, _sig.SIGTERM)
+    except ProcessLookupError:
+        pass
+    proc.wait(timeout=10)
+    if not alive or stopped.exists() or "실행 입구 없이 잠금을 쥔 프로세스" not in r.stderr or "rootlessport" not in r.stderr:
+        failures.append(f"ci/test_git_checks.py:1: 자리 감시 rootlessport만 남음: 살아 있음 {alive}, podman 부름 {stopped.exists()}, 경보 {r.stderr.strip()[:200]!r}")
     _sh.rmtree(slots, ignore_errors=False)
     return failures
 

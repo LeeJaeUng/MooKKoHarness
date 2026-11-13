@@ -5,7 +5,8 @@
   "pollSeconds": 10,
   "maxWaitMinutes": 180,
   "stallMinutes": 15,
-  "stallNote": "자리 감시(dev/build-slot-watch.py, PM 2026-11-04): 기다리는 실행이 기다리는 동안 부름. 쥔 쪽에 실행 입구가 없고 죽은 감싸개의 시험 컨테이너면 그것만 멈춤, 진행 기록(heartbeat-<자리>)이 stallMinutes보다 오래되면 경보만(<dir>/watch.log).",
+  "stepStallMinutes": 60,
+  "stallNote": "자리 감시(dev/build-slot-watch.py, PM 2026-11-04): 기다리는 실행이 기다리는 동안 부름. 쥔 쪽에 실행 입구가 없고 죽은 감싸개의 시험 컨테이너면 그것만 멈춤, 진행 기록(heartbeat-<자리>)이 stallMinutes보다 오래되면 경보만(<dir>/watch.log). rust-qa 11-13(11-04 추가 8 ①): 살아 있음 표시(heartbeat)는 memory-guard가 계속 고쳐 교착을 못 잡으므로, check-all 단계가 시작·끝날 때 고치는 progress-<자리>가 stepStallMinutes보다 오래되면 경보(한 단계가 그보다 길면 거짓 경보 — 가장 긴 단계 cargo test·clippy보다 넉넉히).",
   "dir": "~/.local/state/mookko/build-slots",
   "targetRoot": "~/target",
   "targetNote": "빌드 캐시는 자리마다 하나(<targetRoot>/slot-<n>), worktree끼리 나눠 씀. check-all이 CARGO_TARGET_DIR를 이 값으로 바꾸고 CARGO_INCREMENTAL=0(2026-11-02 세션별 캐시 8개·약 100GB로 C 드라이브 바닥)."

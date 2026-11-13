@@ -69,6 +69,12 @@ print(next((i for i, (_, _, name) in enumerate(live) if name == mine), 0))
 PY
     }
     announced=""
+    # 자리 감시 경보를 Windows 쪽 세션이 읽는 곳에도 남김: 제품 본 체크아웃 data/build-slot-alerts.log(git 제외, rust-qa 11-13 ③).
+    if [ -z "${MOOKKO_SLOT_ALERT_FILE:-}" ]; then
+        alert_root="$PWD"
+        case "$alert_root" in */.claude/worktrees/*) alert_root="${alert_root%%/.claude/worktrees/*}" ;; esac
+        export MOOKKO_SLOT_ALERT_FILE="$alert_root/data/build-slot-alerts.log"
+    fi
     while [ -z "${MOOKKO_BUILD_SLOT:-}" ]; do
         # PC 메모리 비상 관문(PM 11-04): Windows 전체 사용률이 emergency 이상이면 resume 아래까지 기다리고, 기한을 넘기면
         # 그대로 진행합니다(config/dev/memory-guard.json). 평소 몫은 WSL 상한과 자리 수(build-slots.json)로 묶습니다.
@@ -87,6 +93,9 @@ PY
                     # 진행 기록: memory-guard watch가 pollSeconds마다 고침. 자리 감시가 stallMinutes보다 오래되면 경보(build-slot-watch.py).
                     export MOOKKO_SLOT_HEARTBEAT="$SLOT_DIR/heartbeat-$i"
                     touch "$MOOKKO_SLOT_HEARTBEAT"
+                    # 단계 진행 기록: check-all run()이 단계 시작·끝에 고침. 교착은 이것으로 잡음(rust-qa 11-13, build-slot-watch.py).
+                    export MOOKKO_SLOT_PROGRESS="$SLOT_DIR/progress-$i"
+                    touch "$MOOKKO_SLOT_PROGRESS"
                     break
                 fi
                 exec {slot_fd}>&-
@@ -97,7 +106,11 @@ PY
                 echo "build slot wait timed out: 빌드 자리를 기다리다 기한을 넘겼습니다($SLOT_DIR). 다시 돌리면 차례를 이어받습니다." >&2
                 exit 1
             fi
-            [ -z "$announced" ] && echo "== 빌드 자리 기다림(우선순위 $priority, 차례 $rank, 지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
+            if [ -z "$announced" ]; then
+                echo "== 빌드 자리 기다림(우선순위 $priority, 차례 $rank, 지금 쓸 수 있는 자리 ${usable}/${SLOT_COUNT}개)"
+                # 누가 쥐고 있는지 첫 줄에(pid·이름·cwd·시작 시각, rust-qa 11-13 ③). 실패해도 기다림은 이어감.
+                python3 -X utf8 "$H/dev/build-slot-watch.py" status 2>/dev/null | sed 's/^/== 쥔 쪽: /' || true
+            fi
             announced=1
             # 자리 감시(PM 11-04): 죽은 실행의 시험 컨테이너가 쥔 잠금은 풀고, 진행 기록 없이 오래 쥔 실행은 경보. 감시가 실패해도 기다림은 이어감.
             python3 -X utf8 "$H/dev/build-slot-watch.py" check || echo "== 빌드 자리 감시 실패(rc=$?) — 기다림은 이어감" >&2
