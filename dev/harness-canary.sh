@@ -15,6 +15,9 @@
 # - 끝나면(TERM·INT·HUP 포함): 통과면 이 실행의 사본 폴더를 바로 지우고(WSL /tmp 자기 실행분 예외, CLAUDE.md), 실패면 남긴다.
 #   남긴 실패 사본은 다음 카나리가 7일 지난 것만 지운다(보관 기한, 자기 접두어 폴더만).
 # - 빌드 자리는 공용과 같은 자리를 쓴다(자리 막힘 같은 운영 사고는 카나리가 아니라 dev/build-slot-watch.py가 맡음).
+# - 실행마다(통과·실패 모두, --prepare-only 빼고) 제품 본 체크아웃의 `data/harness-canary/runs.log`(git 제외)에 한 줄을 덧붙인다:
+#   `<시작 UTC> end=<끝 UTC> candidate=<40자> base=<40자> result=pass|fail rc=<N> run=<사본 폴더>`. 통과 줄의 end는 영수증 at과 같다.
+#   QA(rust-qa)가 lock의 영수증을 이 기록과 대조한다(rust-qa 11-13 보통 3: 사본을 지우면 대조할 기록이 없었음).
 # - --prepare-only: 사본을 만들고 맞추기까지만 하고 check-all은 돌리지 않는다(도구 자체 시험용, 영수증 없음).
 set -euo pipefail
 
@@ -46,9 +49,20 @@ mkdir -p "$RUN"
 # 실패해서 남긴 사본의 보관 기한 7일(자기 접두어 폴더만)
 find "$ROOT" -mindepth 1 -maxdepth 1 -type d -name '20*-*' -mtime +7 -prune -exec rm -rf -- {} + 2>/dev/null || true
 
+STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+AT=""
+RECORD="$PRODUCT/data/harness-canary/runs.log"
 finish() {
     local status=$?
     cd /
+    if [ -z "$PREPARE" ]; then
+        local result=fail
+        [ "$status" -eq 0 ] && result=pass
+        mkdir -p "$(dirname "$RECORD")"
+        printf '%s end=%s candidate=%s base=%s result=%s rc=%s run=%s\n' "$STARTED" "${AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+            "$CAND" "$BASE_COMMIT" "$result" "$status" "$RUN" >>"$RECORD" \
+            || echo "== 카나리 기록을 쓰지 못했습니다: $RECORD" >&2
+    fi
     if [ "$status" -eq 0 ]; then
         rm -rf -- "$RUN"
     else
@@ -111,7 +125,9 @@ if [ "$check_status" -ne 0 ]; then
 fi
 if [ -z "$PREPARE" ]; then
     echo "== 하네스 카나리 통과. 제품 harness.lock에 붙일 영수증:"
-    echo "canary = $CAND base=$BASE_COMMIT at=$(date -u +%Y-%m-%dT%H:%M:%SZ) result=pass"
+    AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "canary = $CAND base=$BASE_COMMIT at=$AT result=pass"
+    echo "== 기록: $RECORD"
 else
     echo "== 하네스 카나리 준비만 통과: ${CAND:0:7}"
 fi
