@@ -114,7 +114,7 @@ before="$(fingerprint)"
 check_status=0
 if [ -z "$PREPARE" ]; then
     # 공용 Windows worktree와 같게: check-all이 Windows 분기와 같은 자리에서 GIT_DIR·GIT_WORK_TREE를 내보내게 함(harness.sh 꺼내기 뒤)
-    MOOKKO_CANARY_GIT_DIR="$WT_GITDIR" MOOKKO_CANARY_RUN=1 MOOKKO_HARNESS_REPO="$HREPO" MOOKKO_SLOT_PRIORITY="${CANARY_SLOT_PRIORITY:-2}" \
+    MOOKKO_SLOT_ALERT_FILE="$PRODUCT/data/build-slot-alerts.log" MOOKKO_CANARY_GIT_DIR="$WT_GITDIR" MOOKKO_CANARY_RUN=1 MOOKKO_HARNESS_REPO="$HREPO" MOOKKO_SLOT_PRIORITY="${CANARY_SLOT_PRIORITY:-2}" \
         bash scripts/ci/check-all.sh || check_status=$?
 else
     echo "== 준비만: $(git log --oneline -1), harness.lock $(sed -n 's/^commit = //p' harness.lock | cut -c1-7), GIT_DIR=$WT_GITDIR"
