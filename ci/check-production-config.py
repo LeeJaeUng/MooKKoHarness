@@ -8,6 +8,9 @@ docs/architecture/config-catalog.md, docs/coordination/engine-priority.md "qa-en
 - 직원 세션: `staffSessions.absoluteLifetimeMs` ≤ 12시간, `idleTimeoutMs` ≤ 15분(QE-SEC-4). `staffLogin.kind`가 "devLocal"이면 실패.
   직원 로그인·신원 설정이 있으면 `requireMfa: true`(QE-SEC-3).
 - RPC: `rpc.server`가 있으면 `staffRecentMfa`가 있어야 함(XC-MFA-3, 없으면 requires_recent_mfa가 강제되지 않음).
+- 직원 대리 정보 받는 곳(aud, 보안 담당 2026-11-14 S-8 ③ 결정, security.md §4.1): `rpc.server.peers[]`에 `actorSigningKeys`가 있으면
+  `rpc.server.staffAudience`가 있어야 하고, `adapters.actorSigner.kind`가 "none"이 아니면(직원 대리 호출을 보냄) `rpc.clients.targets[]`마다
+  `staffAudience`가 있어야 함. 값은 `<환경>.<서비스>` 꼴(소문자·숫자·`._-`, 점 하나 이상, 1~64자). 엔진은 선택·경고, 운영 설정에서 필수.
 - 평문: `allowPlainHttp: true` 실패, DB·ClickHouse `tls.mode`가 "disable"·"require"면 실패(검증 없는 TLS, A2).
 - 로컬 파일 객체 저장소(`objects.kind: "file"`) 실패(컨테이너를 바꾸면 사라짐).
 실패하면 `파일:1: 칸 경로: 이유`를 한 줄씩 내고 1로 끝난다.
@@ -19,12 +22,14 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import sys
 from pathlib import Path
 
 SKIP_DIRS = {".git", "target", "node_modules", ".claude", "data", "dist", "fixtures"}
 MAX_ABSOLUTE_MS = 12 * 60 * 60 * 1000  # 직원 세션 절대 만료 상한 12시간(QE-SEC-4, L3 기준)
 MAX_IDLE_MS = 15 * 60 * 1000  # 직원 세션 유휴 만료 상한 15분(QE-SEC-4)
+STAFF_AUDIENCE = re.compile(r"^(?=.{1,64}$)[a-z0-9_-]+\.[a-z0-9._-]+$")  # `<환경>.<서비스>`(보안 S-8 ③, 엔진 is_audience보다 좁게)
 
 
 def walk(value: object, path: str = ""):
@@ -74,10 +79,43 @@ def check(rel: str, data: object, problems: list[str]) -> None:
             WARNINGS.append(f"{rel}:1: {path}: 직원 로그인은 MFA가 필수입니다(QE-SEC-3, 엔진에 칸이 생길 때까지 경고)")
         if key == "server" and parent.endswith("rpc") and isinstance(value, dict) and "staffRecentMfa" not in value:
             bad(path, "staffRecentMfa가 없으면 requires_recent_mfa 메서드가 강제되지 않습니다(XC-MFA-3)")
+    staff_audience_checks(data, bad)
     if has_staff_login and not any(key == "requireMfa" for _, key, _ in walk(data)):
         # 엔진 설정은 deny_unknown_fields인데 엔진에 requireMfa 칸이 아직 없어(QE-SEC-3 엔진 몫), 실패로 두면 검사와 엔진을 함께
         # 만족할 수 없음(mookko-rust-qa·qa-engine 11-04). 엔진에 칸이 생기면 다시 실패로.
         WARNINGS.append(f"{rel}:1: staffLogin: requireMfa: true가 없습니다(QE-SEC-3, 엔진에 칸이 생길 때까지 경고)")
+
+
+def staff_audience_checks(data: object, bad) -> None:
+    """직원 대리 정보의 받는 곳(aud)을 운영 설정에서 필수로(보안 담당 2026-11-14). 칸 이름은 엔진 RpcServerConfig·RpcTargetConfig·
+    런타임 adapters.actorSigner의 JSON 이름."""
+    if not isinstance(data, dict):
+        return
+    rpc = data.get("rpc") if isinstance(data.get("rpc"), dict) else {}
+    server = rpc.get("server") if isinstance(rpc.get("server"), dict) else None
+    if server is not None:
+        peers = server.get("peers") if isinstance(server.get("peers"), list) else []
+        if any(isinstance(peer, dict) and peer.get("actorSigningKeys") for peer in peers):
+            value = server.get("staffAudience")
+            if value is None:
+                bad("rpc.server.staffAudience", "peers에 actorSigningKeys가 있으면 받는 곳 이름이 있어야 합니다(다른 환경 앞 직원 정보를 막음, 보안 S-8 ③)")
+            elif not (isinstance(value, str) and STAFF_AUDIENCE.match(value)):
+                bad("rpc.server.staffAudience", f"{value!r}는 `<환경>.<서비스>` 꼴(소문자·숫자·`._-`, 1~64자)이어야 합니다")
+    adapters = data.get("adapters") if isinstance(data.get("adapters"), dict) else {}
+    signer = adapters.get("actorSigner")
+    sends_actor = isinstance(signer, dict) and signer.get("kind") not in (None, "none")
+    clients = rpc.get("clients") if isinstance(rpc.get("clients"), dict) else {}
+    targets = clients.get("targets") if isinstance(clients.get("targets"), list) else []
+    if sends_actor:
+        for i, target in enumerate(targets):
+            if not isinstance(target, dict):
+                continue
+            value = target.get("staffAudience")
+            path = f"rpc.clients.targets[{i}].staffAudience"
+            if value is None:
+                bad(path, f"직원 대리 호출을 보내는 설정(adapters.actorSigner)인데 대상 {target.get('service')!r}에 받는 곳 이름이 없습니다(보안 S-8 ③)")
+            elif not (isinstance(value, str) and STAFF_AUDIENCE.match(value)):
+                bad(path, f"{value!r}는 `<환경>.<서비스>` 꼴(소문자·숫자·`._-`, 1~64자)이어야 합니다")
 
 
 WARNINGS: list[str] = []  # 엔진에 칸이 없어 아직 경고로 두는 규칙(QE-SEC-3)

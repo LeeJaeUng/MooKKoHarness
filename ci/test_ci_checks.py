@@ -94,6 +94,7 @@ FIXTURE_DIR = {"boundaries": "cargo-ws", "stack": "cargo-ws", "forbid-unsafe": "
 # test-time bad(enforce true): tests의 thread::sleep 1·tokio sleep(멈추지 않은 파일) 1·SystemTime::now 1, src #[cfg(test)]의 Utc::now 1, 기준보다 줄어듦 1.
 #   good: start_paused 파일의 tokio sleep, 주석·문자열, 제품 코드의 SystemTime::now, 기준 안 개수.
 # production-config bad: 세션 절대·유휴 2, rpc staffRecentMfa 없음 1, 파일 KEK 1, devLocal 1, 평문 HTTP 1, tls disable 1, requireMfa 없음 1, 덮어쓰기의 파일 객체 저장소 1·requireMfa false 1. good: 운영 값, development 설정은 안 봄. requireMfa 둘은 엔진 칸이 생길 때까지 경고(QE-SEC-3)라 세지 않음(10→8).
+#   +3 aud(보안 11-14): 받는 서버 staffAudience 없음 1, 보내는 대상 staffAudience 없음 1, 꼴 틀림('Prod') 1. good: `<환경>.<서비스>` 양쪽.
 # prr bad(enforce true, qa-services T1~T4): 문서 없음 1, 항목 줄 없음 1, 빈 칸 2(빈 칸·"-"), 필수 낱말 없음 2(SLO·SLI 넷, 백업·복구 둘),
 #   경보: runbook 링크 없음 1·빈 칸(소진율 창) 1·증상/원인 값 1·링크 대상 없음 1, 사고 대응 훈련 열 없음 1, 정기 훈련·시험 표 없음 1.
 #   good: 미정 칸은 낱말을 보지 않음, 앵커 붙은 링크, 열 이름으로 읽는 표(틀의 '적을 것' 열 있어도 됨), 두 훈련 표.
@@ -136,7 +137,7 @@ EXPECTED_BAD = {
     "hardcoded-warn": 2,
     "test-time": 5,
     "prr": 12,
-    "production-config": 8,
+    "production-config": 11,
     "harness-copies": 5,
     "folder-layout": 5,
 }

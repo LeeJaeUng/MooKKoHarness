@@ -1,0 +1,38 @@
+{
+  "app": {
+    "environment": "production"
+  },
+  "adapters": {
+    "actorSigner": {
+      "kind": "kms"
+    }
+  },
+  "rpc": {
+    "server": {
+      "staffRecentMfa": {
+        "maxAgeMs": 600000
+      },
+      "peers": [
+        {
+          "service": "operations",
+          "actorSigningKeys": [
+            {
+              "id": "k1"
+            }
+          ]
+        }
+      ]
+    },
+    "clients": {
+      "targets": [
+        {
+          "service": "links"
+        },
+        {
+          "service": "logs",
+          "staffAudience": "Prod"
+        }
+      ]
+    }
+  }
+}
