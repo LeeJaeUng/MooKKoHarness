@@ -396,9 +396,39 @@ def checker_changed_cases(base: Path) -> list[str]:
     return failures
 
 
+def ratchet_base_cases(base: Path) -> list[str]:
+    """래칫 기준 판 대조(백로그 9d): git 최상위인데 기준 판(foundation/engine)이 없으면 MOOKKO_REQUIRE_GIT_HISTORY=1에서 실패,
+    그 변수가 없으면 통과(건너뜀 표시), 기준 판이 있고 기준을 늘리지 않았으면 통과, 사유 없이 늘렸으면 실패."""
+    failures: list[str] = []
+    check = HARNESS / "ci" / "check-hardcoded-values.py"
+    policy = {"enforce": False, "expires": "2099-01-01", "baseline": {}}
+
+    def case(name: str, branch: bool, raise_after: bool, rc: int, **env: str) -> None:
+        repo = base / name
+        repo.mkdir(parents=True)
+        sh(repo, "init", "-q", "-b", "work")
+        commit(repo, "기준", **{"docs/policy/hardcoded-values.json": json.dumps(policy) + "\n"})
+        if branch:
+            sh(repo, "branch", "foundation/engine")
+        if raise_after:
+            raised = dict(policy, baseline={"crates/x/src/lib.rs": {"NUM": 3}})
+            write(repo, "docs/policy/hardcoded-values.json", json.dumps(raised) + "\n")
+        r = subprocess.run([sys.executable, "-X", "utf8", str(check), str(repo)], capture_output=True, text=True, encoding="utf-8",
+                           env=clean_env(**env), cwd=repo)
+        if r.returncode != rc:
+            failures.append(f"ci/test_git_checks.py:1: ratchet-base {name}: rc {r.returncode}(기대 {rc}) {r.stdout.strip()[-200:]}")
+
+    case("no-base-required", False, False, 1, MOOKKO_REQUIRE_GIT_HISTORY="1")
+    case("no-base-optional", False, False, 0)
+    case("base-same", True, False, 0, MOOKKO_REQUIRE_GIT_HISTORY="1")
+    case("base-raised", True, True, 1, MOOKKO_REQUIRE_GIT_HISTORY="1")
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
     return (owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
-            + canary_config_cases(base / "canary-config") + checker_changed_cases(base / "checker-changed"))
+            + canary_config_cases(base / "canary-config") + checker_changed_cases(base / "checker-changed")
+            + ratchet_base_cases(base / "ratchet-base"))
 
 
 def main() -> int:

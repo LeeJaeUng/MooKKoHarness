@@ -232,8 +232,11 @@ def crate_of(rel: str) -> str:
     return rel
 
 
-def base_policy(root: Path, policy_rel: str) -> dict | None:
-    """비교 기준 판(환경 변수 MOOKKO_BASELINE_REF, 없으면 foundation/engine)의 같은 정책 파일. git이나 그 판이 없으면 None."""
+def base_policy(root: Path, policy_rel: str) -> tuple[dict | None, str | None]:
+    """비교 기준 판(환경 변수 MOOKKO_BASELINE_REF, 없으면 foundation/engine)의 같은 정책 파일과, 못 읽었을 때 그 까닭.
+    검사 폴더가 git 최상위가 아니면(표본) (None, None) — 비교할 것이 없음. git 최상위인데 기준 판을 못 읽으면 (None, 까닭):
+    MOOKKO_REQUIRE_GIT_HISTORY=1(check-all)이면 부르는 쪽이 실패로 본다(백로그 9d, rust-qa 11-03 래칫 지적). 기준 판에 그 정책 파일이
+    아직 없으면 빈 기준으로 본다(새로 든 기준은 모두 raised 사유가 있어야)."""
     ref = os.environ.get("MOOKKO_BASELINE_REF", "foundation/engine")
     try:
         # 검사하는 폴더가 그 git의 최상위일 때만 비교합니다. Windows worktree에서 check-all이 GIT_DIR·GIT_WORK_TREE를
@@ -241,17 +244,21 @@ def base_policy(root: Path, policy_rel: str) -> dict | None:
         top = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, encoding="utf-8", timeout=30)
         if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
-            return None
+            return None, None
+        known = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                               capture_output=True, text=True, encoding="utf-8", timeout=30)
+        if known.returncode != 0:
+            return None, f"기준 판 {ref}가 이 저장소에 없습니다"
         out = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{policy_rel}"],
                              capture_output=True, text=True, encoding="utf-8", timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, f"git을 부르지 못했습니다: {error}"
     if out.returncode != 0:
-        return None
+        return {"baseline": {}}, None  # 기준 판에 아직 없는 정책 파일
     try:
-        return json.loads(out.stdout)
-    except ValueError:
-        return None
+        return json.loads(out.stdout), None
+    except ValueError as error:
+        return None, f"기준 판 {ref}의 {policy_rel}을 읽지 못했습니다: {error}"
 
 
 CHECKER_FILES = ("ci/check-hardcoded-values.py", "ci/check-test-time.py")
@@ -366,7 +373,9 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
                 soft.append(f"{policy_rel}:1: {rel} {rule}가 {allowed}건에서 {now}건으로 줄었습니다. 기준을 낮추세요(--write-baseline)")
             elif now and expired:
                 soft.append(f"{rel}:1: {rule} {now}건이 기한 {expires}을 넘겨 남아 있습니다. 옮기세요")
-    base = base_policy(root, policy_rel)
+    base, unreadable = base_policy(root, policy_rel)
+    if unreadable and os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1":
+        hard.append(f"{policy_rel}:1: 기준 판과 견주지 못했습니다({unreadable}) — 기준을 늘렸는지 볼 수 없어 실패(MOOKKO_REQUIRE_GIT_HISTORY=1)")
     if base is not None:
         for rel, rules in baseline.items():
             for rule, n in rules.items():
@@ -383,7 +392,7 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
         print(f"{name} check failed ({len(failed)} problems; {summary})")
         return 1
     mode = "enforce" if enforce else "warn only"
-    compared = "" if base is not None else ", 기준 판 비교 건너뜀"
+    compared = "" if base is not None else (f", 기준 판 비교 건너뜀({unreadable})" if unreadable else ", 기준 판 비교 건너뜀(git 밖)")
     print(f"{name} check passed ({summary}; {len(soft)} warnings, baseline {len(baseline)} files, {mode}{compared})")
     return 0
 
