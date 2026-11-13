@@ -100,7 +100,8 @@ git commit -q -m "canary: 하네스 ${CAND:0:7}" || true
 
 # 공용 .git/config의 키 목록(branch.<이름>.* 뺌). 키 단위로 견주어 실패 때 어느 키가 바뀌었는지 보인다.
 config_view() {
-    git config --file "$1" --no-includes --list | grep -v '^branch\.' | sort || true
+    # 지금 폴더의 저장소를 찾지 않게 / 에서 부름(Windows gitdir을 가리키는 worktree 안이면 git이 'not a git repository'로 멈춤)
+    (cd / && git config --file "$1" --no-includes --list) | grep -v '^branch\.' | sort || true
 }
 fingerprint() {
     config_view "$PRODUCT/.git/config" | sed 's/^/product-config: /'

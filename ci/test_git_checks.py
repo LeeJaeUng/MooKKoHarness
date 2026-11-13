@@ -332,14 +332,15 @@ def canary_config_cases(base: Path) -> list[str]:
 
     def view() -> str:
         r = subprocess.run(["bash", "-c", func + '\nconfig_view "$1"', "x", str(config)], capture_output=True, text=True,
-                           encoding="utf-8", env=clean_env())
+                           encoding="utf-8", env=clean_env(), cwd=repo)
         if r.returncode != 0:
             failures.append(f"ci/test_git_checks.py:1: config_view rc {r.returncode}: {r.stderr.strip()[:200]}")
         return r.stdout
 
     def setc(key: str, value: str) -> None:
         # 파일로 바로 씀(core.worktree를 바꾼 뒤에는 그 저장소에서 git이 돌지 않을 수 있음)
-        subprocess.run(["git", "config", "--file", str(config), key, value], check=True, env=clean_env())
+        # 지금 폴더(check-all은 Windows gitdir을 가리키는 worktree)에서 저장소를 찾지 않게 / 에서 부름(11-13 check-all에서 실패)
+        subprocess.run(["git", "config", "--file", str(config), key, value], check=True, env=clean_env(), cwd="/")
 
     before = view()
     setc("branch.x.remote", "origin")
