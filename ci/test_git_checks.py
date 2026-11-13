@@ -278,8 +278,45 @@ def lock_cases(base: Path) -> list[str]:
     return failures
 
 
+def canary_config_cases(base: Path) -> list[str]:
+    """카나리 공용 .git/config 지문(config_view): branch.<이름>.* 추가는 같게, core.worktree·remote.origin.url 변경은 다르게(rust-qa 11-13)."""
+    failures: list[str] = []
+    script = (HARNESS / "dev" / "harness-canary.sh").read_text(encoding="utf-8")
+    start = script.index("config_view() {")
+    func = script[start:script.index("\n}\n", start) + 3]
+    repo = base / "repo"
+    repo.mkdir(parents=True)
+    sh(repo, "init", "-q", "-b", "work")
+    sh(repo, "remote", "add", "origin", "https://example.invalid/a.git")
+    config = repo / ".git" / "config"
+
+    def view() -> str:
+        r = subprocess.run(["bash", "-c", func + '\nconfig_view "$1"', "x", str(config)], capture_output=True, text=True,
+                           encoding="utf-8", env=clean_env())
+        if r.returncode != 0:
+            failures.append(f"ci/test_git_checks.py:1: config_view rc {r.returncode}: {r.stderr.strip()[:200]}")
+        return r.stdout
+
+    def setc(key: str, value: str) -> None:
+        # 파일로 바로 씀(core.worktree를 바꾼 뒤에는 그 저장소에서 git이 돌지 않을 수 있음)
+        subprocess.run(["git", "config", "--file", str(config), key, value], check=True, env=clean_env())
+
+    before = view()
+    setc("branch.x.remote", "origin")
+    setc("branch.x.merge", "refs/heads/x")
+    if view() != before:
+        failures.append("ci/test_git_checks.py:1: 카나리 지문: branch.x.* 추가가 지문을 바꿈(통과해야 함)")
+    for key, value in (("core.worktree", "/mnt/elsewhere"), ("remote.origin.url", "https://example.invalid/b.git")):
+        saved = view()
+        setc(key, value)
+        if view() == saved:
+            failures.append(f"ci/test_git_checks.py:1: 카나리 지문: {key} 변경을 못 잡음(실패해야 함)")
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
-    return owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
+    return (owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
+            + canary_config_cases(base / "canary-config"))
 
 
 def main() -> int:

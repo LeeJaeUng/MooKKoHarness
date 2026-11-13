@@ -9,7 +9,8 @@
 # 내보낸다. 그래서 사본도 `git clone --shared` 위에 linked worktree를 하나 더 만들고, 그 worktree의 gitdir·작업 트리를 GIT_DIR·GIT_WORK_TREE로
 # 내보낸 채 check-all을 돌린다(11-04 사고 ①: 표본 시험이 이 둘을 물려받아 공용 .git/config에 core.worktree를 씀).
 # - 시작할 때 GIT_*·MOOKKO_* 환경을 모두 끊는다(우선순위만 CANARY_SLOT_PRIORITY, 기본 2).
-# - 앞뒤로 견준다: 공용 제품 .git/config·HEAD, 사본 .git/config·HEAD, 사본 .git/worktrees/*/의 HEAD·gitdir·commondir·config*, 사본
+# - 앞뒤로 견준다: 공용 제품 .git/config(키 목록에서 `branch.<이름>.*`만 뺌 — 다른 세션의 `push -u`·새 브랜치가 정당하게 바꾸는
+#   유일한 흔한 자리, rust-qa 11-13 판정. 그 밖의 키는 모두 봄)·HEAD, 사본 .git/config·HEAD, 사본 .git/worktrees/*/의 HEAD·gitdir·commondir·config*, 사본
 #   브랜치 목록. 하나라도 바뀌면 실패(사본에서는 check-all이 git 설정·브랜치를 바꿀 일이 없으므로 정당한 변화가 없음).
 # - 통과하면 영수증 줄을 낸다: `canary = <후보> base=<기준 판 커밋> at=<UTC 시각> result=pass`. 통합 담당이 제품 harness.lock에 그대로 붙인다.
 # - 끝나면(TERM·INT·HUP 포함): 통과면 이 실행의 사본 폴더를 바로 지우고(WSL /tmp 자기 실행분 예외, CLAUDE.md), 실패면 남긴다.
@@ -97,8 +98,13 @@ rm -f .claude/skills/README.md
 git add -A harness.lock docs/policy .claude/skills
 git commit -q -m "canary: 하네스 ${CAND:0:7}" || true
 
+# 공용 .git/config의 키 목록(branch.<이름>.* 뺌). 키 단위로 견주어 실패 때 어느 키가 바뀌었는지 보인다.
+config_view() {
+    git config --file "$1" --no-includes --list | grep -v '^branch\.' | sort || true
+}
 fingerprint() {
-    sha256sum "$PRODUCT/.git/config" "$PRODUCT/.git/HEAD" "$RUN/clone/.git/config" "$RUN/clone/.git/HEAD"
+    config_view "$PRODUCT/.git/config" | sed 's/^/product-config: /'
+    sha256sum "$PRODUCT/.git/HEAD" "$RUN/clone/.git/config" "$RUN/clone/.git/HEAD"
     find "$RUN/clone/.git/worktrees" -maxdepth 2 -type f \( -name HEAD -o -name gitdir -o -name commondir -o -name 'config*' \) \
         | sort | xargs -r sha256sum
     git -C "$RUN/clone" for-each-ref --format='%(refname)' refs/heads | sort
