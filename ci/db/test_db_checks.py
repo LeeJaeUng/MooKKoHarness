@@ -85,6 +85,29 @@ class MigrationLintSamples(unittest.TestCase):
         code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK), "--exceptions", str(EMPTY_EXCEPTIONS), "--engine-generated", str(EMPTY_ENGINE)])
         self.assertEqual(code, 1)
 
+    def test_ch_window_fixed_by_later_alter(self) -> None:
+        """S-CH-5는 같은 폴더 뒤 이관의 `ALTER TABLE <같은 표> MODIFY SETTING non_replicated_deduplication_window = N≥1`로 고친 것으로 침
+        (로그 11-14). 다른 표·0인 창·앞 이관의 ALTER는 고침이 아님."""
+        table = (FIXTURES / "migrations" / "single" / "ch_g01_table.sql").read_text(encoding="utf-8").replace("-- expect: (없음)\n", "")
+        no_window = table.replace(", non_replicated_deduplication_window = 1000", "")
+        with tempfile.TemporaryDirectory(prefix="mookko-test-") as tmp:
+            base = Path(tmp) / "crates" / "adapters" / "mookko-store-clickhouse" / "migrations"
+            cases = {
+                "fixed": "ALTER TABLE mookko_logs.raw MODIFY SETTING non_replicated_deduplication_window = 1000;\n",
+                "other-table": "ALTER TABLE mookko_logs.other MODIFY SETTING non_replicated_deduplication_window = 1000;\n",
+                "zero": "ALTER TABLE mookko_logs.raw MODIFY SETTING non_replicated_deduplication_window = 0;\n",
+            }
+            got = {}
+            for name, alter in cases.items():
+                folder = base / name
+                folder.mkdir(parents=True)
+                (folder / "0001_init.sql").write_text(no_window, encoding="utf-8")
+                (folder / "0002_window.sql").write_text("-- mookko:phase expand\n" + alter, encoding="utf-8")
+                got[name] = sorted(f.rule for f in migration_lint.lint_dir(Path(tmp), folder) if f.rule == "S-CH-5")
+        self.assertEqual(got["fixed"], [])
+        self.assertEqual(got["other-table"], ["S-CH-5"])
+        self.assertEqual(got["zero"], ["S-CH-5"])
+
     def test_signal_subfolders_are_linted_warn_first(self) -> None:
         """migrations/<신호>/NNNN_*.sql(ClickHouse 어댑터 logs·traces·metrics)도 이관 폴더로 읽음. 기한까지 경고, 뒤에는 실패(DB 담당 11-13)."""
         good = (FIXTURES / "migrations" / "single" / "ch_g01_table.sql").read_text(encoding="utf-8").replace("-- expect: (없음)\n", "")

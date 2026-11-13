@@ -1115,6 +1115,45 @@ def validate_deploy_findings(root: Path, directory: Path) -> list[Finding]:
     return findings
 
 
+CH_CREATE_NAME = re.compile(r"^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.`\"]+)", re.I)
+CH_WINDOW_ALTER = re.compile(
+    r"^ALTER\s+TABLE\s+([\w.`\"]+)(?:\s+ON\s+CLUSTER\s+\S+)?\s+MODIFY\s+SETTING\b.*\bnon_replicated_deduplication_window\s*=\s*[1-9]",
+    re.I | re.S,
+)
+
+
+def ch_window_fixed_later(directory: Path, findings: list[Finding], root: Path) -> list[Finding]:
+    """S-CH-5(창 없는 복제 아닌 MergeTree)는 같은 폴더의 뒤 이관이 그 표에 `ALTER TABLE … MODIFY SETTING
+    non_replicated_deduplication_window = N(≥1)`을 걸면 고친 것으로 본다(이미 커밋한 이관은 앞으로만 원칙상 고칠 수 없음 — 로그 담당
+    11-14 metrics 0004). 표 이름은 따옴표를 떼고 견준다."""
+    def bare(name: str) -> str:
+        return name.replace("`", "").replace('"', "").lower()
+
+    creates: dict[tuple[str, int], tuple[int, str]] = {}  # (파일, 줄) → (번호, 표)
+    windows: list[tuple[int, str]] = []  # (번호, 표)
+    for path in sorted(directory.glob("*.sql")):
+        match = FILE_NAME.match(path.name)
+        if not match:
+            continue
+        number = int(match.group(1))
+        rel = path.relative_to(root).as_posix()
+        for st in sqltext.split(path.read_text(encoding="utf-8")).statements:
+            created = CH_CREATE_NAME.match(st.text)
+            if created:
+                creates[(rel, st.line)] = (number, bare(created.group(1)))
+            altered = CH_WINDOW_ALTER.match(st.text)
+            if altered:
+                windows.append((number, bare(altered.group(1))))
+    kept: list[Finding] = []
+    for f in findings:
+        if f.rule == "S-CH-5" and (f.path, f.line) in creates:
+            number, table = creates[(f.path, f.line)]
+            if any(n > number and name == table for n, name in windows):
+                continue
+        kept.append(f)
+    return kept
+
+
 def lint_dir(root: Path, directory: Path) -> list[Finding]:
     """`migrations/` 폴더 하나: 파일 이름·번호 + 파일마다 판정."""
     registry = json.loads(ENGINE_GENERATED.read_text(encoding="utf-8"))
@@ -1149,6 +1188,8 @@ def lint_dir(root: Path, directory: Path) -> list[Finding]:
     if dialect == "postgres":
         findings += validate_deploy_findings(root, directory)
         findings += constraint_function_findings(root, directory, default_schema(rel_dir))
+    if dialect == "clickhouse":
+        findings = ch_window_fixed_later(directory, findings, root)
     for expected, actual in enumerate(sorted(numbers), start=1):
         if expected != actual:
             findings.append(Finding(rel_dir.as_posix(), 1, "S-MIG-1", f"번호가 0001부터 빠짐없이 이어지지 않음(기대 {expected:04d}, 실제 {actual:04d})"))
