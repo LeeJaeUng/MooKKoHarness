@@ -452,6 +452,21 @@ class MigrationLockSamples(unittest.TestCase):
 
 
 class DataClassSamples(unittest.TestCase):
+    def test_rule_scoped_waiver_on_design_doc(self) -> None:
+        """설계서 문제도 규칙별 유예를 본다(DB 담당 11-14): S-SEC-2만 고른 유예는 S-SEC-2 문제만 비켜 가고 다른 규칙은 남김, 문서 전체 유예는 모두."""
+        import datetime
+
+        doc = "crates/services/monitoring/docs/data-model.md"
+        problems = [data_classes.Problem(doc, 3, "S-SEC-2", "등급 없음"), data_classes.Problem(doc, 4, "S-SEC-1", "다른 것")]
+        until = datetime.date.today() + datetime.timedelta(days=3)
+        only_sec2 = pending.Pending(doc, "모니터링", until, "MO1", rules=("S-SEC-2",))
+        waived, still = data_classes.split_waived(problems, [only_sec2])
+        self.assertEqual([p.rule for p in waived], ["S-SEC-2"])
+        self.assertEqual([p.rule for p in still], ["S-SEC-1"])
+        whole = pending.Pending(doc, "모니터링", until, "전체")
+        waived, still = data_classes.split_waived(problems, [whole])
+        self.assertEqual((len(waived), len(still)), (2, 0))
+
     def test_docs(self) -> None:
         files = sorted((FIXTURES / "data-model").glob("*.md"))
         self.assertGreaterEqual(len(files), 3)

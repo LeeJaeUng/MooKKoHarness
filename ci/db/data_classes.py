@@ -571,6 +571,13 @@ def engine_reader_coverage(root: Path) -> list[Problem]:
     return problems
 
 
+def split_waived(found: list["Problem"], waivers: list[pending.Pending]) -> tuple[list["Problem"], list["Problem"]]:
+    """(유예된 문제, 남은 문제). 문제마다 그 규칙으로 유예를 찾는다(DB 담당 11-14): 규칙을 고른 유예(rules: ["S-SEC-2"])는 그 규칙의
+    문제만 비켜 가고, 문서 전체 유예(rules 없음)는 지금처럼 모든 문제를 비켜 간다(전에는 규칙 없이 찾아 규칙 유예가 늘 안 맞았음)."""
+    waived = [p for p in found if pending.is_waived(pending.match(waivers, p.path, p.rule))]
+    return waived, [p for p in found if p not in waived]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="검사할 저장소 뿌리(시험용)")
@@ -585,16 +592,16 @@ def main(argv: list[str] | None = None) -> int:
     for path in docs:
         rel = path.relative_to(root).as_posix()
         found = check_text(rel, path.read_text(encoding="utf-8"))
-        item = pending.match(waivers, rel)
-        if found and pending.is_waived(item):
+        waived_here, still = split_waived(found, waivers)
+        if waived_here:
             waived_docs += 1
-            print(f"  유예({item.owner}, {item.until} 까지): {rel} — 고칠 것 {len(found)}건")
-            for p in found:
+            item = pending.match(waivers, rel, waived_here[0].rule)
+            print(f"  유예({item.owner}, {item.until} 까지): {rel} — 고칠 것 {len(waived_here)}건")
+            for p in waived_here:
                 print(f"      {p}")
-            continue
-        if not found and item is not None:
+        if not found and any(i.path == rel for i in waivers):
             print(f"  알림: {rel}은 이제 통과합니다 — pending.json에서 지워도 됩니다")
-        failing += found
+        failing += still
     for problem in migration_coverage(root) + reader_coverage(root) + engine_reader_coverage(root):
         item = pending.match(waivers, problem.path, problem.rule)
         if pending.is_waived(item):

@@ -195,12 +195,18 @@ def prune(settings: dict, dry_run: bool) -> list[str]:
     return done
 
 
+# 가상 디스크를 못 찾아 여유(C 드라이브 + 가상 디스크 안 빈 곳)를 셈하지 못했을 때의 알림(rust-qa 11-14 낮음: 통과 줄에도 밝힘).
+SKIPPED_HEADROOM = "여유 계산 건너뜀(가상 디스크를 못 찾음 — 본 체크아웃 밖이거나 이 PC가 아님)"
+
+
 def check(settings: dict) -> tuple[list[str], list[str]]:
     """(막을 문제, 알림)."""
     problems: list[str] = []
     notes: list[str] = []
     host = settings["host"]
     room = headroom(host)
+    if room is None:
+        notes.append(SKIPPED_HEADROOM)
     if room is None and in_wsl() and str(host["path"]).startswith("/mnt/") and Path(host["path"]).exists():
         # 가상 디스크를 못 찾아도 Windows 드라이브 실제 남은 공간 기준(minFreeGiB)은 본다(백로그 8). 여유(빈 곳 더한 값)는 못 셈.
         host_free = shutil.disk_usage(host["path"]).free
@@ -277,7 +283,7 @@ def main() -> int:
         for p in problems:
             print(f"  - {p}")
         return 1
-    print("disk guard passed")
+    print("disk guard passed" + (" (여유 계산 건너뜀)" if SKIPPED_HEADROOM in notes else ""))
     return 0
 
 
