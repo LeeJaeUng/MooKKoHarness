@@ -85,6 +85,34 @@ class MigrationLintSamples(unittest.TestCase):
         code, _ = quiet(migration_lint.main, ["--root", str(root), "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK), "--exceptions", str(EMPTY_EXCEPTIONS), "--engine-generated", str(EMPTY_ENGINE)])
         self.assertEqual(code, 1)
 
+    def test_signal_subfolders_are_linted_warn_first(self) -> None:
+        """migrations/<신호>/NNNN_*.sql(ClickHouse 어댑터 logs·traces·metrics)도 이관 폴더로 읽음. 기한까지 경고, 뒤에는 실패(DB 담당 11-13)."""
+        good = (FIXTURES / "migrations" / "single" / "ch_g01_table.sql").read_text(encoding="utf-8").replace("-- expect: (없음)\n", "")
+        bad = good.replace(", non_replicated_deduplication_window = 1000", "")
+        self.assertNotEqual(good, bad)
+        with tempfile.TemporaryDirectory(prefix="mookko-test-") as tmp:
+            base = Path(tmp) / "crates" / "adapters" / "mookko-store-clickhouse" / "migrations"
+            for signal, text in (("logs", good), ("metrics", bad)):
+                (base / signal).mkdir(parents=True)
+                (base / signal / "0001_init.sql").write_text(text, encoding="utf-8")
+            (base / "README.md").write_text("하위 폴더마다 번호\n", encoding="utf-8")
+            self.assertEqual([d.name for d in migration_lint.signal_dirs(Path(tmp))], ["logs", "metrics"])
+            argv = ["--root", tmp, "--pending", str(EMPTY_PENDING), "--lock-file", str(EMPTY_LOCK), "--exceptions", str(EMPTY_EXCEPTIONS), "--engine-generated", str(EMPTY_ENGINE)]
+            code, out = quiet(migration_lint.main, argv)
+            self.assertEqual(code, 0, out)
+            self.assertIn("경고(신호별 하위 이관 폴더", out)
+            self.assertIn("metrics/0001_init.sql", out)
+            self.assertIn("S-CH-5", out)
+            self.assertNotIn("logs/0001_init.sql", out)
+            saved = migration_lint.SIGNAL_DIRS_WARN_UNTIL
+            migration_lint.SIGNAL_DIRS_WARN_UNTIL = saved.min
+            try:
+                code, out = quiet(migration_lint.main, argv)
+            finally:
+                migration_lint.SIGNAL_DIRS_WARN_UNTIL = saved
+            self.assertEqual(code, 1, out)
+            self.assertIn("metrics/0001_init.sql", out)
+
 
 class EngineFixedFiles(unittest.TestCase):
     """S-MIG-11: 엔진 생성 SQL을 그대로 고정한 파일은 등록부 SHA가 같을 때만 phase 머리·따옴표 이름을 건너뛴다."""

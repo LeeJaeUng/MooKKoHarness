@@ -2,6 +2,8 @@
 
 라이브 패치 동안 신구 판이 같은 DB를 쓰므로, 긴 잠금·다시 쓰기·옛 판을 깨는 변경이 이관에 들어오지 못하게 막는다.
 - `crates/**/migrations/*.sql`을 읽는다(경로에 `clickhouse`가 들면 ClickHouse 규칙, 아니면 PostgreSQL 규칙).
+- `migrations/<신호>/NNNN_*.sql`(ClickHouse 어댑터의 logs·traces·metrics처럼 폴더마다 번호를 따로 매김)도 이관 폴더로 읽는다.
+  처음에는 경고만 내고 SIGNAL_DIRS_WARN_UNTIL 다음 날부터 실패(DB 담당·qa-design 2026-11-13: 그동안 5개 파일이 lint를 안 거침).
 - Rust 소스(`crates/**/*.rs`)의 문자열 안 `SELECT *`·`RETURNING *`도 찾는다(S-Q-2).
 - 판정은 규칙 번호(S-*)와 함께 `파일:줄`로 알린다. 하나라도 있으면 종료 코드 1.
 완전한 SQL 파서가 아니라 정해진 모양을 찾는 검사다. 잡지 못하는 것은 실제 적용 시험(migration_apply.py)과 QA가 본다.
@@ -1534,6 +1536,21 @@ def walk(base: Path, want) -> list[Path]:
     return sorted(out)
 
 
+# 신호별 하위 이관 폴더(migrations/<신호>/)는 이 날까지 경고만 낸다. 로그 담당이 metrics 0001의 S-CH-5(창 없는 dedup) 두 곳을
+# 새 이관으로 고치는 동안(DB 담당 11-13). 이 날 다음부터는 다른 이관 폴더와 같이 실패.
+SIGNAL_DIRS_WARN_UNTIL = datetime.date(2026, 11, 27)
+
+
+def signal_dirs(root: Path) -> list[Path]:
+    """`migrations/` 바로 아래 하위 폴더 중 이관 파일(NNNN_*.sql)이 든 것(폴더마다 번호가 따로)."""
+    out: list[Path] = []
+    for directory in migration_dirs(root):
+        for sub in sorted(p for p in directory.iterdir() if p.is_dir() and p.name not in SKIP_DIRS):
+            if any(FILE_NAME.match(f.name) for f in sub.glob("*.sql")):
+                out.append(sub)
+    return out
+
+
 def migration_dirs(root: Path) -> list[Path]:
     dirs: list[Path] = []
     base = root / "crates"
@@ -1632,6 +1649,15 @@ def main(argv: list[str] | None = None) -> int:
     for directory in dirs:
         files += sum(1 for p in directory.iterdir() if p.suffix == ".sql")
         findings += lint_dir(root, directory)
+    signal_warnings: list[Finding] = []
+    for directory in signal_dirs(root):
+        files += sum(1 for p in directory.iterdir() if p.suffix == ".sql")
+        found = lint_dir(root, directory)
+        if datetime.date.today() <= SIGNAL_DIRS_WARN_UNTIL:
+            signal_warnings += found
+        else:
+            findings += found
+    dirs = dirs + signal_dirs(root)
     rust_findings, rust_files = lint_rust(root)
     rust_findings += lint_embedded(root)
     rust_findings += lint_service_ddl(root, json.loads(args.exceptions.read_text(encoding="utf-8")))
@@ -1651,6 +1677,9 @@ def main(argv: list[str] | None = None) -> int:
     findings = expected_baseline(root, locks, findings, args.lock_file)
     for line in time_rules.timezone_warnings(root):
         print(f"  경고: {line}")
+    for f in signal_warnings:
+        if not pending.is_waived(pending.match(waivers, f.path, f.rule)):
+            print(f"  경고(신호별 하위 이관 폴더, {SIGNAL_DIRS_WARN_UNTIL} 뒤 실패): {f}")
     failing = [f for f in findings if not pending.is_waived(pending.match(waivers, f.path, f.rule))]
     waived = [f for f in findings if f not in failing]
     # 잠금 위반은 유예하지 않음(출시 뒤 이관 다시 쓰기).
