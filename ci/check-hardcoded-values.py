@@ -295,12 +295,43 @@ def checker_change_problem(root: Path, value: str) -> str | None:
     return None
 
 
+def raised_problem(root: Path, rel: str, value: object, policy_expires: str, today: datetime.date, is_new: bool) -> str | None:
+    """raised 값 하나의 모양 문제(없으면 None). 검사 변경의 커밋 조건(checker_change_problem)은 기준 판에 없던 새·바뀐 항목만 본다
+    (한 번 들어간 항목은 다음 묶음부터 그 커밋이 기준 판 lock에 들어 있으므로). 모양·기한은 늘 본다."""
+    if not isinstance(value, dict):
+        return f"raised[{rel}]는 {{commit, reason}} 또는 {{owner, expires, reason}} 객체여야 합니다(글 하나는 받지 않음)"
+    keys = set(value)
+    reason = value.get("reason")
+    if not (isinstance(reason, str) and reason.strip()):
+        return f"raised[{rel}].reason이 비었습니다"
+    if keys == {"commit", "reason"}:
+        commit = value.get("commit")
+        if not isinstance(commit, str):
+            return f"raised[{rel}].commit이 글이 아닙니다"
+        return checker_change_problem(root, f"{commit}:{reason}") if is_new else None
+    if keys == {"owner", "expires", "reason"}:
+        if not (isinstance(value.get("owner"), str) and value["owner"].strip()):
+            return f"raised[{rel}].owner가 비었습니다"
+        try:
+            until = datetime.date.fromisoformat(str(value.get("expires")))
+        except ValueError:
+            return f"raised[{rel}].expires가 날짜(YYYY-MM-DD)가 아닙니다"
+        if until < today:
+            return f"raised[{rel}] 유예 기한 {until}이 지났습니다 — 옮기거나 다시 정하세요"
+        if until > datetime.date.fromisoformat(policy_expires):
+            return f"raised[{rel}] 유예 기한 {until}이 정책 기한 {policy_expires}보다 늦습니다"
+        return None
+    return f"raised[{rel}] 칸이 {sorted(keys)}입니다 — {{commit, reason}} 또는 {{owner, expires, reason}}만"
+
+
 def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str]) -> int:
     """파일별 기준(baseline)을 둔 검사의 공통 판정(mookko-rust-qa 2026-11-03 래칫 지적).
     - 늘어남: crate 단위 규칙별 합계가 기준보다 많으면 **경고 모드여도 실패**(같은 crate 안에서 파일 사이로 옮긴 것은 경고).
     - 줄어듦·기한 지남: enforce면 실패, 아니면 경고.
     - 기준 파일을 손으로 늘림: 비교 기준 판의 정책 파일보다 어느 칸이든 크면 실패. 검사 자체를 고쳐 늘어난 것처럼 이유가 있으면
-      정책 파일 `raised`에 파일마다 사유를 적어야 함(리뷰에 보임).
+      정책 파일 `raised`에 파일마다 사유를 적어야 함(리뷰에 보임). raised 값은 두 모양만 받는다(rust-qa 11-14 15번, 백로그 9v):
+      `{commit, reason}`(검사 변경 — commit은 --checker-changed와 같은 조건: 검사 파일을 바꾼 기준 판 뒤 하네스 커밋) 또는
+      `{owner, expires, reason}`(새 코드 유예 — expires는 오늘 이후, 정책 expires 이전). 글 하나·다른 모양은 늘 실패.
     `--write-baseline`은 기존 칸만 min(기준, 지금)으로 낮추고 새 칸은 더하지 않는다. `--init-baseline`은 기준이 비었을 때만
     지금 개수로 처음 쓴다. 기준이 있을 때는 `--checker-changed=<하네스 커밋>:<사유>`로만 다시 쓰고, 그 커밋이 검사 파일을 실제로
     바꾼 새 하네스 커밋이어야 한다(checker_change_problem)."""
@@ -330,7 +361,7 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
                     print(f"{policy_rel}:1: {problem}")
                     return 1
                 commit, why = CHECKER_CHANGED.match(value).groups()
-                reason = f"하네스 {commit} 검사 변경: {why}"
+                reason = {"commit": commit, "reason": why}
             for rel, rules in found.items():
                 if any(n > baseline.get(rel, {}).get(rule, 0) for rule, n in rules.items()) and baseline:
                     policy.setdefault("raised", {})[rel] = reason
@@ -380,8 +411,13 @@ def ratchet_main(name: str, policy_rel: str, scan_fn, rule_text: dict[str, str])
         for rel, rules in baseline.items():
             for rule, n in rules.items():
                 was = base.get("baseline", {}).get(rel, {}).get(rule, 0)
-                if n > was and not str(policy.get("raised", {}).get(rel, "")).strip():
+                if n > was and rel not in policy.get("raised", {}):
                     hard.append(f"{policy_rel}:1: {rel} {rule} 기준을 {was}건에서 {n}건으로 늘렸습니다. 기준은 늘리지 않습니다")
+    base_raised = (base or {}).get("raised") or {}
+    for rel, value in sorted((policy.get("raised") or {}).items()):
+        problem = raised_problem(root, rel, value, expires, datetime.date.today(), is_new=base is not None and base_raised.get(rel) != value)
+        if problem:
+            hard.append(f"{policy_rel}:1: {problem}")
     for p in hard:
         print(p)
     for p in soft:

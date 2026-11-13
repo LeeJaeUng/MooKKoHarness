@@ -403,7 +403,7 @@ def ratchet_base_cases(base: Path) -> list[str]:
     check = HARNESS / "ci" / "check-hardcoded-values.py"
     policy = {"enforce": False, "expires": "2099-01-01", "baseline": {}}
 
-    def case(name: str, branch: bool, raise_after: bool, rc: int, **env: str) -> None:
+    def case(name: str, branch: bool, raise_after: bool, rc: int, raised_value: object = None, **env: str) -> None:
         repo = base / name
         repo.mkdir(parents=True)
         sh(repo, "init", "-q", "-b", "work")
@@ -412,6 +412,8 @@ def ratchet_base_cases(base: Path) -> list[str]:
             sh(repo, "branch", "foundation/engine")
         if raise_after:
             raised = dict(policy, baseline={"crates/x/src/lib.rs": {"NUM": 3}})
+            if raised_value is not None:
+                raised["raised"] = {"crates/x/src/lib.rs": raised_value}
             write(repo, "docs/policy/hardcoded-values.json", json.dumps(raised) + "\n")
         r = subprocess.run([sys.executable, "-X", "utf8", str(check), str(repo)], capture_output=True, text=True, encoding="utf-8",
                            env=clean_env(**env), cwd=repo)
@@ -422,6 +424,11 @@ def ratchet_base_cases(base: Path) -> list[str]:
     case("no-base-optional", False, False, 0)
     case("base-same", True, False, 0, MOOKKO_REQUIRE_GIT_HISTORY="1")
     case("base-raised", True, True, 1, MOOKKO_REQUIRE_GIT_HISTORY="1")
+    # raised 모양(rust-qa 11-14 15번, 9v): 글 하나는 실패, {owner, expires, reason}은 통과, 기한 지남은 실패
+    case("raised-string", True, True, 1, "사유 글만", MOOKKO_REQUIRE_GIT_HISTORY="1")
+    case("raised-owner", True, True, 0, {"owner": "로그", "expires": "2099-01-01", "reason": "새 코드, 다음 묶음에 옮김"},
+         MOOKKO_REQUIRE_GIT_HISTORY="1")
+    case("raised-expired", True, True, 1, {"owner": "로그", "expires": "2020-01-01", "reason": "지남"}, MOOKKO_REQUIRE_GIT_HISTORY="1")
     return failures
 
 
