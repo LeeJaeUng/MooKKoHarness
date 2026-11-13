@@ -93,6 +93,9 @@ run() {
 run cargo fmt --all -- --check
 run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 run cargo test --workspace --all-features --locked
+# 실제 ClickHouse 적합성 시험(rust-qa 11-13 12번: 그동안 MOOKKO_TEST_CLICKHOUSE가 없어 늘 건너뜀). 시험 PG 안에서, 빌드가 끝난 뒤
+# 시험 ClickHouse를 잠깐 띄워(dev/with-test-clickhouse.sh, MOOKKO_REQUIRE_TEST_CLICKHOUSE=1) 그 시험만 다시 돌립니다(새 빌드 없음).
+run "$H/dev/with-test-clickhouse.sh" cargo test --all-features --locked -p mookko-store-clickhouse --test conformance
 run cargo deny --locked check
 run cargo audit --deny warnings
 run "$H/ci/check-security-tools.sh"
