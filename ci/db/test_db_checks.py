@@ -108,6 +108,24 @@ class MigrationLintSamples(unittest.TestCase):
         self.assertEqual(got["other-table"], ["S-CH-5"])
         self.assertEqual(got["zero"], ["S-CH-5"])
 
+    def test_dropped_partition_parent_needs_no_registration(self) -> None:
+        """S-PART-3: contract로 지운 파티션 부모는 엔진 등록을 요구하지 않음, 지운 뒤 다시 만들면 다시 요구(운영툴 11-14 v0 감사 표)."""
+        create = ("-- mookko:phase expand\nCREATE TABLE svc.audit_events (id bigint NOT NULL, created_at timestamptz NOT NULL, "
+                  "PRIMARY KEY (id, created_at)) PARTITION BY RANGE (created_at);\n")
+        drop = "-- mookko:phase contract\nDROP TABLE svc.audit_events;\n"
+        with tempfile.TemporaryDirectory(prefix="mookko-test-") as tmp:
+            for name, files in (("dropped", [create, drop]), ("recreated", [create, drop, create])):
+                mig = Path(tmp) / name / "crates" / "services" / "svc" / "migrations"
+                mig.mkdir(parents=True)
+                (mig.parent / "src").mkdir()
+                (mig.parent / "src" / "lib.rs").write_text("// 등록 없음\n", encoding="utf-8")
+                for i, text in enumerate(files, 1):
+                    (mig / f"{i:04d}_step.sql").write_text(text, encoding="utf-8")
+            got = {name: [f.rule for f in migration_lint.lint_partitioned(Path(tmp) / name)].count("S-PART-3")
+                   for name in ("dropped", "recreated")}
+        self.assertEqual(got["dropped"], 0)
+        self.assertGreaterEqual(got["recreated"], 1)
+
     def test_signal_subfolders_are_linted_warn_first(self) -> None:
         """migrations/<신호>/NNNN_*.sql(ClickHouse 어댑터 logs·traces·metrics)도 이관 폴더로 읽음. 기한까지 경고, 뒤에는 실패(DB 담당 11-13)."""
         good = (FIXTURES / "migrations" / "single" / "ch_g01_table.sql").read_text(encoding="utf-8").replace("-- expect: (없음)\n", "")

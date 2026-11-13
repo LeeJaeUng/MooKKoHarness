@@ -835,6 +835,9 @@ def lint_partitioned(root: Path) -> list[Finding]:
             for table in created_tables(text, "postgres", schema):
                 plain.setdefault(table, path.relative_to(root).as_posix())
         registered: set[str] = set()
+        # contract로 지운(그 뒤 다시 만들지 않은) 부모는 등록하지 않는다 — 엔진이 없는 표에 달 파티션을 만들려다 이관이 멈춤
+        # (운영툴 0018 v0 감사 표, PM 결정 2026-11-14). 덧붙이기만·등급 대조와 같은 dropped_tables(links 0024 선례).
+        dropped = dropped_tables(directory)
         sources_by_table: dict[str, list[str]] = {}
         for path in walk(directory.parent / "src", lambda name: name.endswith(".rs")):
             source = strip_rust_comments(path.read_text(encoding="utf-8"))
@@ -844,7 +847,7 @@ def lint_partitioned(root: Path) -> list[Finding]:
                 sources_by_table.setdefault(name, []).append(source)
         for path in sorted(directory.glob("*.sql")):
             for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
-                if table not in registered:
+                if table not in registered and table not in dropped:
                     findings.append(Finding(
                         path.relative_to(root).as_posix(), 1, "S-PART-3",
                         f"파티션 부모 `{table}`을 서비스 코드가 엔진 `partitioned(PartitionedTable::monthly(…))`로 적지 않음(E-DB-5)",
@@ -853,7 +856,7 @@ def lint_partitioned(root: Path) -> list[Finding]:
         # XC 5절, S-PART-3). 형을 글로 따라가지 못하므로, 그 표를 등록한 파일에 두 호출이 함께 있는지로 본다.
         for path in sorted(directory.glob("*.sql")):
             for table in partitioned_parents(path.read_text(encoding="utf-8"), schema):
-                if "audit" not in table or table not in registered:
+                if "audit" not in table or table not in registered or table in dropped:
                     continue
                 if not any(".keep_days(" in s and ".archive_before_drop(" in s for s in sources_by_table.get(table, [])):
                     findings.append(Finding(path.relative_to(root).as_posix(), 1, "S-PART-3", f"감사 파티션 `{table}`은 등록한 파일에 `.keep_days(n)`과 `.archive_before_drop()`가 함께 있어야 함(보관 기한·지우기 전 내보내기)"))
