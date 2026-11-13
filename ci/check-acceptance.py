@@ -118,6 +118,9 @@ def main() -> int:
             verdict = f"가장 최근 기록 {latest['_rel']}의 commit {latest['commit'][:12]}이 지금 HEAD의 조상이 아닙니다"
         if not verdict:
             changed = changed_since(root, latest["commit"], service_paths(svc))
+            if changed is None and os.environ.get("MOOKKO_REQUIRE_GIT_HISTORY") == "1":
+                # git을 못 읽으면 신선도를 볼 수 없으므로 check-all(REQUIRE=1)에서는 실패(rust-qa 11-14 낮음 2)
+                problems.append(f"acceptance/services.json:1: {sid}: 기록 {latest['_rel']} 뒤 바뀐 파일을 git으로 읽지 못해 신선도를 볼 수 없습니다(CA-9)")
             if changed:
                 stale = (f"{sid}: 가장 최근 통과 기록 {latest['_rel']}(commit {latest['commit'][:12]}) 뒤로 서비스 경로 파일 {len(changed)}개가 "
                          f"바뀌었습니다(예: {changed[0]}) — 새 판으로 인수 시험을 다시 돌려 기록하세요(CA-9)")
