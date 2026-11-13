@@ -1444,6 +1444,18 @@ def exception_paths(registry: dict, today: datetime.date | None = None, root: Pa
             continue
         for path in item["paths"]:
             paths.setdefault(path, set()).update(rules)
+        if root is not None:
+            # 예외가 가리키는 파일이 아직 없으면 `"implemented": false`를 달아 둔다. 파일을 만드는 커밋이 그 칸을 지운다
+            # (DB 담당 11-14, 백로그 9s — REG-1 emergency_rekey.rs는 읽어서야 찾았음).
+            planned = item.get("implemented") is False
+            for path in item["paths"]:
+                exists = (root / path).exists()
+                if not exists and not planned:
+                    problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7",
+                                            f"예외 {item['id']}의 경로 `{path}`가 없음 — 아직 만들지 않았으면 `\"implemented\": false`를 다세요"))
+                elif exists and planned:
+                    problems.append(Finding("docs/policy/db/exceptions.json", 1, "S-BND-7",
+                                            f"예외 {item['id']}의 `{path}`가 생겼는데 `\"implemented\": false`가 남아 있음 — 그 칸을 지우세요"))
     return paths, problems
 
 
