@@ -425,10 +425,47 @@ def ratchet_base_cases(base: Path) -> list[str]:
     return failures
 
 
+def acceptance_fresh_cases(base: Path) -> list[str]:
+    """인수 기록 신선도(CA-9): 통과 기록 뒤 서비스 경로가 바뀌면 경고(--l4·enforce면 실패), 다른 경로만 바뀌면 경고 없음."""
+    failures: list[str] = []
+    check = HARNESS / "ci" / "check-acceptance.py"
+    plan = {"services": [{"id": "links", "owner": "links", "due": "2026-11-10", "enforce": True}]}
+
+    def setup(name: str, later: dict[str, str]) -> Path:
+        repo = base / name
+        repo.mkdir(parents=True)
+        sh(repo, "init", "-q", "-b", "work")
+        commit(repo, "처음", **{"acceptance/services.json": json.dumps(plan) + "\n", "crates/services/links/src/lib.rs": "// 1\n"})
+        head = sh(repo, "rev-parse", "HEAD").strip()
+        record = {"service": "links", "commit": head, "command": "x", "startedAt": "2026-11-13T00:00:00Z", "passed": 9, "failed": 0,
+                  "skipped": 0, "engine": "t"}
+        commit(repo, "기록", **{f"acceptance/runs/links/20261113T0000Z-{head[:7]}.json": json.dumps(record) + "\n"})
+        if later:
+            commit(repo, "나중", **later)
+        return repo
+
+    def run(repo: Path, *flags: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-X", "utf8", str(check), str(repo), *flags], capture_output=True, text=True,
+                              encoding="utf-8", env=clean_env(), cwd=repo)
+
+    stale = setup("stale", {"crates/services/links/src/lib.rs": "// 2\n"})
+    r = run(stale)
+    if r.returncode != 0 or "CA-9" not in r.stdout:
+        failures.append(f"ci/test_git_checks.py:1: acceptance 신선도 경고 없음: rc {r.returncode} {r.stdout.strip()[-200:]}")
+    r = run(stale, "--l4")
+    if r.returncode != 1:
+        failures.append(f"ci/test_git_checks.py:1: acceptance 신선도 --l4 enforce 실패 아님: rc {r.returncode} {r.stdout.strip()[-200:]}")
+    fresh = setup("fresh", {"crates/services/other/src/lib.rs": "// 2\n"})
+    r = run(fresh, "--l4")
+    if r.returncode != 0 or "CA-9" in r.stdout:
+        failures.append(f"ci/test_git_checks.py:1: acceptance 다른 경로 변경에 신선도 지적: rc {r.returncode} {r.stdout.strip()[-200:]}")
+    return failures
+
+
 def run_all(base: Path) -> list[str]:
     return (owner_cases(base / "owner-paths") + memory_cases(base) + slot_cases(base / "slot-watch") + lock_cases(base / "harness-lock")
             + canary_config_cases(base / "canary-config") + checker_changed_cases(base / "checker-changed")
-            + ratchet_base_cases(base / "ratchet-base"))
+            + ratchet_base_cases(base / "ratchet-base") + acceptance_fresh_cases(base / "acceptance-fresh"))
 
 
 def main() -> int:

@@ -7,9 +7,12 @@ acceptance/services.json의 서비스마다 acceptance/runs/<id>/*.json 실행 �
   passed > 0, failed == 0, skipped == 0이고 commit이 HEAD의 조상이어야 통과. 건너뜀은 통과가 아님.
 - 통과가 아니면: enforce가 true인 서비스는 실패, false인 서비스는 경고만(due가 지났으면 경고에 적음).
 - 형식이 틀린 기록, services.json에 없는 runs 폴더, services.json 칸 오류는 enforce와 상관없이 실패.
+- 신선도(qa-services CA-9·rust-qa 11-14, 백로그 9x): 통과한 가장 최근 기록의 commit 뒤로 그 서비스 경로가 바뀌었으면 경고
+  (`--l4`면 enforce 서비스는 실패). 경로는 services.json 항목의 `paths`(목록), 없으면 crates/services/<id>·crates/apps/mookko-<id>·
+  acceptance/<id>.
 실패하면 `파일:줄: 이유`를 한 줄씩 내고 1로 끝난다. 경고는 `경고:`로 시작한다.
 
-사용: python3 -X utf8 ci/check-acceptance.py [저장소 루트]
+사용: python3 -X utf8 ci/check-acceptance.py [저장소 루트] [--l4]
 """
 
 from __future__ import annotations
@@ -29,6 +32,21 @@ RUN_NAME = re.compile(r"\d{8}T\d{4}Z-[0-9a-f]{7}\.json")
 
 def git(root: Path, *args: str) -> int:
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8").returncode
+
+
+def changed_since(root: Path, commit: str, paths: list[str]) -> list[str] | None:
+    """commit 뒤로(그 commit..HEAD) paths 아래에서 바뀐 파일. git을 못 읽으면 None."""
+    done = subprocess.run(["git", "diff", "--name-only", f"{commit}..HEAD", "--", *paths], cwd=root,
+                          capture_output=True, text=True, encoding="utf-8")
+    return [line for line in done.stdout.splitlines() if line.strip()] if done.returncode == 0 else None
+
+
+def service_paths(svc: dict) -> list[str]:
+    paths = svc.get("paths")
+    if isinstance(paths, list) and paths and all(isinstance(x, str) and x for x in paths):
+        return paths
+    sid = svc["id"]
+    return [f"crates/services/{sid}", f"crates/apps/mookko-{sid}", f"acceptance/{sid}"]
 
 
 def read_run(root: Path, path: Path, service: str, problems: list[str]) -> dict | None:
@@ -62,7 +80,9 @@ def read_run(root: Path, path: Path, service: str, problems: list[str]) -> dict 
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    l4 = "--l4" in sys.argv[1:]
+    root = Path(args[0]).resolve() if args else Path(os.environ.get("MOOKKO_PRODUCT_ROOT") or ".").resolve()
     plan_path = root / "acceptance" / "services.json"
     problems: list[str] = []
     warnings: list[str] = []
@@ -97,6 +117,14 @@ def main() -> int:
         elif git(root, "merge-base", "--is-ancestor", latest["commit"], "HEAD") != 0:
             verdict = f"가장 최근 기록 {latest['_rel']}의 commit {latest['commit'][:12]}이 지금 HEAD의 조상이 아닙니다"
         if not verdict:
+            changed = changed_since(root, latest["commit"], service_paths(svc))
+            if changed:
+                stale = (f"{sid}: 가장 최근 통과 기록 {latest['_rel']}(commit {latest['commit'][:12]}) 뒤로 서비스 경로 파일 {len(changed)}개가 "
+                         f"바뀌었습니다(예: {changed[0]}) — 새 판으로 인수 시험을 다시 돌려 기록하세요(CA-9)")
+                if l4 and svc["enforce"]:
+                    problems.append(f"acceptance/services.json:1: {stale}")
+                else:
+                    warnings.append(stale)
             continue
         late = due is not None and datetime.date.fromisoformat(due) < today
         message = f"{sid}: {verdict}(담당 {svc['owner']}, 기한 {due or '미정'}{', 지남' if late else ''})"
