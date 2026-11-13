@@ -214,6 +214,26 @@ class ServiceDdl(unittest.TestCase):
         # links 오탐(2026-10-30): "handle.revoke"를 REVOKE 문장으로 봄. 문장 머리의 SQL만 잡아야 함.
         self.assertEqual(migration_lint.lint_service_ddl(FIXTURES / "repo-good", {"exceptions": []}), [])
 
+    def test_exception_paths_exist_or_marked_not_implemented(self) -> None:
+        """예외 경로는 있거나 `"implemented": false`(백로그 9s, DB 담당 11-14): 없는데 표시 없음 실패, 없고 표시 있음 통과, 있는데 표시 남음 실패."""
+        import datetime
+
+        with tempfile.TemporaryDirectory(prefix="mookko-test-") as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs" / "adr.md").write_text("근거\n", encoding="utf-8")
+            (root / "made.rs").write_text("// 있음\n", encoding="utf-8")
+            base = {"rule": "S-CH-2", "reason": "r", "adr": "docs/adr.md", "condition": "c", "expires": "2099-01-01", "approvedBy": "DB"}
+
+            def problems(**item: object) -> list[str]:
+                registry = {"exceptions": [dict(base, id="X", **item)]}
+                return [f.message for f in migration_lint.exception_paths(registry, datetime.date(2026, 11, 14), root)[1]]
+
+            self.assertEqual(len(problems(paths=["missing.rs"])), 1)
+            self.assertEqual(problems(paths=["missing.rs"], implemented=False), [])
+            self.assertEqual(len(problems(paths=["made.rs"], implemented=False)), 1)
+            self.assertEqual(problems(paths=["made.rs"]), [])
+
     def test_registered_exception_passes_until_expiry(self) -> None:
         self.assertEqual([f.path for f in migration_lint.lint_service_ddl(self.ROOT, self.entry())], ["crates/apps/mookko-svc/src/main.rs"])
         expired = migration_lint.lint_service_ddl(self.ROOT, self.entry(expires="2000-01-01"))
